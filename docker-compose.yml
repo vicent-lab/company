@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dairy}
+      POSTGRES_USER: ${POSTGRES_USER:-dairy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_password}
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+      - ./database/seeds/001_demo.sql:/docker-entrypoint-initdb.d/002_demo.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dairy} -d ${POSTGRES_DB:-dairy}"]
+      interval: 2s
+      timeout: 5s
+      retries: 12
+      start_period: 6s
+  api:
+    build: ./apps/server
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dairy}:${POSTGRES_PASSWORD:-local_dev_password}@db:5432/${POSTGRES_DB:-dairy}
+      JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-me}
+      PORT: 4000
+    ports: ["4000:4000"]
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    build: ./apps/web
+    environment:
+      VITE_API_URL: http://localhost:4000/api/v1
+    ports: ["5173:80"]
+    depends_on: [api]
+volumes:
+  postgres_data:

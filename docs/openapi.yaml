@@ -1,0 +1,15 @@
+openapi: 3.0.3
+info: { title: Smart Dairy API, version: 0.1.0 }
+servers: [{ url: http://localhost:4000/api/v1 }]
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate a user
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email,password], properties: { email: {type: string}, password: {type: string} } } } } }
+      responses: { '200': { description: JWT and user } }
+  /cows:
+    get: { summary: List farm cows, responses: { '200': { description: Paginated cows } } }
+    post: { summary: Create cow, responses: { '201': { description: Cow created } } }
+  /milk-records:
+    get: { summary: List recent milk records, responses: { '200': { description: Records } } }
+    post: { summary: Record daily milk, responses: { '201': { description: Record created } } }
