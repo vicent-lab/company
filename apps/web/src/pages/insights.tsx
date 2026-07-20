@@ -9,7 +9,9 @@ import { exportTable, exportPDF, toCSV, download } from '../export';
 export function AIAssistant() {
   const { farmId } = useFarm();
   const { push } = useToast();
-  const [msgs, setMsgs] = useState<{ q: string; a: string }[]>([{ q: 'Hi! How can I help your farm today?', a: '' }]);
+  const [msgs, setMsgs] = useState<{ q: string; a: string }[]>([
+    { q: 'Hi! I\'m your DairyOS AI advisor. I know everything about your farm, the project, and dairy management. Ask me anything — from milk production and feed to finance, breeding, sustainability, or how to use any feature.', a: '' }
+  ]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const [listening, setListening] = useState(false);
@@ -39,11 +41,22 @@ export function AIAssistant() {
     setListening(true); rec.start();
   };
 
-  const quick = ['Which cows need vaccination this week?', "Show today's milk production.", 'Predict next month’s milk output.', 'Recommend feed adjustments.'];
+  const quick = [
+    'What is my farm status?',
+    'Which cows need vaccination?',
+    "Show today's milk production.",
+    'Predict next month output.',
+    'Recommend feed adjustments.',
+    'Which employees are on the team?',
+    'Show me gallery images.',
+    'How do I use this project?',
+    'Give me health advice.',
+    'How can I improve profitability?',
+  ];
 
   return (
     <div>
-      <PageHeader eyebrow="AI" title="Farm assistant" desc="Ask anything about your herd, milk, feed, or weather." />
+      <PageHeader eyebrow="AI" title="Farm assistant" desc="Ask me anything about your farm, dairy management, or how to use DairyOS. I give advice on all matters and update automatically from your live data." />
       <div className="card" style={{ height: 'calc(100vh - 230px)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 4px' }}>
           {msgs.map((m, i) => (

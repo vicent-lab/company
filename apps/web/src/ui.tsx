@@ -259,3 +259,19 @@ export function useAsync<T>(fn: () => Promise<T>, deps: any[]): { data: T | null
   }, deps);
   return state;
 }
+
+// ---------- Plan / paywall ----------
+export function Paywall({ feature, onClose, onUpgrade }: { feature?: string; onClose: () => void; onUpgrade: () => void }) {
+  return (
+    <Modal title="Upgrade required" onClose={onClose}>
+      <div style={{ fontSize: 15, lineHeight: 1.6 }}>
+        <p><b>{feature ? `The "${feature}" feature` : 'This feature'}</b> isn’t included in your current plan.</p>
+        <p className="muted" style={{ marginTop: 8 }}>Upgrade to Pro or Enterprise to unlock AI predictions, analytics, finance, weather, sustainability, and more.</p>
+        <div className="row mt" style={{ gap: 10, marginTop: 18 }}>
+          <button className="btn gold" onClick={onUpgrade}>View plans & upgrade</button>
+          <button className="btn ghost" onClick={onClose}>Maybe later</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

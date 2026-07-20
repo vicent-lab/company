@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, chartColors, gridColor, tickColor, Modal, Progress, useToast, useAsync, Skeleton } from '../ui';
-import { listCows, getCow, createCow } from '../data';
-import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus } from 'lucide-react';
+import { listCows, getCow, createCow, updateCow, createTreatment } from '../data';
+import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun } from 'lucide-react';
 import { fmt } from '../format';
 import { BREEDS } from '../mock';
 
 const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false };
+
+const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '' };
 
 export function Herd() {
   const { farmId } = useFarm();
@@ -87,8 +89,14 @@ export function Herd() {
 export function CowProfile({ id }: { id: string }) {
   const [, navigate] = useHashRoute();
   const { push } = useToast();
-  const { data: cow, loading } = useAsync(() => getCow(id), [id]);
+  const [cowKey, setCowKey] = useState(0);
+  const { data: cow, loading } = useAsync(() => getCow(id), [id, cowKey]);
   const [qr, setQr] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState(EDIT_EMPTY);
+  const [treatOpen, setTreatOpen] = useState(false);
+  const [treatForm, setTreatForm] = useState({ disease: '', diagnosis: '', vetName: '', status: 'Active' });
+  const [saving, setSaving] = useState(false);
   if (loading) return <div className="card"><Skeleton h={200} /></div>;
   if (!cow) return <div className="card">Cow not found.</div>;
   const milkTotal = cow.milk.reduce((s, m) => s + m.morning + m.afternoon + m.evening, 0);
@@ -108,10 +116,12 @@ export function CowProfile({ id }: { id: string }) {
             <span className={`pill ${cow.health}`}>{cow.health.replace('_', ' ')}</span>
             {cow.isMilking && <span className="pill info">Milking</span>}
             {cow.isPregnant && <span className="pill warn">Pregnant</span>}
+            {cow.status === 'deceased' && <span className="pill" style={{ background: 'var(--danger)', color: '#fff' }}>Deceased</span>}
             <span className="tag">{cow.breed}</span>
           </div>
         </div>
         <div className="row">
+          <button className="btn ghost sm" onClick={() => { setEditForm({ name: cow.name, breed: cow.breed, earTag: cow.earTag, weightKg: String(cow.weightKg), waterIntakeLiters: String(cow.waterIntakeLiters ?? 0), isMilking: cow.isMilking, isPregnant: cow.isPregnant, status: cow.status, deathDate: cow.deathDate ?? '', deathCause: cow.deathCause ?? '', deathNotes: cow.deathNotes ?? '' }); setEditOpen(true); }}><Edit3 size={15} /> Edit</button>
           <button className="btn ghost sm" onClick={() => setQr(true)}><QrIc size={15} /> QR</button>
           <button className="btn ghost sm" onClick={() => push('Profile exported', <Download size={15} />)}><Download size={15} /> Export</button>
           <button className="btn ghost sm" onClick={() => window.print()}><Printer size={15} /> Print</button>
@@ -123,6 +133,7 @@ export function CowProfile({ id }: { id: string }) {
         <Kpi icon={<Beef size={18} />} label="Weight" value={fmt.kg(cow.weightKg)} />
         <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={`${(cow.vaccinations || []).filter((v) => v.done).length}/${(cow.vaccinations || []).length}`} />
         <Kpi icon={<HeartPulse size={18} />} label="Productivity" value={<AnimatedCounter value={cow.productivityScore} suffix="%" />} />
+        <Kpi icon={<CloudSun size={18} />} label="Water intake" value={`${cow.waterIntakeLiters ?? 0} L/day`} />
       </div>
 
       <div className="split mt">
@@ -139,10 +150,11 @@ export function CowProfile({ id }: { id: string }) {
           <h3>Health history</h3>
           {(cow.treatments && cow.treatments.length) ? cow.treatments.map((t) => (
             <div key={t.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <div><b>{t.disease}</b><div className="muted" style={{ fontSize: 12 }}>{t.diagnosis} · {fmt.date(t.date)}</div></div>
+              <div><b>{t.disease}</b><div className="muted" style={{ fontSize: 12 }}>{t.diagnosis} · {fmt.date(t.date)} {t.vetName ? `· Vet: ${t.vetName}` : ''}</div></div>
               <span className={`pill ${t.status === 'Active' ? 'danger' : 'warn'}`}>{t.status}</span>
             </div>
           )) : <p className="muted mt">No health issues recorded. 🎉</p>}
+          <button className="btn sm mt" onClick={() => setTreatOpen(true)}><Plus size={14} /> Add treatment</button>
           <h3 className="mt">Vaccination schedule</h3>
           {(cow.vaccinations || []).map((v) => (
             <div key={v.id} className="between mt" style={{ fontSize: 14 }}>
@@ -187,6 +199,76 @@ export function CowProfile({ id }: { id: string }) {
             </ul>
           </div>
         </div>
+      </Modal>}
+
+      {editOpen && <Modal title="Edit cow" onClose={() => setEditOpen(false)}>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          setSaving(true);
+          try {
+            await updateCow(id, {
+              name: editForm.name.trim(),
+              breed: editForm.breed,
+              ear_tag: editForm.earTag.trim(),
+              weight_kg: Number(editForm.weightKg) || 0,
+              water_intake_liters: Number(editForm.waterIntakeLiters) || 0,
+              is_milking: editForm.isMilking,
+              is_pregnant: editForm.isPregnant,
+              status: editForm.status,
+              death_date: editForm.deathDate || null,
+              death_cause: editForm.deathCause || null,
+              death_notes: editForm.deathNotes || null,
+            });
+            push('Cow updated');
+            setCowKey(k => k + 1);
+            setEditOpen(false);
+          } catch (err: any) { push(err.message); }
+          setSaving(false);
+        }}>
+          <div className="field"><label>Name</label><input className="input" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required /></div>
+          <div className="field"><label>Breed</label><select className="select" value={editForm.breed} onChange={(e) => setEditForm({ ...editForm, breed: e.target.value })}>{BREEDS.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
+          <div className="field"><label>Ear tag</label><input className="input" value={editForm.earTag} onChange={(e) => setEditForm({ ...editForm, earTag: e.target.value })} required /></div>
+          <div className="field"><label>Weight (kg)</label><input className="input" type="number" value={editForm.weightKg} onChange={(e) => setEditForm({ ...editForm, weightKg: e.target.value })} /></div>
+          <div className="field"><label>Water intake (L/day)</label><input className="input" type="number" value={editForm.waterIntakeLiters} onChange={(e) => setEditForm({ ...editForm, waterIntakeLiters: e.target.value })} /></div>
+          <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isMilking} onChange={(e) => setEditForm({ ...editForm, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isPregnant} onChange={(e) => setEditForm({ ...editForm, isPregnant: e.target.checked })} /> Pregnant</label></div>
+          <div className="field mt"><label>Status</label><select className="select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="deceased">Deceased</option><option value="sold">Sold</option><option value="archived">Archived</option></select></div>
+          {editForm.status === 'deceased' && <><div className="field mt"><label>Death date</label><input className="input" type="date" value={editForm.deathDate} onChange={(e) => setEditForm({ ...editForm, deathDate: e.target.value })} /></div><div className="field mt"><label>Death cause</label><input className="input" value={editForm.deathCause} onChange={(e) => setEditForm({ ...editForm, deathCause: e.target.value })} /></div><div className="field mt"><label>Death notes</label><textarea className="input" value={editForm.deathNotes} onChange={(e) => setEditForm({ ...editForm, deathNotes: e.target.value })} /></div></>}
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => setEditOpen(false)}>Cancel</button>
+            <button className="btn" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
+      </Modal>}
+
+      {treatOpen && <Modal title="Add treatment" onClose={() => setTreatOpen(false)}>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          setSaving(true);
+          try {
+            await createTreatment({
+              cow_id: id,
+              disease_id: treatForm.disease,
+              diagnosis: treatForm.diagnosis,
+              treatment_plan: '',
+              veterinarian_name: treatForm.vetName,
+              status: treatForm.status,
+            });
+            push('Treatment added');
+            setCowKey(k => k + 1);
+            setTreatOpen(false);
+            setTreatForm({ disease: '', diagnosis: '', vetName: '', status: 'Active' });
+          } catch (err: any) { push(err.message); }
+          setSaving(false);
+        }}>
+          <div className="field"><label>Disease / Condition</label><input className="input" value={treatForm.disease} onChange={(e) => setTreatForm({ ...treatForm, disease: e.target.value })} required /></div>
+          <div className="field"><label>Diagnosis</label><input className="input" value={treatForm.diagnosis} onChange={(e) => setTreatForm({ ...treatForm, diagnosis: e.target.value })} /></div>
+          <div className="field"><label>Veterinarian name</label><input className="input" value={treatForm.vetName} onChange={(e) => setTreatForm({ ...treatForm, vetName: e.target.value })} required /></div>
+          <div className="field"><label>Status</label><select className="select" value={treatForm.status} onChange={(e) => setTreatForm({ ...treatForm, status: e.target.value })}><option value="Active">Active</option><option value="Recovering">Recovering</option><option value="Resolved">Resolved</option></select></div>
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => setTreatOpen(false)}>Cancel</button>
+            <button className="btn" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
       </Modal>}
     </div>
   );

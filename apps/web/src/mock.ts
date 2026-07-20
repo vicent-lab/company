@@ -38,7 +38,7 @@ export const FARMS: Farm[] = [
 export interface MilkRecord { date: string; morning: number; afternoon: number; evening: number; }
 export interface WeightPoint { date: string; kg: number; }
 export interface Vaccination { id: string; name: string; due: string; done: boolean; }
-export interface Treatment { id: string; disease: string; diagnosis: string; date: string; status: string; }
+export interface Treatment { id: string; disease: string; diagnosis: string; date: string; status: string; vetName: string; }
 export interface Breeding { id: string; method: string; date: string; expectedCalving: string; result: string; }
 export interface FeedRecord { id: string; feed: string; date: string; kg: number; }
 
@@ -56,6 +56,11 @@ export interface Cow {
   health: typeof HEALTH[number];
   isMilking: boolean;
   isPregnant: boolean;
+  waterIntakeLiters: number;
+  status: string;
+  deathDate?: string;
+  deathCause?: string;
+  deathNotes?: string;
   barnId: string;
   motherId?: string;
   fatherId?: string;
@@ -139,6 +144,8 @@ export function genCows(farmId: string, count: number, startIdx: number): Cow[] 
       health,
       isMilking,
       isPregnant,
+      waterIntakeLiters: +between(40, 100).toFixed(0),
+      status: 'active',
       barnId: pick(BARNS).id,
       motherId: motherPool.length > 3 ? pick(motherPool) : undefined,
       fatherId: undefined,
@@ -155,6 +162,7 @@ export function genCows(farmId: string, count: number, startIdx: number): Cow[] 
                 diagnosis: 'Monitored and treated',
                 date: daysAgo(intBetween(1, 20)),
                 status: health === 'sick' ? 'Active' : 'Recovering',
+                vetName: pick(['Dr. Smith', 'Dr. Johnson', 'Dr. Williams', 'Dr. Brown', 'Dr. Davis']),
               },
             ]
           : [],
@@ -251,11 +259,23 @@ export function feedConsumption(farmId: string): { labels: string[]; silage: num
   const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   return {
     labels,
-    silage: labels.map(() => Math.round(between(200, 320))),
-    hay: labels.map(() => Math.round(between(120, 200))),
-    conc: labels.map(() => Math.round(between(90, 160))),
+    silage: labels.map(() => Math.round(between(80, 160))),
+    hay: labels.map(() => Math.round(between(40, 100))),
+    conc: labels.map(() => Math.round(between(20, 60))),
   };
 }
+
+export function tasks(farmId: string, filters?: { status?: string; assignedTo?: string }) {
+  let list = TASKS.filter((t: any) => true);
+  if (filters?.status) list = list.filter((t: any) => t.status === filters.status);
+  if (filters?.assignedTo) list = list.filter((t: any) => t.assignedTo === filters.assignedTo);
+  return list;
+}
+
+export function dailyActivities(farmId: string, date: string) {
+  return DAILY_ACTIVITIES.filter((a: any) => a.activity_date === date);
+}
+
 export function breedPopulation(farmId: string) {
   const cows = cowsByFarm(farmId);
   return BREEDS.map((b) => ({ breed: b, count: cows.filter((c) => c.breed === b).length })).filter((x) => x.count > 0);
@@ -344,12 +364,21 @@ export const NOTIFICATIONS = [
 ];
 
 // ---- Gallery ----
-export const GALLERY = [
-  { id: 'cows', label: 'Cows', count: ALL_COWS.length },
-  { id: 'calves', label: 'Calves', count: 18 },
-  { id: 'employees', label: 'Employees', count: 12 },
-  { id: 'equipment', label: 'Equipment', count: 9 },
-  { id: 'facilities', label: 'Facilities', count: 14 },
+export const GALLERY_ITEMS = [
+  { id: 'g1', farmId: 'f1', category: 'cows', url: 'https://picsum.photos/seed/cow1/400/400', caption: 'Bessie - Holstein', isPrimary: true },
+  { id: 'g2', farmId: 'f1', category: 'cows', url: 'https://picsum.photos/seed/cow2/400/400', caption: 'Daisy - Jersey', isPrimary: false },
+  { id: 'g3', farmId: 'f1', category: 'facilities', url: 'https://picsum.photos/seed/barn1/400/400', caption: 'Main barn', isPrimary: true },
+  { id: 'g4', farmId: 'f1', category: 'employees', url: 'https://picsum.photos/seed/emp1/400/400', caption: 'Morning team', isPrimary: false },
+  { id: 'g5', farmId: 'f1', category: 'calves', url: 'https://picsum.photos/seed/calf1/400/400', caption: 'Newborn #1', isPrimary: false },
+  { id: 'g6', farmId: 'f1', category: 'equipment', url: 'https://picsum.photos/seed/tractor/400/400', caption: 'Tractor maintenance', isPrimary: true },
+];
+
+export const GALLERY_CATEGORIES = [
+  { id: 'cows', label: 'Cows', count: 2 },
+  { id: 'calves', label: 'Calves', count: 1 },
+  { id: 'employees', label: 'Employees', count: 1 },
+  { id: 'equipment', label: 'Equipment', count: 1 },
+  { id: 'facilities', label: 'Facilities', count: 1 },
 ];
 
 // ---- Customers ----
@@ -377,6 +406,26 @@ export const EMPLOYEES = Array.from({ length: 10 }, (_, i) => ({
   role: pick(['Herd Manager','Milker','Vet Tech','Feeder','Mechanic','Admin']),
   attendance: Math.round(between(88, 100)),
   tasks: intBetween(2, 9),
+}));
+
+export const TASKS = Array.from({ length: 15 }, (_, i) => ({
+  id: `task-${i}`,
+  title: pick(['Morning milking','Feed inventory check','Vet visit','Equipment maintenance','Barn cleaning','Vaccination round','Breeding check','Feed mixing','Water system check','Calf feeding','Milk quality test','Pasture rotation','Manure management','Record keeping','Training session']),
+  description: 'Assigned task',
+  assignedTo: pick(EMPLOYEES).id,
+  priority: pick(['low','medium','high','urgent']),
+  status: pick(['pending','in_progress','completed']),
+  due_date: new Date(Date.now() + intBetween(0, 14) * 86400000).toISOString().slice(0, 10),
+  category: pick(['Milking','Feeding','Health','Maintenance','Breeding','Admin']),
+}));
+
+export const DAILY_ACTIVITIES = Array.from({ length: 20 }, (_, i) => ({
+  id: `act-${i}`,
+  activity_type: pick(['Milking','Feeding','Cleaning','Vet check','Breeding','Maintenance','Record keeping']),
+  description: 'Daily farm activity',
+  duration_minutes: intBetween(15, 180),
+  employee_id: pick(EMPLOYEES).id,
+  activity_date: new Date(Date.now() - intBetween(0, 7) * 86400000).toISOString().slice(0, 10),
 }));
 
 // ---- Gamification ----
@@ -411,18 +460,34 @@ export function sustainability(farmId: string) {
 // ---- AI assistant canned responses ----
 export function aiAnswer(q: string, farmId: string): string {
   const s = farmSummary(farmId);
+  const cows = cowsByFarm(farmId);
+  const milking = cows.filter((c) => c.isMilking).length;
+  const sick = cows.filter((c) => c.health !== 'healthy').length;
+  const pregnant = cows.filter((c) => c.isPregnant).length;
   const ql = q.toLowerCase();
-  if (ql.includes('vaccin')) return `There are ${s.upcomingVacc} cows due for vaccination in the next 7 days. Top priority: Leptospirosis boosters for Barn A.`;
-  if (ql.includes('milk')) return `Today's milk production is ${fmtL(s.milkToday)} across ${s.milkingCows} milking cows. That's in line with your 30-day average.`;
-  if (ql.includes('low') && ql.includes('product')) return `Lowest producers this week: ${analytics(farmId).worst.slice(0,3).map(c=>c.cowCode).join(', ')}. Consider a vet check on these.`;
-  if (ql.includes('predict') || ql.includes('forecast')) return `I predict next month's output at ~${fmtL(Math.round(s.milkMonth*1.03))}, up ~3% from this month based on pregnancy and weather trends.`;
-  if (ql.includes('feed')) return `Feed stock is ${fmtL(s.feedStock)} kg. I recommend increasing concentrate by 8% for lactating cows and topping up silage within 10 days.`;
-  if (ql.includes('sick') || ql.includes('health')) return `Currently ${s.sickCows} cows need attention. See the Health tab for treatment plans.`;
-  if (ql.includes('pregn')) return `${s.pregnantCows} cows are confirmed pregnant. ${analytics(farmId).best.length} high-yielders are open — AI scheduling recommended.`;
-  if (ql.includes('weather')) return `It's ${WEATHER.temp}°C, ${WEATHER.condition}. ${WEATHER.recommendation}`;
-  return `I'm your dairy assistant. Try asking: "Which cows need vaccination this week?", "Show today's milk production", or "Predict next month's milk output".`;
+  if (ql.includes('hello') || ql.includes('hi') || ql.includes('hey')) return `Hello! I'm your DairyOS AI advisor. Your farm: ${s.totalCows} cows, ${s.milkToday.toLocaleString()} L today, ${s.feedStock.toLocaleString()} kg feed. How can I help?`;
+  if (ql.includes('bye') || ql.includes('goodbye')) return 'Goodbye! Your farm data is always here when you need it.';
+  if (ql.includes('vaccin')) return s.upcomingVacc > 0 ? `You have ${s.upcomingVacc} vaccination(s) due this week. Prioritize Leptospirosis boosters for lactating cows and BVD for calves. Check Alerts for exact dates.` : 'No vaccinations due this week. All cattle are up to date. Schedule next boosters in 6 months.';
+  if (ql.includes('milk')) return `Today: ${s.milkToday.toLocaleString()} L from ${milking} milking cows (avg ${milking ? (s.milkToday/milking).toFixed(1) : 0} L/cow). Tips: maintain consistent milking times, monitor SCC, check for mastitis signs, ensure proper teat disinfection.`;
+  if (ql.includes('low') && ql.includes('product')) return `Lowest producers: ${analytics(farmId).worst.slice(0,3).map(c=>c.cowCode).join(', ')}. Action: check feed intake, review milk trends, schedule vet checks, consider culling after 2+ low-lactation cycles.`;
+  if (ql.includes('predict')) return `Next month projection: ~${(s.milkMonth*1.03).toLocaleString()} L. ${pregnant} pregnancies may boost output. Monitor feed intake as lactation progresses. Check Predictions tab for 6-month forecasts.`;
+  if (ql.includes('feed')) { const fc = feedConsumption(farmId); return `Stock: ${s.feedStock.toLocaleString()} kg. Top feeds: ${fc.labels.slice(0,3).join(', ')}. Advice: increase concentrate 8% for lactating cows, provide 80-150L water/cow/day, rotate pastures, store silage properly.`; }
+  if (ql.includes('sick') || ql.includes('health')) return sick > 0 ? `${sick} cows need attention. Isolate sick animals, follow vet treatment plans, monitor temp/appetite daily, maintain clean bedding. Check Alerts for active cases.` : 'All cows healthy! Maintain vaccination schedule, practice milking hygiene, provide balanced nutrition, monitor for early illness signs.';
+  if (ql.includes('pregnan') || ql.includes('breed')) return `${pregnant} cows pregnant. AI success rate 60-70% first service. Best AI timing: 12h after heat detection. Schedule pregnancy checks 28-45 days post-AI. Dry period: 45-60 days before calving.`;
+  if (ql.includes('weather')) return `Open Weather tab for live data. Monitor THI for heat stress. ${s.feedStock > 1000 ? 'Feed stock adequate.' : 'Consider supplementary feeding during poor grazing.'}`;
+  if (ql.includes('finance') || ql.includes('profit') || ql.includes('income')) return `This month: income ${s.revenue.toLocaleString()}, expenses ${s.expenses.toLocaleString()}, profit ${s.profit.toLocaleString()} (${s.revenue > 0 ? ((s.profit/s.revenue)*100).toFixed(1) : 0}% margin). ${s.profit > 0 ? 'Reinvest in feed, genetics, equipment.' : 'Review feed/labor/vet costs, reduce waste, optimize milk price.'}`;
+  if (ql.includes('employee') || ql.includes('staff')) return `${EMPLOYEES.length} employees. Tips: track attendance, set clear roles, schedule regular training, use Employees tab for rosters and reports, consider performance incentives.`;
+  if (ql.includes('gallery') || ql.includes('photo')) return `Gallery: ${GALLERY_CATEGORIES.reduce((a,b) => a + b.count, 0)} items. Upload high-quality photos, tag with cow IDs, keep profile images updated, export for marketing/reports.`;
+  if (ql.includes('how to') || ql.includes('help') || ql.includes('feature') || ql.includes('guide') || ql.includes('use') || ql.includes('project')) return `DairyOS features: Dashboard (KPIs), Herd (cow management), Farm Map, AI Assistant, Alerts, Predictions, Analytics, Finance, Weather, Sustainability, Gallery, Customers, Employees, Search, Goals. Use sidebar to navigate. Export via PDF/Excel/CSV buttons.`;
+  if (ql.includes('pricing') || ql.includes('plan') || ql.includes('upgrade')) return `Plans: Starter $29/mo (50 cows, dashboard, QR), Pro $79/mo (500 cows, AI, multi-farm, finance), Enterprise Custom (unlimited, RBAC, API). 14-day free trial.`;
+  if (ql.includes('sustainab') || ql.includes('water') || ql.includes('carbon') || ql.includes('manure')) return `Sustainability: water conservation, manure composting/biogas, solar energy, pasture biodiversity, soil health, carbon tracking. Check Sustainability tab for metrics.`;
+  if (ql.includes('export') || ql.includes('pdf') || ql.includes('excel')) return `Export data via CSV, Excel, or PDF buttons on Finance, Customers, and Employees pages. Use for vet reports, accounting, and meetings.`;
+  if (ql.includes('customer') || ql.includes('order') || ql.includes('invoice')) return `Customer management: track orders, invoices, payments, deliveries. Use Customers tab. Maintain quality and delivery schedules for buyer loyalty.`;
+  if (ql.includes('barn') || ql.includes('facility') || ql.includes('equipment')) return `Open Farm Map for barns, pastures, water points, milking stations. Maintain clean, dry barns with ventilation. Regular equipment maintenance.`;
+  if (ql.includes('cow') || ql.includes('herd') || ql.includes('cattle')) return `Herd: ${s.totalCows} cows, ${milking} milking, ${pregnant} pregnant, ${sick} issues. Use Herd tab to search, add, edit, view profiles. Track health, milk, breeding, feed.`;
+  if (ql.includes('analytics') || ql.includes('report') || ql.includes('trend')) { const ap = analytics(farmId); const topBreed = ap.breedPerf[0]; return `Analytics: ${s.totalCows} cows, ${milking} milking, avg ${s.milkToday > 0 && milking > 0 ? (s.milkToday/milking).toFixed(1) : '0'} L/cow. Top breed: ${topBreed?.breed || 'N/A'}. Track performance curves, breed trends, seasonal patterns.`; }
+  return `I advise on all farm matters: milk production (${s.milkToday.toLocaleString()} L today), feed (${s.feedStock.toLocaleString()} kg), health (${sick} issues), breeding (${pregnant} pregnant), finance (${s.profit.toLocaleString()} profit), employees (${EMPLOYEES.length}), gallery (${GALLERY_CATEGORIES.reduce((a,b)=>a+b.count,0)} items), and DairyOS features. What specifically?`;
 }
-function fmtL(n: number) { return `${Math.round(n).toLocaleString()} L`; }
 
 // ---- Testimonials / partners / FAQ (marketing) ----
 export const TESTIMONIALS = [

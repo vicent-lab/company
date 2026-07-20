@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useTheme } from './theme';
 import { useHashRoute } from './router';
-import { ThemeToggle } from './ui';
+import { ThemeToggle, PageHeader } from './ui';
 import { FARMS, NOTIFICATIONS } from './mock';
 import { useAsync } from './ui';
 import { isLive } from './api';
@@ -10,7 +10,7 @@ import { useAuth } from './auth';
 import {
   LayoutDashboard, Beef, MapPin, Bot, Bell, TrendingUp, BarChart3, DollarSign,
   CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Milk, Sun, Moon, Contrast,
-  ChevronDown, Check, LogOut, ShieldCheck,
+  ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical,
 } from 'lucide-react';
 import { Dashboard } from './pages/dashboard';
 import { Herd, CowProfile } from './pages/herd';
@@ -18,10 +18,16 @@ import { FarmMap } from './pages/operations';
 import { AIAssistant, Predictions } from './pages/insights';
 import { Analytics, Financial, Weather, Sustainability } from './pages/insights';
 import { Gallery } from './pages/operations';
-import { Customers, Employees } from './pages/portals';
+import { Customers } from './pages/portals';
+import { Team } from './pages/team';
+import { TaskManager } from './pages/tasks';
+import { DailySchedule } from './pages/schedule';
 import { AdvancedSearch } from './pages/operations';
 import { Gamification } from './pages/operations';
 import { Alerts } from './pages/insights';
+import { Calendar } from 'lucide-react';
+import { Management } from './pages/management';
+import { Breeding } from './pages/breeding';
 
 interface FarmCtx { farmId: string; setFarmId: (id: string) => void; }
 const FCtx = createContext<FarmCtx>({ farmId: 'f1', setFarmId: () => {} });
@@ -40,10 +46,19 @@ const NAV = [
   { key: 'sustainability', icon: Leaf, label: 'Sustainability' },
   { key: 'gallery', icon: Images, label: 'Gallery' },
   { key: 'customers', icon: Users, label: 'Customers' },
-  { key: 'employees', icon: UserCog, label: 'Employees' },
+  { key: 'team', icon: Users, label: 'Team' },
+  { key: 'tasks', icon: ClipboardList, label: 'Tasks' },
+  { key: 'schedule', icon: Calendar, label: 'Schedule' },
+    { key: 'management', icon: ClipboardList, label: 'Management' },
   { key: 'search', icon: Search, label: 'Search' },
   { key: 'gamification', icon: Trophy, label: 'Goals' },
+  { key: 'breeding', icon: FlaskConical, label: 'Breeding' },
 ];
+
+import { usePlan } from './planGuard';
+import { PlanProvider, PLAN_FEATURES } from './plans';
+
+import { PlanGuard } from './planGuard';
 
 function Login({ onLogin }: { onLogin: (e: string, p: string) => Promise<void> }) {
   const [email, setEmail] = useState(isLive ? 'admin@greenfield.test' : 'manager@dairyos.app');
@@ -81,6 +96,7 @@ export function AppShell() {
   const [search, setSearch] = useState('');
   const { data: farms } = useAsync(loadFarms, []);
   const farmList = farms && farms.length ? farms : FARMS;
+  const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
 
   useEffect(() => {
     if (isLive && user && farmId === 'f1') {
@@ -92,34 +108,82 @@ export function AppShell() {
   if (isLive && !user) return <Login onLogin={login} />;
 
   const sub = route.segments[1] || 'dashboard';
-  const go = (k: string) => navigate('/app/' + k);
-  const farm = farmList.find((f) => f.id === farmId) || farmList[0];
 
-  const page = () => {
-    switch (sub) {
-      case 'dashboard': return <Dashboard />;
-      case 'cows': return <Herd />;
-      case 'cow': return <CowProfile id={route.param!} />;
-      case 'map': return <FarmMap />;
-      case 'ai': return <AIAssistant />;
-      case 'alerts': return <Alerts />;
-      case 'predict': return <Predictions />;
-      case 'analytics': return <Analytics />;
-      case 'finance': return <Financial />;
-      case 'weather': return <Weather />;
-      case 'sustainability': return <Sustainability />;
-      case 'gallery': return <Gallery id={route.param} />;
-      case 'customers': return <Customers />;
-      case 'employees': return <Employees />;
-      case 'search': return <AdvancedSearch initial={search} />;
-      case 'gamification': return <Gamification />;
-      default: return <Dashboard />;
+  const go = (k: string) => {
+    const featureMap: Record<string, string> = {
+      dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai',
+      alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
+      weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
+      customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
+      breeding: 'breeding',
+    };
+    const feature = featureMap[k];
+    if (feature && !canAccess(feature)) {
+      setUpgradeModal({ open: true, feature });
+    } else {
+      navigate('/app/' + k);
     }
   };
 
+  const farm = farmList.find((f) => f.id === farmId) || farmList[0];
+
+  const page = () => {
+    const featureMap: Record<string, string> = {
+      dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai',
+      alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
+      weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
+      customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
+    };
+    const feature = featureMap[sub];
+    const content = (() => {
+      switch (sub) {
+        case 'dashboard': return <Dashboard />;
+        case 'cows': return <Herd />;
+        case 'cow': return <CowProfile id={route.param!} />;
+        case 'map': return <FarmMap />;
+        case 'ai': return <AIAssistant />;
+        case 'alerts': return <Alerts />;
+        case 'predict': return <Predictions />;
+        case 'analytics': return <Analytics />;
+        case 'finance': return <Financial />;
+        case 'weather': return <Weather />;
+        case 'sustainability': return <Sustainability />;
+        case 'gallery': return <Gallery id={route.param} />;
+        case 'customers': return <Customers />;
+        case 'team': return <Team />;
+        case 'tasks': return <TaskManager />;
+        case 'schedule': return <DailySchedule />;
+        case 'search': return <AdvancedSearch initial={search} />;
+        case 'gamification': return <Gamification />;
+        case 'management': return <Management />;
+        case 'breeding': return <Breeding />;
+        default: return <Dashboard />;
+      }
+    })();
+
+    if (feature && !canAccess(feature)) {
+      return (
+        <div className="card" style={{ padding: 40, textAlign: 'center', marginTop: 40 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 24, marginBottom: 8 }}>Upgrade to unlock</h2>
+          <p className="muted" style={{ fontSize: 15, maxWidth: 480, margin: '0 auto 24px' }}>
+            This feature requires a higher plan. Upgrade to {Object.keys(PLAN_FEATURES).find((p) => PLAN_FEATURES[p as keyof typeof PLAN_FEATURES].includes(feature))} to access it.
+          </p>
+          <div className="row" style={{ justifyContent: 'center', gap: 10 }}>
+            <button className="btn gold" onClick={() => { window.location.hash = '#/pricing'; }}>View plans & upgrade</button>
+            <button className="btn ghost" onClick={() => navigate('/app/dashboard')}>Go to dashboard</button>
+          </div>
+        </div>
+      );
+    }
+
+    return content;
+  };
+
   return (
-    <FCtx.Provider value={{ farmId, setFarmId }}>
-      <div className="shell">
+    <PlanProvider>
+      <FCtx.Provider value={{ farmId, setFarmId }}>
+        <div className="shell">
         <aside className="sidebar">
           <div className="brand">
             <div className="logo"><Milk size={18} /></div>
@@ -196,5 +260,6 @@ export function AppShell() {
         </div>
       </div>
     </FCtx.Provider>
+    </PlanProvider>
   );
 }

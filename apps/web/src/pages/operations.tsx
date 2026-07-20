@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useFarm } from '../app';
 import { useTheme } from '../theme';
 import { useHashRoute } from '../router';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, Modal, Progress, useToast, useAsync } from '../ui';
-import { ALL_COWS, GALLERY, BADGES, LEADERBOARD, BARNS } from '../mock';
-import { listCows, gallery, mapNodes } from '../data';
-import { MapPin, Droplets, Tractor, Scissors, Syringe, AlertTriangle, Wheat, Image as ImgIc, Trophy, Flame, Crown, Search, Filter, Download } from 'lucide-react';
+import { ALL_COWS, BADGES, LEADERBOARD, BARNS } from '../mock';
+import { listCows, gallery, galleryCategories, createGalleryItem, updateGalleryItem, deleteGalleryItem, mapNodes } from '../data';
+import { MapPin, Droplets, Tractor, Scissors, Syringe, AlertTriangle, Wheat, Trophy, Flame, Crown, Search, Filter, Download, Plus, Edit3, Eye, Trash2, FolderOpen, Camera } from 'lucide-react';
 import { fmt } from '../format';
 
 const MAP_NODES = [
@@ -68,27 +68,168 @@ export function FarmMap() {
 
 export function Gallery({ id }: { id?: string }) {
   const { farmId } = useFarm();
-  const { data: categories } = useAsync(() => gallery(farmId), [farmId]);
-  const cats = categories || GALLERY;
-  const cat = id ? cats.find((g: any) => g.id === id) || cats[0] : cats[0];
-  const cows = useMemo(() => ALL_COWS.filter((c) => c.farmId === farmId).slice(0, 12), [farmId]);
-  const tiles = cat.id === 'cows' ? cows : Array.from({ length: cat.count }, (_, i) => ({ name: `${cat.label} ${i + 1}`, color: ['#2f7d54', '#8a6240', '#b5651d', '#2b2b2b'][i % 4] }));
+  const { push } = useToast();
+  const { data: items } = useAsync(() => gallery(farmId), [farmId]);
+  const { data: cats } = useAsync(() => galleryCategories(farmId), [farmId]);
+  const all = items || [];
+  const categories = cats?.categories || [];
+  const itemsByCat = cats?.items || all;
+  const cat = id ? categories.find((g: any) => g.id === id) || categories[0] : categories[0];
+  const filtered = cat ? (itemsByCat || all).filter((g: any) => g.category === cat.id) : all;
+  const [addOpen, setAddOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [form, setForm] = useState({ url: '', category: 'cows', caption: '', isPrimary: false });
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const stopCamera = () => {
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); setStream(null); }
+  };
+
+  const startCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setStream(s);
+      setCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); } }, 100);
+    } catch (err) { push('Camera access denied'); }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.drawImage(videoRef.current, 0, 0); setForm((f) => ({ ...f, url: canvas.toDataURL('image/jpeg', 0.9) })); }
+    stopCamera();
+    setCameraOpen(false);
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, url: reader.result as string }));
+    reader.readAsDataURL(file);
+  };
+
+  const submitAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.url) return;
+    await createGalleryItem(farmId, form);
+    push('Photo added');
+    setForm({ url: '', category: 'cows', caption: '', isPrimary: false });
+    setAddOpen(false);
+  };
+
+  const submitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editItem) return;
+    await updateGalleryItem(editItem.id, form);
+    push('Photo updated');
+    setEditItem(null);
+  };
+
+  const openEdit = (item: any) => {
+    setEditItem(item);
+    setForm({ url: item.url, category: item.category, caption: item.caption || '', isPrimary: item.isPrimary });
+  };
 
   return (
     <div>
-      <PageHeader eyebrow="GALLERY" title="Photo gallery" desc="Every cow, calf, employee, and facility." />
+      <PageHeader eyebrow="GALLERY" title="Photo gallery" desc="Upload, capture, and manage farm photos."
+        actions={<button className="btn sm" onClick={() => setAddOpen(true)}><Plus size={15} /> Add photo</button>} />
       <div className="row mb">
-        {cats.map((g: any) => <button key={g.id} className={`btn sm ${cat.id === g.id ? '' : 'ghost'}`} onClick={() => location.hash = '#/app/gallery/' + g.id}>{g.label} ({g.count})</button>)}
+        {categories.map((g: any) => <button key={g.id} className={`btn sm ${cat?.id === g.id ? '' : 'ghost'}`} onClick={() => location.hash = '#/app/gallery/' + g.id}>{g.label} ({g.count})</button>)}
       </div>
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px,1fr))' }}>
-        {tiles.map((t: any, i) => (
-          <div key={i} className="card reveal" style={{ padding: 10, textAlign: 'center' }}>
-            <CowPhoto name={t.name} color={t.color} size={120} />
-            <div className="mt" style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</div>
-            {t.earTag && <div className="muted" style={{ fontSize: 11 }}>{t.earTag}</div>}
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))' }}>
+        {(filtered.length ? filtered : all).map((item: any) => (
+          <div key={item.id} className="card reveal" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ position: 'relative' }}>
+              <img src={item.url} alt={item.caption || 'Gallery'} style={{ width: '100%', height: 160, objectFit: 'cover', display: 'block', background: 'var(--surface-2)' }} />
+              <div className="row" style={{ position: 'absolute', top: 8, right: 8, gap: 4 }}>
+                <button className="btn ghost sm" style={{ background: 'rgba(255,255,255,0.9)' }} onClick={() => openEdit(item)}><Edit3 size={13} /></button>
+                <button className="btn ghost sm" style={{ background: 'rgba(255,255,255,0.9)' }} onClick={() => setPreview(item.url)}><Eye size={13} /></button>
+                <button className="btn ghost sm" style={{ background: 'rgba(255,255,255,0.9)' }} onClick={async () => { if (confirm('Delete this photo?')) { await deleteGalleryItem(item.id); push('Photo deleted'); } }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px' }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.caption || item.category}</div>
+              {item.caption && <div className="muted" style={{ fontSize: 11 }}>{item.category}</div>}
+            </div>
           </div>
         ))}
       </div>
+
+      {addOpen && <Modal title="Add photo" onClose={() => { setAddOpen(false); stopCamera(); }}>
+        <form onSubmit={submitAdd}>
+          <div className="field"><label>Category</label>
+            <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              <option value="cows">Cows</option><option value="calves">Calves</option><option value="employees">Employees</option><option value="equipment">Equipment</option><option value="facilities">Facilities</option>
+            </select>
+          </div>
+          <div className="field"><label>Caption</label><input className="input" value={form.caption} onChange={(e) => setForm({ ...form, caption: e.target.value })} placeholder="Describe this photo" /></div>
+          <div className="field"><label>Image</label>
+            <div className="row" style={{ gap: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload from PC
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
+              </label>
+              <button type="button" className="btn sm" onClick={startCamera}><Camera size={14} /> Take photo</button>
+            </div>
+          </div>
+          {form.url && <img src={form.url} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, marginTop: 10, background: 'var(--surface-2)' }} />}
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn" type="submit" disabled={!form.url}>Save photo</button>
+          </div>
+        </form>
+      </Modal>}
+
+      {editItem && <Modal title="Edit photo" onClose={() => setEditItem(null)}>
+        <form onSubmit={submitEdit}>
+          <div className="field"><label>Category</label>
+            <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              <option value="cows">Cows</option><option value="calves">Calves</option><option value="employees">Employees</option><option value="equipment">Equipment</option><option value="facilities">Facilities</option>
+            </select>
+          </div>
+          <div className="field"><label>Caption</label><input className="input" value={form.caption} onChange={(e) => setForm({ ...form, caption: e.target.value })} /></div>
+          <div className="field"><label>Retake / Replace image</label>
+            <div className="row" style={{ gap: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload new
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
+              </label>
+              <button type="button" className="btn sm" onClick={startCamera}><Camera size={14} /> Retake</button>
+            </div>
+          </div>
+          {form.url && <img src={form.url} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, marginTop: 10, background: 'var(--surface-2)' }} />}
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => setEditItem(null)}>Cancel</button>
+            <button className="btn" type="submit" disabled={!form.url}>Save changes</button>
+          </div>
+        </form>
+      </Modal>}
+
+      {preview && <Modal title="Photo preview" onClose={() => setPreview(null)}>
+        <img src={preview} alt="Preview" style={{ width: '100%', maxHeight: 400, objectFit: 'contain', borderRadius: 8, background: 'var(--surface-2)' }} />
+        <div className="row mt" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn ghost" onClick={() => setPreview(null)}>Close</button>
+        </div>
+      </Modal>}
+
+      {cameraOpen && <Modal title="Take photo" onClose={() => { setCameraOpen(false); stopCamera(); }}>
+        <video ref={videoRef} style={{ width: '100%', borderRadius: 8, background: '#000' }} playsInline muted />
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <div className="row mt" style={{ justifyContent: 'center', gap: 10 }}>
+          <button type="button" className="btn" onClick={capturePhoto}><Camera size={16} /> Capture</button>
+          <button type="button" className="btn ghost" onClick={() => { setCameraOpen(false); stopCamera(); }}>Cancel</button>
+        </div>
+      </Modal>}
     </div>
   );
 }

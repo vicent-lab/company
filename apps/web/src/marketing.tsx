@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTheme } from './theme';
 import { useHashRoute } from './router';
+import { usePlan, PLANS } from './plans';
 import { TESTIMONIALS, PARTNERS, FAQ } from './mock';
 import { AnimatedCounter, ThemeToggle, Modal, CowPhoto, CowIllustration } from './ui';
 import { ArrowRight, Play, Check, Star, Sparkles, Tractor, Milk, ShieldCheck, Bot, MapPin, Moon, Download } from 'lucide-react';
@@ -9,10 +10,21 @@ import { fmt } from './format';
 export function Marketing() {
   const { theme, setTheme } = useTheme();
   const [, navigate] = useHashRoute();
+  const { plan, setPlan } = usePlan();
   const [faqOpen, setFaqOpen] = useState<number | null>(0);
   const [video, setVideo] = useState(false);
   const [roi, setRoi] = useState({ cows: 120, pricePerL: 0.45, waste: 12 });
   const [sent, setSent] = useState(false);
+
+  const selectPlan = (name: 'Starter' | 'Pro' | 'Enterprise') => {
+    setPlan(name);
+    localStorage.setItem('selectedPlan', name);
+  };
+
+  const startTrial = () => {
+    localStorage.setItem('selectedPlan', plan);
+    navigate('/app');
+  };
 
   const saved = Math.round(roi.cows * roi.pricePerL * 30 * (roi.waste / 100) * 0.6 + roi.cows * 4);
   const yearly = saved * 12;
@@ -54,7 +66,7 @@ export function Marketing() {
             <div style={{ position: 'absolute', bottom: 16, left: 16, right: 16, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(6px)', borderRadius: 14, padding: '12px 16px', border: '1px solid rgba(255,255,255,0.6)' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#1c2b22' }}>Live farm overview</div>
               <div style={{ fontSize: 12, color: '#5d6f63', marginTop: 4 }}>Milk today · 18,600 L · +3.1%</div>
-              <button className="btn sm mt" style={{ marginTop: 10 }} onClick={() => navigate('/app')}>Open dashboard →</button>
+              <button className="btn sm mt" style={{ marginTop: 10 }} onClick={() => { localStorage.setItem('selectedPlan', plan); navigate('/app'); }}>Open dashboard →</button>
             </div>
           </div>
         </div>
@@ -145,20 +157,26 @@ export function Marketing() {
       <section className="section alt" id="pricing">
         <h2>Simple, honest pricing</h2>
         <p className="lead">Start free for 14 days. No credit card required.</p>
-        <div className="pricing-grid" style={{ maxWidth: 1000, margin: '0 auto' }}>
-          {[
-            { name: 'Starter', price: '$29', per: '/mo', feats: ['Up to 50 cows', 'Dashboard & KPIs', 'QR profiles', 'Email support'], cta: 'Start free' },
-            { name: 'Pro', price: '$79', per: '/mo', feats: ['Up to 500 cows', 'AI assistant & predictions', 'Multi-farm', 'Financial & analytics', 'Weather insights'], feat: true, cta: 'Start free trial' },
-            { name: 'Enterprise', price: 'Custom', per: '', feats: ['Unlimited cows', 'RBAC & 2FA', 'API & integrations', 'Dedicated manager'], cta: 'Contact sales' },
-          ].map((p) => (
-            <div className={`price-card reveal ${p.feat ? 'feature' : ''}`} key={p.name}>
-              {p.feat && <div className="tag" style={{ alignSelf: 'flex-start', background: 'var(--primary)', color: '#fff' }}>Most popular</div>}
-              <h3>{p.name}</h3>
-              <div className="cost">{p.price}<small className="muted" style={{ fontSize: 16 }}>{p.per}</small></div>
-              <ul>{p.feats.map((f) => <li key={f}><Check size={16} color="var(--primary)" /> {f}</li>)}</ul>
-              <button className={`btn ${p.feat ? 'gold' : ''} mt`} style={{ marginTop: 'auto' }} onClick={() => navigate('/app')}>{p.cta}</button>
-            </div>
-          ))}
+        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+          <div className="row" style={{ justifyContent: 'center', marginBottom: 24, gap: 8 }}>
+            {PLANS.map((p) => (
+              <button key={p.name} className={`btn ${plan === p.name ? 'gold' : 'ghost'} sm`} onClick={() => selectPlan(p.name)}>{p.name}</button>
+            ))}
+          </div>
+          {(() => {
+            const p = PLANS.find((x) => x.name === plan)!;
+            return (
+              <div className="card reveal" style={{ maxWidth: 720, margin: '0 auto', padding: 28 }}>
+                {p.feat && <div className="tag" style={{ background: 'var(--primary)', color: '#fff', marginBottom: 12 }}>Most popular</div>}
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div><h3 style={{ fontSize: 22 }}>{p.name}</h3><div className="muted">Billed monthly</div></div>
+                  <div style={{ textAlign: 'right' }}><div style={{ fontFamily: 'Playfair Display', fontSize: 40 }}>{p.price}</div><small className="muted" style={{ fontSize: 16 }}>{p.per}</small></div>
+                </div>
+                <ul style={{ marginTop: 22, display: 'grid', gap: 12 }}>{p.feats.map((f) => <li key={f} className="row" style={{ gap: 10 }}><Check size={16} color="var(--primary)" /> {f}</li>)}</ul>
+                <button className={`btn ${p.feat ? 'gold' : ''} mt`} style={{ marginTop: 24, width: '100%' }} onClick={startTrial}>{p.cta}</button>
+              </div>
+            );
+          })()}
         </div>
       </section>
 
@@ -198,7 +216,7 @@ export function Marketing() {
         <div className="cta-band">
           <h2>Ready to run a smarter farm?</h2>
           <p style={{ opacity: 0.9, margin: '10px 0 22px' }}>Join thousands of cows already managed with DairyOS.</p>
-          <button className="btn light" onClick={() => navigate('/app')}>Open the dashboard →</button>
+          <button className="btn light" onClick={() => { localStorage.setItem('selectedPlan', plan); navigate('/app'); }}>Open the dashboard →</button>
         </div>
       </section>
 

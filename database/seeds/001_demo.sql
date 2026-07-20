@@ -102,13 +102,13 @@ BEGIN
       is_milk := (gender='female' AND random()<0.72);
       is_preg := (gender='female' AND random()<0.40);
       SELECT id INTO bid FROM barns WHERE farm_id=f.id ORDER BY random() LIMIT 1;
-      INSERT INTO cows (farm_id, barn_id, cow_code, ear_tag, name, breed, gender, date_of_birth, weight_kg, status, health, is_milking, is_pregnant)
+      INSERT INTO cows (farm_id, barn_id, cow_code, ear_tag, name, breed, gender, date_of_birth, weight_kg, status, health, is_milking, is_pregnant, water_intake_liters)
       VALUES (
         f.id,
         bid,
         code, tag,
         (ARRAY['Bella','Daisy','Lola','Molly','Rosie','Clover','Penny','Ruby','Ginger','Luna','Maple','Hazel','Olive','Pearl','Willow','Ivy','Nina','Coco','Sasha','Tilly','Fern','Jade','Sienna','Zoe'])[1+floor(random()*24)::int],
-        breed, gender, born, 380 + floor(random()*340)::int, 'active'::cow_status, health::health_status, is_milk, is_preg
+        breed, gender, born, 380 + floor(random()*340)::int, 'active'::cow_status, health::health_status, is_milk, is_preg, 40 + floor(random()*60)::int
       )
       ON CONFLICT (farm_id, cow_code) DO NOTHING;
 
@@ -134,9 +134,10 @@ BEGIN
 
       -- treatments for unhealthy cows
       IF health <> 'healthy' THEN
-        INSERT INTO treatments (cow_id, disease_id, diagnosis, diagnosed_on)
+        INSERT INTO treatments (cow_id, disease_id, diagnosis, diagnosed_on, veterinarian_name)
         SELECT c.id, NULL,
-          'Monitored and treated', current_date - (1+floor(random()*20))::int
+          'Monitored and treated', current_date - (1+floor(random()*20))::int,
+          (ARRAY['Dr. Smith','Dr. Johnson','Dr. Williams','Dr. Brown','Dr. Davis'])[1+floor(random()*5)::int]
         FROM cows c WHERE c.farm_id=f.id AND c.cow_code=code;
       END IF;
 

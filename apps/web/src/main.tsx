@@ -14,12 +14,16 @@ function Root() {
   return isApp ? <AppShell /> : <Marketing />;
 }
 
+import { PlanProvider } from './plans';
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
-          <Root />
+          <PlanProvider>
+            <Root />
+          </PlanProvider>
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
