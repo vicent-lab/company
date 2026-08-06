@@ -3,8 +3,9 @@ import { useTheme } from './theme';
 import { useHashRoute } from './router';
 import { usePlan, PLANS } from './plans';
 import { TESTIMONIALS, PARTNERS, FAQ } from './mock';
-import { AnimatedCounter, ThemeToggle, Modal, CowPhoto, CowIllustration } from './ui';
+import { AnimatedCounter, ThemeToggle, CowPhoto } from './ui';
 import { ArrowRight, Play, Check, Star, Sparkles, Tractor, Milk, ShieldCheck, Bot, MapPin, Moon, Download } from 'lucide-react';
+import logoImg from './assets/logo.png';
 import { fmt } from './format';
 
 export function Marketing() {
@@ -12,7 +13,6 @@ export function Marketing() {
   const [, navigate] = useHashRoute();
   const { plan, setPlan } = usePlan();
   const [faqOpen, setFaqOpen] = useState<number | null>(0);
-  const [video, setVideo] = useState(false);
   const [roi, setRoi] = useState({ cows: 120, pricePerL: 0.45, waste: 12 });
   const [sent, setSent] = useState(false);
 
@@ -23,7 +23,7 @@ export function Marketing() {
 
   const startTrial = () => {
     localStorage.setItem('selectedPlan', plan);
-    navigate('/app');
+    navigate('/get-started');
   };
 
   const saved = Math.round(roi.cows * roi.pricePerL * 30 * (roi.waste / 100) * 0.6 + roi.cows * 4);
@@ -32,14 +32,14 @@ export function Marketing() {
   return (
     <div className="fade-in">
       <nav className="marketing-nav">
-        <div className="brand"><div className="logo"><Milk size={18} /></div><div><b>DairyOS</b><small>SMART DAIRY</small></div></div>
+        <div className="brand"><img className="logo" src={logoImg} alt="DairyOS" /><div><b>DairyOS</b><small>SMART DAIRY</small></div></div>
         <div className="links">
           <a href="#features">Features</a><a href="#ai">AI</a><a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a><a href="#contact">Contact</a>
         </div>
         <ThemeToggle theme={theme} setTheme={setTheme} />
         <button className="btn ghost sm" onClick={() => navigate('/app')}>Sign in</button>
-        <button className="btn gold sm" onClick={() => navigate('#pricing')}>Start free trial</button>
+        <button className="btn gold sm" onClick={startTrial}>Start free trial</button>
       </nav>
 
       {/* HERO */}
@@ -50,8 +50,8 @@ export function Marketing() {
           <h1>Manage your dairy farm smarter</h1>
           <p className="sub">Track every cow, liter, and dollar in real time. DairyOS brings AI insights, QR traceability, and beautiful dashboards to farms of any size.</p>
           <div className="row">
-            <button className="btn gold" onClick={() => navigate('#pricing')}>Start free trial <ArrowRight size={18} /></button>
-            <button className="btn ghost" onClick={() => setVideo(true)}><Play size={16} /> Book a demo</button>
+            <button className="btn gold" onClick={startTrial}>Start free trial <ArrowRight size={18} /></button>
+            <button className="btn ghost" onClick={() => navigate('#contact')}><Play size={16} /> Book a demo</button>
           </div>
           <div className="stat-row four" style={{ marginTop: 36 }}>
             <HeroStat icon={<Tractor size={18} />} value={2400} suffix="+" label="Cows managed" />
@@ -62,11 +62,17 @@ export function Marketing() {
         </div>
         <div className="hero-visual">
           <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-            <CowIllustration />
+            <img
+              src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Cow_female_black_white.jpg/1280px-Cow_female_black_white.jpg"
+              alt="Dairy cow standing in a pasture"
+              loading="eager"
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(0deg, rgba(0,0,0,0.45), transparent 45%)' }} />
             <div style={{ position: 'absolute', bottom: 16, left: 16, right: 16, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(6px)', borderRadius: 14, padding: '12px 16px', border: '1px solid rgba(255,255,255,0.6)' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#1c2b22' }}>Live farm overview</div>
               <div style={{ fontSize: 12, color: '#5d6f63', marginTop: 4 }}>Milk today · 18,600 L · +3.1%</div>
-              <button className="btn sm mt" style={{ marginTop: 10 }} onClick={() => { localStorage.setItem('selectedPlan', plan); navigate('/app'); }}>Open dashboard →</button>
+              <button className="btn sm mt" style={{ marginTop: 10 }} onClick={() => { localStorage.setItem('selectedPlan', plan); navigate('/get-started'); }}>Open dashboard →</button>
             </div>
           </div>
         </div>
@@ -148,7 +154,7 @@ export function Marketing() {
             <div style={{ fontFamily: 'Playfair Display', fontSize: 44, color: 'var(--primary)' }}>{fmt.money(saved)}</div>
             <div className="muted">Estimated yearly saving</div>
             <div style={{ fontFamily: 'Playfair Display', fontSize: 30 }}>{fmt.money(yearly)}</div>
-            <button className="btn gold mt" onClick={() => navigate('#pricing')}>Start free trial</button>
+            <button className="btn gold mt" onClick={startTrial}>Start free trial</button>
           </div>
         </div>
       </section>
@@ -216,19 +222,13 @@ export function Marketing() {
         <div className="cta-band">
           <h2>Ready to run a smarter farm?</h2>
           <p style={{ opacity: 0.9, margin: '10px 0 22px' }}>Join thousands of cows already managed with DairyOS.</p>
-          <button className="btn light" onClick={() => { localStorage.setItem('selectedPlan', plan); navigate('/app'); }}>Open the dashboard →</button>
+          <button className="btn light" onClick={() => { localStorage.setItem('selectedPlan', plan); navigate('/get-started'); }}>Open the dashboard →</button>
         </div>
       </section>
 
       <footer style={{ padding: '30px 6vw', borderTop: '1px solid var(--border)', color: 'var(--text-soft)', fontSize: 13 }}>
         © {new Date().getFullYear()} DairyOS · Smart Dairy Farm Management · Built with React + Chart.js
       </footer>
-
-      {video && <Modal title="Product walkthrough" onClose={() => setVideo(false)}>
-        <div style={{ aspectRatio: '16/9', borderRadius: 12, background: 'linear-gradient(135deg,#2f7d54,#173d2b)', display: 'grid', placeItems: 'center', color: '#fff' }}>
-          <div style={{ textAlign: 'center' }}><Play size={48} /><div style={{ marginTop: 10 }}>2-min product walkthrough</div></div>
-        </div>
-      </Modal>}
     </div>
   );
 }

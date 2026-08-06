@@ -54,7 +54,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   if (!existing.rows[0]) throw new HttpError(404, 'Feed consumption record not found');
   const cow = await query('SELECT farm_id FROM cows WHERE id=$1', [existing.rows[0].cow_id]);
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
-  if (req.user!.role !== 'administrator' && cow.rows[0].farm_id !== req.user!.farmId)
+  if (!req.user!.isSuperAdmin && cow.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
   const sets: string[] = [];
   const params: any[] = [];
@@ -87,7 +87,7 @@ router.delete('/:id', requirePermission('cow:manage'), asyncHandler(async (req, 
   if (!existing.rows[0]) throw new HttpError(404, 'Feed consumption record not found');
   const cow = await query('SELECT farm_id FROM cows WHERE id=$1', [existing.rows[0].cow_id]);
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
-  if (req.user!.role !== 'administrator' && cow.rows[0].farm_id !== req.user!.farmId)
+  if (!req.user!.isSuperAdmin && cow.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
   await query('DELETE FROM feed_consumption WHERE id=$1', [req.params.id]);
   await audit(req.user, 'delete', 'feed_consumption', req.params.id);

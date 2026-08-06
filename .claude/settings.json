@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(systemctl status *)",
+      "Bash(service postgresql *)",
+      "Bash(pg_lsclusters)",
+      "Bash(PGPASSWORD=local_dev_password psql -h 127.0.0.1 -U dairy -d dairy -c \"\\\\dt\")",
+      "Bash(PGPASSWORD=local_dev_password psql -h 127.0.0.1 -U dairy -d dairy -c \"SELECT count\\(*\\) FROM cows;\")",
+      "Bash(PGPASSWORD=local_dev_password psql -h 127.0.0.1 -U dairy -d dairy -c \"SELECT id,name FROM farms;\")"
+    ]
+  }
+}

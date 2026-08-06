@@ -1,17 +1,20 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useTheme } from './theme';
 import { useHashRoute } from './router';
-import { ThemeToggle, PageHeader } from './ui';
+import { ThemeToggle, PageHeader, Modal, PasswordInput, OfflineBanner } from './ui';
 import { FARMS, NOTIFICATIONS } from './mock';
 import { useAsync } from './ui';
-import { isLive } from './api';
-import { loadFarms } from './data';
-import { useAuth } from './auth';
+import { isLive, ApiError } from './api';
+import { loadFarms, forgotPassword, getCaptcha, requestPhoneOtp } from './data';
+import { useAuth, LoginResult } from './auth';
 import {
-  LayoutDashboard, Beef, MapPin, Bot, Bell, TrendingUp, BarChart3, DollarSign,
-  CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Milk, Sun, Moon, Contrast,
-  ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical,
+  LayoutDashboard, Beef, MapPin, Activity, Bot, Bell, TrendingUp, BarChart3, DollarSign,
+  CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Sun, Moon, Contrast,
+  ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical, Sparkles, Calendar, Gauge, Settings as SettingsIcon, Crown,
+  Phone, KeyRound, ShieldAlert, Brain,
 } from 'lucide-react';
+import logoImg from './assets/logo.png';
+import { useToast } from './ui';
 import { Dashboard } from './pages/dashboard';
 import { Herd, CowProfile } from './pages/herd';
 import { FarmMap } from './pages/operations';
@@ -25,16 +28,31 @@ import { DailySchedule } from './pages/schedule';
 import { AdvancedSearch } from './pages/operations';
 import { Gamification } from './pages/operations';
 import { Alerts } from './pages/insights';
-import { Calendar } from 'lucide-react';
 import { Management } from './pages/management';
 import { Breeding } from './pages/breeding';
+import { Health } from './pages/health';
+import { AIAdvisor } from './pages/ai-advisor';
+import { FarmScore } from './pages/farm-score';
+import { CommandCenter } from './pages/command-center';
+import ExecutiveBriefPage from './pages/executive/executive-brief';
+import AgentStatusPage from './pages/executive/agent-status';
+import MemoryBrowserPage from './pages/executive/memory-browser';
+import ConversationPage from './pages/executive/conversation';
+import ScenarioSimulatorPage from './pages/executive/scenario-simulator';
+import IntelligencePage from './pages/intelligence';
+import { Settings } from './pages/settings';
+import { PlatformAdmin } from './pages/platform-admin';
+import { Onboarding, EmailVerificationStep } from './pages/onboarding';
 
-interface FarmCtx { farmId: string; setFarmId: (id: string) => void; }
-const FCtx = createContext<FarmCtx>({ farmId: 'f1', setFarmId: () => {} });
+interface FarmCtx { farmId: string; farmName: string; setFarmId: (id: string) => void; }
+const FCtx = createContext<FarmCtx>({ farmId: 'f1', farmName: '', setFarmId: () => {} });
 export const useFarm = () => useContext(FCtx);
 
 const NAV = [
+  { key: 'command-center', icon: Gauge, label: 'Command Center' },
   { key: 'dashboard', icon: LayoutDashboard, label: 'Overview' },
+  { key: 'ai-advisor', icon: Sparkles, label: 'AI Advisor' },
+  { key: 'farm-score', icon: Gauge, label: 'Farm Score' },
   { key: 'cows', icon: Beef, label: 'Herd' },
   { key: 'map', icon: MapPin, label: 'Farm map' },
   { key: 'ai', icon: Bot, label: 'AI assistant' },
@@ -49,10 +67,14 @@ const NAV = [
   { key: 'team', icon: Users, label: 'Team' },
   { key: 'tasks', icon: ClipboardList, label: 'Tasks' },
   { key: 'schedule', icon: Calendar, label: 'Schedule' },
-    { key: 'management', icon: ClipboardList, label: 'Management' },
+  { key: 'management', icon: ClipboardList, label: 'Management' },
   { key: 'search', icon: Search, label: 'Search' },
   { key: 'gamification', icon: Trophy, label: 'Goals' },
   { key: 'breeding', icon: FlaskConical, label: 'Breeding' },
+  { key: 'health', icon: Activity, label: 'Health' },
+  { key: 'executive', icon: Sparkles, label: 'Executive AI' },
+  { key: 'intelligence', icon: Brain, label: 'Intelligence' },
+  { key: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
 import { usePlan } from './planGuard';
@@ -60,41 +82,210 @@ import { PlanProvider, PLAN_FEATURES } from './plans';
 
 import { PlanGuard } from './planGuard';
 
-function Login({ onLogin }: { onLogin: (e: string, p: string) => Promise<void> }) {
+function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [devLink, setDevLink] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true);
+    try {
+      const res = await forgotPassword(email);
+      setMessage(res.message);
+      if (res.devResetLink) setDevLink(res.devResetLink);
+    } catch {
+      setMessage('If an account exists for that email, a reset link has been sent.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Reset your password" onClose={onClose}>
+      {message ? (
+        <div>
+          <p style={{ fontSize: 14 }}>{message}</p>
+          {devLink && <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>Dev mode (no email provider configured): <a href={devLink}>{devLink}</a></p>}
+          <button className="btn mt" onClick={onClose}>Close</button>
+        </div>
+      ) : (
+        <form onSubmit={submit}>
+          <label className="field">Account email<input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus /></label>
+          <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>{busy ? 'Sending…' : 'Send reset link'}</button>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+function OAuthButtons() {
+  const providers: { id: 'google' | 'microsoft' | 'apple'; label: string }[] = [
+    { id: 'google', label: 'Google' }, { id: 'microsoft', label: 'Microsoft' }, { id: 'apple', label: 'Apple' },
+  ];
+  return (
+    <div className="row" style={{ gap: 8, marginTop: 10 }}>
+      {providers.map((p) => (
+        <button key={p.id} type="button" className="btn ghost sm" disabled title={`${p.label} sign-in isn't configured yet`} style={{ flex: 1, justifyContent: 'center' }}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Login({ onLogin }: { onLogin: (e: string, p: string, captcha?: { token: string; answer: string }) => Promise<LoginResult> }) {
+  const { completeMfaLogin, loginWithPhoneOtp } = useAuth();
+  const { push } = useToast();
+  const [authTab, setAuthTab] = useState<'password' | 'phone'>('password');
+
   const [email, setEmail] = useState(isLive ? 'admin@greenfield.test' : 'manager@dairyos.app');
   const [password, setPassword] = useState('ChangeMe123!');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [captcha, setCaptcha] = useState<{ token: string; question: string } | null>(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+
+  const loadCaptcha = async () => { try { setCaptcha(await getCaptcha()); setCaptchaAnswer(''); } catch { /* best-effort */ } };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setError('');
-    try { await onLogin(email, password); } catch (err: any) { setError(err.message); setBusy(false); }
+    try {
+      const result = await onLogin(email, password, captcha ? { token: captcha.token, answer: captchaAnswer } : undefined);
+      if (result.mfaRequired) { setMfaToken(result.mfaToken); setBusy(false); return; }
+    } catch (err: any) {
+      setBusy(false);
+      if (err instanceof ApiError && err.body?.captchaRequired) await loadCaptcha();
+      setError(err.message);
+    }
   };
+
+  const submitMfa = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true); setError('');
+    try { await completeMfaLogin(mfaToken!, mfaCode); }
+    catch (err: any) { setError(err.message); setBusy(false); }
+  };
+
+  const [phone, setPhone] = useState('');
+  const [phoneStep, setPhoneStep] = useState<'phone' | 'code'>('phone');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+
+  const requestPhone = async (e: React.FormEvent) => {
+    e.preventDefault(); setPhoneBusy(true); setPhoneError('');
+    try {
+      const res = await requestPhoneOtp(phone);
+      push(res.devOtpCode ? `Dev mode — login code: ${res.devOtpCode}` : res.message);
+      setPhoneStep('code');
+    } catch (err: any) { setPhoneError(err.message); }
+    finally { setPhoneBusy(false); }
+  };
+  const verifyPhone = async (e: React.FormEvent) => {
+    e.preventDefault(); setPhoneBusy(true); setPhoneError('');
+    try { await loginWithPhoneOtp(phone, phoneCode); }
+    catch (err: any) { setPhoneError(err.message); setPhoneBusy(false); }
+  };
+
+  if (mfaToken) {
+    return (
+      <main className="login" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
+        <form onSubmit={submitMfa} className="card" style={{ width: 360, maxWidth: '100%', textAlign: 'center' }}>
+          <ShieldAlert size={28} color="var(--primary)" style={{ margin: '0 auto' }} />
+          <h1 style={{ fontSize: 20, marginTop: 8 }}>Two-factor code</h1>
+          <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>Enter the 6-digit code from your authenticator app.</p>
+          <input
+            className="input" inputMode="numeric" maxLength={6} autoFocus placeholder="6-digit code" value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            style={{ textAlign: 'center', fontSize: 20, letterSpacing: 6, marginTop: 14 }} required
+          />
+          {error && <p className="error" style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{error}</p>}
+          <button className="btn mt" style={{ width: '100%', justifyContent: 'center' }} disabled={busy || mfaCode.length !== 6}>{busy ? 'Verifying…' : 'Verify'}</button>
+          <button type="button" className="btn ghost sm mt" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setMfaToken(null); setMfaCode(''); setError(''); }}>Back to sign in</button>
+        </form>
+      </main>
+    );
+  }
+
   return (
     <main className="login" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
-      <form onSubmit={submit} className="card" style={{ width: 360, maxWidth: '100%' }}>
-        <div className="brand" style={{ justifyContent: 'center', marginBottom: 10 }}><div className="logo"><Milk size={18} /></div><div><b>DairyOS</b><small>SMART DAIRY</small></div></div>
+      <div className="card" style={{ width: 360, maxWidth: '100%' }}>
+        <div className="brand" style={{ justifyContent: 'center', marginBottom: 10 }}><img className="logo" src={logoImg} alt="DairyOS" /><div><b>DairyOS</b><small>SMART DAIRY</small></div></div>
         <div className="eyebrow" style={{ textAlign: 'center' }}>SIGN IN</div>
         <h1 style={{ fontSize: 24, textAlign: 'center' }}>Welcome back</h1>
-        <label className="field">Email<input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-        <label className="field">Password<input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        {error && <p className="error" style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</p>}
-        <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        {isLive && <p className="muted" style={{ fontSize: 12, textAlign: 'center', marginTop: 10 }}>Demo: admin@greenfield.test / ChangeMe123!</p>}
-      </form>
+
+        <div className="row" style={{ gap: 6, marginTop: 12, marginBottom: 4 }}>
+          <button type="button" className="btn sm" style={{ flex: 1, justifyContent: 'center', background: authTab === 'password' ? 'var(--primary)' : 'transparent', color: authTab === 'password' ? '#fff' : 'var(--text)', border: `1px solid ${authTab === 'password' ? 'var(--primary)' : 'var(--border)'}` }} onClick={() => setAuthTab('password')}>
+            <KeyRound size={14} /> Password
+          </button>
+          <button type="button" className="btn sm" style={{ flex: 1, justifyContent: 'center', background: authTab === 'phone' ? 'var(--primary)' : 'transparent', color: authTab === 'phone' ? '#fff' : 'var(--text)', border: `1px solid ${authTab === 'phone' ? 'var(--primary)' : 'var(--border)'}` }} onClick={() => setAuthTab('phone')}>
+            <Phone size={14} /> Phone
+          </button>
+        </div>
+
+        {authTab === 'password' ? (
+          <form onSubmit={submit}>
+            <label className="field mt">Email<input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+            <label className="field">Password<PasswordInput value={password} onChange={setPassword} /></label>
+            {captcha && (
+              <label className="field">
+                Challenge — what is {captcha.question}
+                <input className="input" value={captchaAnswer} onChange={(e) => setCaptchaAnswer(e.target.value)} required />
+              </label>
+            )}
+            {error && <p className="error" style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</p>}
+            <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+            {isLive && <button type="button" className="btn ghost sm" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => setForgotOpen(true)}>Forgot password?</button>}
+            {isLive && <p className="muted" style={{ fontSize: 12, textAlign: 'center', marginTop: 10 }}>Demo: admin@greenfield.test / ChangeMe123!</p>}
+          </form>
+        ) : phoneStep === 'phone' ? (
+          <form onSubmit={requestPhone}>
+            <label className="field mt">Phone number<input className="input" type="tel" placeholder="+256701234567" value={phone} onChange={(e) => setPhone(e.target.value)} required /></label>
+            {phoneError && <p className="error" style={{ color: 'var(--danger)', fontSize: 13 }}>{phoneError}</p>}
+            <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={phoneBusy}>{phoneBusy ? 'Sending…' : 'Send login code'}</button>
+          </form>
+        ) : (
+          <form onSubmit={verifyPhone}>
+            <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>Enter the code sent to {phone}.</p>
+            <input
+              className="input" inputMode="numeric" maxLength={6} autoFocus placeholder="6-digit code" value={phoneCode}
+              onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              style={{ textAlign: 'center', fontSize: 20, letterSpacing: 6, marginTop: 6, marginBottom: 14 }} required
+            />
+            {phoneError && <p className="error" style={{ color: 'var(--danger)', fontSize: 13 }}>{phoneError}</p>}
+            <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={phoneBusy || phoneCode.length !== 6}>{phoneBusy ? 'Verifying…' : 'Verify & sign in'}</button>
+            <button type="button" className="btn ghost sm mt" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setPhoneStep('phone'); setPhoneCode(''); setPhoneError(''); }}>Use a different number</button>
+          </form>
+        )}
+
+        <div className="row" style={{ alignItems: 'center', gap: 8, margin: '14px 0 2px' }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <span className="muted" style={{ fontSize: 11 }}>OR</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        </div>
+        <OAuthButtons />
+      </div>
+      {forgotOpen && <ForgotPasswordModal onClose={() => setForgotOpen(false)} />}
     </main>
   );
 }
 
 export function AppShell() {
   const { theme, setTheme } = useTheme();
-  const { user, login, logout } = useAuth();
+  const { user, farms: authFarms, loading, login, logout, switchFarm } = useAuth();
   const [route, navigate] = useHashRoute();
   const [farmId, setFarmId] = useState('f1');
   const [farmMenu, setFarmMenu] = useState(false);
+  const [farmSwitching, setFarmSwitching] = useState(false);
   const [bell, setBell] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const [search, setSearch] = useState('');
-  const { data: farms } = useAsync(loadFarms, []);
+  const [verifySkipped, setVerifySkipped] = useState(false);
+  // Refetch once a user is actually authenticated — called with no deps this ran once at
+  // mount (often pre-login, 401ing) and never again, so the farm list silently stayed on
+  // the offline mock fallback for the rest of the session even after a real login.
+  const { data: farms } = useAsync(loadFarms, [user?.id, user?.farmId]);
   const farmList = farms && farms.length ? farms : FARMS;
   const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
 
@@ -105,17 +296,48 @@ export function AppShell() {
     }
   }, [isLive, user, farmList, farmId]);
 
+  if (isLive && loading) {
+    return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}><p className="muted">Loading…</p></main>;
+  }
   if (isLive && !user) return <Login onLogin={login} />;
+  // Shown once right after registration, before onboarding — "Skip for now" resets per
+  // page load (verifySkipped is local state), so it doesn't hard-block an unverified
+  // account forever, just nudges on every fresh session until they verify or skip.
+  if (isLive && user && !user.emailVerified && !verifySkipped) {
+    return <EmailVerificationStep onDone={() => setVerifySkipped(true)} />;
+  }
+  // A freshly registered account has no farm yet (owner hasn't created one, or team
+  // member hasn't been invited) — send it through onboarding instead of a broken shell.
+  // Super Admin is exempt: it's a platform-wide account that may legitimately never own
+  // or join any single farm, and still needs to reach the shell to use Platform Admin.
+  if (isLive && user && authFarms.length === 0 && !user.isSuperAdmin) return <Onboarding />;
 
-  const sub = route.segments[1] || 'dashboard';
+  // Admins can peek at any farm's data instantly (the backend honors ?farmId= for them).
+  // Everyone else's access token is scoped to one farm at a time, so picking a different
+  // one has to mint a new token via switch-farm before the view actually changes.
+  const selectFarm = async (id: string) => {
+    setFarmMenu(false);
+    if (!isLive || user?.role === 'administrator') { setFarmId(id); return; }
+    setFarmSwitching(true);
+    try {
+      await switchFarm(id);
+      setFarmId(id);
+    } catch {
+      // leave farmId unchanged — the switch failed, current farm stays active
+    } finally {
+      setFarmSwitching(false);
+    }
+  };
+
+  const sub = route.segments[1] || 'command-center';
 
   const go = (k: string) => {
     const featureMap: Record<string, string> = {
-      dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai',
+      'command-center': 'command-center', dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai', 'ai-advisor': 'ai-advisor',
       alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
       weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
       customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
-      breeding: 'breeding',
+      executive: 'executive', intelligence: 'intelligence',
     };
     const feature = featureMap[k];
     if (feature && !canAccess(feature)) {
@@ -129,19 +351,23 @@ export function AppShell() {
 
   const page = () => {
     const featureMap: Record<string, string> = {
-      dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai',
+      'command-center': 'command-center', dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai', 'ai-advisor': 'ai-advisor',
       alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
       weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
       customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
+      executive: 'executive', intelligence: 'intelligence',
     };
     const feature = featureMap[sub];
     const content = (() => {
       switch (sub) {
+        case 'command-center': return <CommandCenter />;
         case 'dashboard': return <Dashboard />;
         case 'cows': return <Herd />;
         case 'cow': return <CowProfile id={route.param!} />;
         case 'map': return <FarmMap />;
         case 'ai': return <AIAssistant />;
+        case 'ai-advisor': return <AIAdvisor />;
+        case 'farm-score': return <FarmScore />;
         case 'alerts': return <Alerts />;
         case 'predict': return <Predictions />;
         case 'analytics': return <Analytics />;
@@ -157,7 +383,12 @@ export function AppShell() {
         case 'gamification': return <Gamification />;
         case 'management': return <Management />;
         case 'breeding': return <Breeding />;
-        default: return <Dashboard />;
+        case 'health': return <Health />;
+        case 'executive': return <ExecutiveBriefPage />;
+        case 'intelligence': return <IntelligencePage />;
+        case 'settings': return <Settings />;
+        case 'platform-admin': return user?.isSuperAdmin ? <PlatformAdmin /> : <CommandCenter />;
+        default: return <CommandCenter />;
       }
     })();
 
@@ -171,7 +402,7 @@ export function AppShell() {
           </p>
           <div className="row" style={{ justifyContent: 'center', gap: 10 }}>
             <button className="btn gold" onClick={() => { window.location.hash = '#/pricing'; }}>View plans & upgrade</button>
-            <button className="btn ghost" onClick={() => navigate('/app/dashboard')}>Go to dashboard</button>
+                    <button className="btn ghost" onClick={() => navigate('/app/command-center')}>Go to Command Center</button>
           </div>
         </div>
       );
@@ -182,11 +413,11 @@ export function AppShell() {
 
   return (
     <PlanProvider>
-      <FCtx.Provider value={{ farmId, setFarmId }}>
+      <FCtx.Provider value={{ farmId, farmName: farm?.name || '', setFarmId }}>
         <div className="shell">
         <aside className="sidebar">
           <div className="brand">
-            <div className="logo"><Milk size={18} /></div>
+            <img className="logo" src={logoImg} alt="DairyOS" />
             <div><b>DairyOS</b><small>SMART DAIRY</small></div>
           </div>
           {NAV.map((n) => (
@@ -195,6 +426,11 @@ export function AppShell() {
               {n.badge && <span className="badge-dot">{n.badge}</span>}
             </button>
           ))}
+          {user?.isSuperAdmin && (
+            <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => navigate('/app/platform-admin')}>
+              <Crown size={18} /> Platform Admin
+            </button>
+          )}
           <button className="nav-item" style={{ marginTop: 'auto' }} onClick={() => navigate('/')}>
             <LogOut size={18} /> View website
           </button>
@@ -209,13 +445,13 @@ export function AppShell() {
             </div>
 
             <div className="menu">
-              <button className="btn ghost sm" onClick={() => setFarmMenu((v) => !v)}>
-                <MapPin size={15} /> {farm.name} <ChevronDown size={14} />
+              <button className="btn ghost sm" onClick={() => setFarmMenu((v) => !v)} disabled={farmSwitching}>
+                <MapPin size={15} /> {farmSwitching ? 'Switching…' : farm.name} <ChevronDown size={14} />
               </button>
               {farmMenu && (
                 <div className="menu-pop" onMouseLeave={() => setFarmMenu(false)}>
                   {farmList.map((f) => (
-                    <button key={f.id} onClick={() => { setFarmId(f.id); setFarmMenu(false); }}>
+                    <button key={f.id} onClick={() => selectFarm(f.id)}>
                       {farmId === f.id && <Check size={15} color="var(--primary)" />} {f.name}
                       <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{f.cows} cows</span>
                     </button>
@@ -249,7 +485,7 @@ export function AppShell() {
               {userMenu && (
                 <div className="menu-pop" onMouseLeave={() => setUserMenu(false)}>
                   <div style={{ padding: '6px 11px', color: 'var(--text-soft)', fontSize: 12 }}>{user?.email}</div>
-                  <button><ShieldCheck size={15} /> Security & 2FA</button>
+                  <button onClick={() => { navigate('/app/settings'); setUserMenu(false); }}><ShieldCheck size={15} /> Security & 2FA</button>
                   <button onClick={() => { logout(); navigate('/'); }}><LogOut size={15} /> Sign out</button>
                 </div>
               )}
@@ -258,6 +494,7 @@ export function AppShell() {
 
           <main className="content">{page()}</main>
         </div>
+        {isLive && <OfflineBanner />}
       </div>
     </FCtx.Provider>
     </PlanProvider>

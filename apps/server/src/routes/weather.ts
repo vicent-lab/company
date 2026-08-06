@@ -1,27 +1,50 @@
 import { Router } from 'express';
-import { query } from '../db/index.js';
 import { requireAuth, resolveFarmId } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/errors.js';
+import { getWeatherForPeriod, getWeatherObservation, WeatherPeriod } from '../ai/weather-station.js';
 
 const router = Router();
 router.use(requireAuth);
 
-router.get('/', asyncHandler(async (_req, res) => {
-  // No weather table in the schema — derived station-style values with a stable daily seed.
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const seed = (dayOfYear % 7);
-  const temp = 17 + seed;
-  const humidity = 60 + (seed * 2);
-  const wind = 8 + (seed % 5);
-  const rainChance = [10, 5, 20, 45, 60, 30, 15];
+const PERIODS: WeatherPeriod[] = ['today', 'yesterday', 'week', 'month', 'forecast'];
+
+const RAIN_CHANCE_BY_CONDITION: Record<string, number> = {
+  Sunny: 5, Clear: 5, Breezy: 10, 'Partly cloudy': 20, Cloudy: 35, 'Light rain': 60, 'Heavy rain': 85,
+};
+
+function recommendationFor(obs: Awaited<ReturnType<typeof getWeatherObservation>>): string {
+  if (obs.heatStress !== 'none') {
+    return `Heat stress risk (THI ${obs.thi.toFixed(1)}, ${obs.heatStress}): move grazing herds to shaded barns during 11am–4pm, increase water point access, and shift milking to cooler morning/evening hours.`;
+  }
+  if (obs.coldStress !== 'none') {
+    return `Cold stress risk (${obs.temperatureC.toFixed(1)}°C): move exposed cows into sheltered barns and increase ration energy density.`;
+  }
+  return 'Cool morning (6–9am) is ideal for grazing; bring the herd in before the afternoon heat peak.';
+}
+
+router.get('/', asyncHandler(async (req, res) => {
+  const farmId = resolveFarmId(req);
+  const period = PERIODS.includes(req.query.period as WeatherPeriod) ? (req.query.period as WeatherPeriod) : 'today';
+  const obs = await getWeatherForPeriod(farmId, period);
+
+  // Simple 7-day outlook derived from today's reading — no external forecast API wired up.
+  const forecast = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const baseChance = RAIN_CHANCE_BY_CONDITION[obs.condition] ?? 15;
+  const rainChance = forecast.map((_, i) => Math.max(5, Math.min(95, Math.round(baseChance + (i - 3) * 6))));
+
   res.json({
-    temp,
-    condition: ['Sunny', 'Partly cloudy', 'Cloudy', 'Light rain', 'Overcast', 'Clear', 'Breezy'][seed],
-    humidity,
-    wind,
+    temp: Math.round(obs.temperatureC * 10) / 10,
+    condition: obs.condition,
+    humidity: Math.round(obs.humidityPct),
+    wind: Math.round(obs.windKph),
+    rainMm: obs.rainMm,
     rainChance,
-    forecast: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    recommendation: 'Cool morning (6–9am) is ideal for grazing; bring the herd in before the 3pm heat peak.',
+    forecast,
+    thi: Math.round(obs.thi * 10) / 10,
+    heatStress: obs.heatStress,
+    coldStress: obs.coldStress,
+    recommendation: recommendationFor(obs),
+    period,
   });
 }));
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { PageHeader, Modal, Kpi, AnimatedCounter, useAsync, useToast } from '../ui';
-import { updateCow, deleteCow, updateMilkRecord, deleteMilkRecord, createMilkRecord, createFeedRecord, updateFeedRecord, deleteFeedRecord, createEmployee, updateEmployee, deleteEmployee, createGalleryItem, deleteGalleryItem, listFeedRecords, listMilkRecords, listCows, employees } from '../data';
+import { updateCow, deleteCow, updateMilkRecord, deleteMilkRecord, createMilkRecord, createFeedRecord, updateFeedRecord, deleteFeedRecord, createEmployee, updateEmployee, deleteEmployee, createGalleryItem, deleteGalleryItem, listFeedRecords, listMilkRecords, listCows, employees, gallery } from '../data';
 import { Plus, Trash2, Edit3, Save, X, ArrowLeft } from 'lucide-react';
 import { BREEDS } from '../mock';
 import { fmt } from '../format';
@@ -38,14 +38,14 @@ export function DailyRecords() {
     if (!milk.cowId || !milk.date) { push('Cow and date are required'); return; }
     setSubmitting(true);
     try {
-      await createMilkRecord({
+      const res = await createMilkRecord({
         cow_id: milk.cowId,
         recorded_on: milk.date,
         morning_liters: Number(milk.morning) || 0,
         afternoon_liters: Number(milk.afternoon) || 0,
         evening_liters: Number(milk.evening) || 0,
       });
-      push('Milk record saved');
+      push(res.queued ? "Saved offline — will sync when you're back online" : 'Milk record saved');
       setMilk({ ...MILK_EMPTY, date: new Date().toISOString().slice(0, 10) });
       setMilkRefresh((k) => k + 1);
     } catch (err: any) { push(err.message); }
@@ -57,13 +57,13 @@ export function DailyRecords() {
     if (!feed.cowId || !feed.date || !feed.feed.trim()) { push('Cow, date, and feed type are required'); return; }
     setSubmitting(true);
     try {
-      await createFeedRecord({
+      const res = await createFeedRecord({
         cow_id: feed.cowId,
         consumed_on: feed.date,
         feed_type: feed.feed.trim(),
         quantity_kg: Number(feed.kg) || 0,
       });
-      push('Feed record saved');
+      push(res.queued ? "Saved offline — will sync when you're back online" : 'Feed record saved');
       setFeed({ ...FEED_EMPTY, date: new Date().toISOString().slice(0, 10) });
       setFeedRefresh((k) => k + 1);
     } catch (err: any) { push(err.message); }
@@ -171,7 +171,7 @@ export function EmployeeManagement() {
   const [form, setForm] = useState(EMP_EMPTY);
 
   useEffect(() => {
-    if (empList && empList.length) setList(empList);
+    if (empList) setList(empList);
   }, [empList]);
 
   const openAdd = () => { setEditing(null); setForm(EMP_EMPTY); setOpen(true); };
@@ -248,14 +248,14 @@ export function EmployeeManagement() {
 export function GalleryManagement() {
   const { farmId } = useFarm();
   const { push } = useToast();
-  const { data: cats, loading } = useAsync(() => createGalleryItem(farmId, {}).then(() => Promise.resolve([])), [farmId]);
+  const { data: items, loading } = useAsync(() => gallery(farmId), [farmId]);
   const [list, setList] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(GAL_EMPTY);
 
   useEffect(() => {
-    if (cats && cats.length) setList(cats);
-  }, [cats]);
+    if (items) setList(items);
+  }, [items]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

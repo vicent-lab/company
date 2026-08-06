@@ -1,50 +1,61 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, chartColors, gridColor, tickColor, Modal, Progress, useToast, useAsync, Skeleton } from '../ui';
 import { listCows, getCow, createCow, updateCow, createTreatment } from '../data';
-import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun } from 'lucide-react';
+import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun, Stethoscope, ChevronRight, Camera, FolderOpen } from 'lucide-react';
 import { fmt } from '../format';
 import { BREEDS } from '../mock';
 
 const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false };
 
-const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '' };
+const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '', photoUrl: '' };
 
 export function Herd() {
   const { farmId } = useFarm();
   const [, navigate] = useHashRoute();
   const { push } = useToast();
   const [q, setQ] = useState('');
-  const { data: cows, loading } = useAsync(() => listCows(farmId, { search: q }), [farmId, q]);
+  const [listKey, setListKey] = useState(0);
+  const { data: cows, loading } = useAsync(() => listCows(farmId, { search: q }), [farmId, q, listKey]);
   const list = cows || [];
   const milking = list.filter((c) => c.isMilking).length;
   const pregnant = list.filter((c) => c.isPregnant).length;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
 
+  const [saving, setSaving] = useState(false);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.earTag.trim()) { push('Name and ear tag are required'); return; }
-    await createCow(farmId, {
-      name: form.name.trim(),
-      breed: form.breed,
-      ear_tag: form.earTag.trim(),
-      weight_kg: Number(form.weightKg) || 0,
-      is_milking: form.isMilking,
-      is_pregnant: form.isPregnant,
-      gender: 'female',
-      health: 'healthy',
-    });
-    push('Cow added');
-    setForm(EMPTY);
-    setOpen(false);
+    setSaving(true);
+    try {
+      await createCow(farmId, {
+        name: form.name.trim(),
+        breed: form.breed,
+        ear_tag: form.earTag.trim(),
+        weight_kg: Number(form.weightKg) || 0,
+        is_milking: form.isMilking,
+        is_pregnant: form.isPregnant,
+        gender: 'female',
+        health: 'healthy',
+      });
+      push('Cow added');
+      setForm(EMPTY);
+      setOpen(false);
+      setListKey((k) => k + 1);
+      window.dispatchEvent(new Event('dairyos:refresh'));
+    } catch (err: any) {
+      push(err.message || 'Failed to add cow');
+    }
+    setSaving(false);
   };
 
   return (
     <div>
       <PageHeader eyebrow="HERD" title="Your cows" desc={`${list.length} registered · ${milking} milking`}
-        actions={<button className="btn sm" onClick={() => setOpen(true)}><Plus size={16} /> Add cow</button>} />
+        actions={<button className="btn sm" onClick={() => { setQ(''); setOpen(true); }}><Plus size={16} /> Add cow</button>} />
       <div className="three mb">
         <Kpi icon={<Beef size={18} />} label="Total" value={list.length} loading={loading} />
         <Kpi icon={<Milk size={18} />} label="Milking" value={milking} />
@@ -53,19 +64,20 @@ export function Herd() {
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="between" style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
           <h3>{loading ? 'Loading…' : `${list.length} cows`}</h3>
-          <input className="input" style={{ maxWidth: 280 }} placeholder="Search by code, name, breed" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input" style={{ maxWidth: 280 }} placeholder="Search by code, name, breed" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
         </div>
         <div className="table-wrap" style={{ border: 0, boxShadow: 'none' }}>
           <table>
-            <thead><tr><th>Cow</th><th>Code</th><th>Ear tag</th><th>Breed</th><th>Health</th><th>Milking</th><th>Milk/day</th></tr></thead>
+            <thead><tr><th>Cow</th><th>Code</th><th>Ear tag</th><th>Breed</th><th>Health</th><th>Milking</th><th>Milk/day</th><th></th></tr></thead>
             <tbody>
               {list.map((c) => (
-                <tr key={c.id} onClick={() => navigate('/app/cow/' + c.id)}>
-                  <td><div className="row"><CowPhoto name={c.name} color={c.color} size={36} /><div><b>{c.name}</b><div className="muted" style={{ fontSize: 12 }}>{c.gender}</div></div></div></td>
+                <tr key={c.id} onClick={() => navigate('/app/cow/' + c.id)} style={{ cursor: 'pointer' }}>
+                  <td><div className="row"><CowPhoto name={c.name} color={c.color} size={36} photoUrl={c.photoUrl} /><div><b>{c.name}</b><div className="muted" style={{ fontSize: 12 }}>{c.gender}</div></div></div></td>
                   <td>{c.cowCode}</td><td>{c.earTag}</td><td>{c.breed}</td>
                   <td><span className={`pill ${c.health}`}>{c.health.replace('_', ' ')}</span></td>
                   <td>{c.isMilking ? 'Yes' : 'No'}</td>
                   <td>{c.avgDailyMilk ? fmt.liters(c.avgDailyMilk) : '—'}</td>
+                  <td><ChevronRight size={16} className="muted" /></td>
                 </tr>
               ))}
             </tbody>
@@ -79,7 +91,7 @@ export function Herd() {
           <div className="field"><label>Ear tag</label><input className="input" value={form.earTag} onChange={(e) => setForm({ ...form, earTag: e.target.value })} required /></div>
           <div className="field"><label>Weight (kg)</label><input className="input" type="number" value={form.weightKg} onChange={(e) => setForm({ ...form, weightKg: e.target.value })} /></div>
           <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.isMilking} onChange={(e) => setForm({ ...form, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.isPregnant} onChange={(e) => setForm({ ...form, isPregnant: e.target.checked })} /> Pregnant</label></div>
-          <button className="btn mt" style={{ marginTop: 16 }} type="submit">Save cow</button>
+          <button className="btn mt" style={{ marginTop: 16 }} type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save cow'}</button>
         </form>
       </Modal>}
     </div>
@@ -97,43 +109,92 @@ export function CowProfile({ id }: { id: string }) {
   const [treatOpen, setTreatOpen] = useState(false);
   const [treatForm, setTreatForm] = useState({ disease: '', diagnosis: '', vetName: '', status: 'Active' });
   const [saving, setSaving] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   if (loading) return <div className="card"><Skeleton h={200} /></div>;
   if (!cow) return <div className="card">Cow not found.</div>;
+
   const milkTotal = cow.milk.reduce((s, m) => s + m.morning + m.afternoon + m.evening, 0);
+  const lastMilk = cow.milk[0];
+  const lastMilkTotal = lastMilk ? lastMilk.morning + lastMilk.afternoon + lastMilk.evening : 0;
+  const age = cow.dob ? Math.floor((Date.now() - new Date(cow.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : null;
+  const pendingVacc = (cow.vaccinations || []).filter((v) => !v.done).length;
+  const activeTreatments = (cow.treatments || []).filter((t) => t.status === 'Active').length;
   const gc = chartColors();
   const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: tickColor(), maxTicksLimit: 6 }, grid: { color: gridColor() } }, y: { ticks: { color: tickColor() }, grid: { color: gridColor() } } } };
 
+  const stopCamera = () => {
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); setStream(null); }
+  };
+
+  const startCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setStream(s);
+      setCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); } }, 100);
+    } catch (err) { push('Camera access denied'); }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      setEditForm((f) => ({ ...f, photoUrl: dataUrl }));
+      setPhotoPreview(dataUrl);
+    }
+    stopCamera();
+    setCameraOpen(false);
+  };
+
+  const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setEditForm((f) => ({ ...f, photoUrl: dataUrl }));
+      setPhotoPreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
   return (
     <div>
-      <button className="btn ghost sm mb" onClick={() => navigate('/app/cows')}><ArrowLeft size={15} /> Back to herd</button>
-
-      <div className="card reveal" style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center' }}>
-        <CowPhoto name={cow.name} color={cow.color} size={92} />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="eyebrow">{cow.cowCode} · {cow.earTag}</div>
-          <h1 style={{ fontSize: 30 }}>{cow.name}</h1>
-          <div className="row mt">
-            <span className={`pill ${cow.health}`}>{cow.health.replace('_', ' ')}</span>
-            {cow.isMilking && <span className="pill info">Milking</span>}
-            {cow.isPregnant && <span className="pill warn">Pregnant</span>}
-            {cow.status === 'deceased' && <span className="pill" style={{ background: 'var(--danger)', color: '#fff' }}>Deceased</span>}
-            <span className="tag">{cow.breed}</span>
-          </div>
-        </div>
-        <div className="row">
-          <button className="btn ghost sm" onClick={() => { setEditForm({ name: cow.name, breed: cow.breed, earTag: cow.earTag, weightKg: String(cow.weightKg), waterIntakeLiters: String(cow.waterIntakeLiters ?? 0), isMilking: cow.isMilking, isPregnant: cow.isPregnant, status: cow.status, deathDate: cow.deathDate ?? '', deathCause: cow.deathCause ?? '', deathNotes: cow.deathNotes ?? '' }); setEditOpen(true); }}><Edit3 size={15} /> Edit</button>
-          <button className="btn ghost sm" onClick={() => setQr(true)}><QrIc size={15} /> QR</button>
-          <button className="btn ghost sm" onClick={() => push('Profile exported', <Download size={15} />)}><Download size={15} /> Export</button>
-          <button className="btn ghost sm" onClick={() => window.print()}><Printer size={15} /> Print</button>
+      <div className="row" style={{ gap: 18, alignItems: 'center', marginBottom: 4 }}>
+        <CowPhoto name={cow.name} color={cow.color} size={96} photoUrl={cow.photoUrl} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PageHeader eyebrow="COW DASHBOARD" title={cow.name}
+            desc={`${cow.cowCode} · ${cow.earTag} · ${cow.breed}${age ? ` · ${age} years` : ''}`}
+            actions={
+              <div className="row">
+                <button className="btn ghost sm" onClick={() => { setEditForm({ name: cow.name, breed: cow.breed, earTag: cow.earTag, weightKg: String(cow.weightKg), waterIntakeLiters: String(cow.waterIntakeLiters ?? 0), isMilking: cow.isMilking, isPregnant: cow.isPregnant, status: cow.status, deathDate: cow.deathDate ?? '', deathCause: cow.deathCause ?? '', deathNotes: cow.deathNotes ?? '', photoUrl: cow.photoUrl ?? '' }); setEditOpen(true); }}><Edit3 size={15} /> Edit</button>
+                <button className="btn ghost sm" onClick={() => setQr(true)}><QrIc size={15} /> QR</button>
+                <button className="btn ghost sm" onClick={() => push('Profile exported', <Download size={15} />)}><Download size={15} /> Export</button>
+                <button className="btn ghost sm" onClick={() => window.print()}><Printer size={15} /> Print</button>
+              </div>
+            }
+          />
         </div>
       </div>
 
       <div className="four mt">
-        <Kpi icon={<Milk size={18} />} label="Avg milk / day" value={fmt.liters(cow.avgDailyMilk)} />
+        <Kpi icon={<Milk size={18} />} label="Avg milk / day" value={fmt.liters(cow.avgDailyMilk)} delta={lastMilkTotal ? `${fmt.liters(lastMilkTotal)} today` : 'No records'} />
         <Kpi icon={<Beef size={18} />} label="Weight" value={fmt.kg(cow.weightKg)} />
-        <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={`${(cow.vaccinations || []).filter((v) => v.done).length}/${(cow.vaccinations || []).length}`} />
         <Kpi icon={<HeartPulse size={18} />} label="Productivity" value={<AnimatedCounter value={cow.productivityScore} suffix="%" />} />
         <Kpi icon={<CloudSun size={18} />} label="Water intake" value={`${cow.waterIntakeLiters ?? 0} L/day`} />
+        <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={`${(cow.vaccinations || []).filter((v) => v.done).length}/${(cow.vaccinations || []).length}`} delta={pendingVacc ? `${pendingVacc} pending` : 'Up to date'} tone={pendingVacc ? 'down' : 'up'} />
+        <Kpi icon={<Stethoscope size={18} />} label="Treatments" value={activeTreatments} delta={activeTreatments ? 'Active' : 'None'} tone={activeTreatments ? 'down' : 'up'} loading={loading} />
+        <Kpi icon={<Milk size={18} />} label="Total milk recorded" value={fmt.liters(milkTotal)} delta={`${cow.milk.length} records`} />
+        <Kpi icon={<Beef size={18} />} label="Status" value={cow.status === 'active' ? 'Active' : cow.status} tone={cow.status === 'active' ? 'up' : 'down'} />
       </div>
 
       <div className="split mt">
@@ -147,8 +208,15 @@ export function CowProfile({ id }: { id: string }) {
 
       <div className="two mt">
         <div className="card">
-          <h3>Health history</h3>
-          {(cow.treatments && cow.treatments.length) ? cow.treatments.map((t) => (
+          <h3>Health status</h3>
+          <div className="row mt" style={{ gap: 10 }}>
+            <span className={`pill ${cow.health}`}>{cow.health.replace('_', ' ')}</span>
+            {cow.isMilking && <span className="pill info">Milking</span>}
+            {cow.isPregnant && <span className="pill warn">Pregnant</span>}
+            <span className="tag">{cow.breed}</span>
+          </div>
+          <h3 className="mt">Recent treatments</h3>
+          {(cow.treatments && cow.treatments.length) ? cow.treatments.slice(0, 5).map((t) => (
             <div key={t.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
               <div><b>{t.disease}</b><div className="muted" style={{ fontSize: 12 }}>{t.diagnosis} · {fmt.date(t.date)} {t.vetName ? `· Vet: ${t.vetName}` : ''}</div></div>
               <span className={`pill ${t.status === 'Active' ? 'danger' : 'warn'}`}>{t.status}</span>
@@ -165,7 +233,8 @@ export function CowProfile({ id }: { id: string }) {
         </div>
 
         <div className="card">
-          <h3>Pregnancy history</h3>
+          <h3>Breeding & family</h3>
+          <h3 className="mt" style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Pregnancy history</h3>
           {(cow.breedings && cow.breedings.length) ? cow.breedings.map((b) => (
             <div key={b.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
               <div><b>{b.method}</b> · {fmt.date(b.date)}<div className="muted" style={{ fontSize: 12 }}>Exp. calving {fmt.date(b.expectedCalving)}</div></div>
@@ -201,7 +270,7 @@ export function CowProfile({ id }: { id: string }) {
         </div>
       </Modal>}
 
-      {editOpen && <Modal title="Edit cow" onClose={() => setEditOpen(false)}>
+      {editOpen && <Modal title="Edit cow" onClose={() => { setEditOpen(false); stopCamera(); }}>
         <form onSubmit={async (e) => {
           e.preventDefault();
           setSaving(true);
@@ -218,10 +287,12 @@ export function CowProfile({ id }: { id: string }) {
               death_date: editForm.deathDate || null,
               death_cause: editForm.deathCause || null,
               death_notes: editForm.deathNotes || null,
+              photo_url: editForm.photoUrl || null,
             });
             push('Cow updated');
             setCowKey(k => k + 1);
             setEditOpen(false);
+            window.dispatchEvent(new Event('dairyos:refresh'));
           } catch (err: any) { push(err.message); }
           setSaving(false);
         }}>
@@ -230,6 +301,17 @@ export function CowProfile({ id }: { id: string }) {
           <div className="field"><label>Ear tag</label><input className="input" value={editForm.earTag} onChange={(e) => setEditForm({ ...editForm, earTag: e.target.value })} required /></div>
           <div className="field"><label>Weight (kg)</label><input className="input" type="number" value={editForm.weightKg} onChange={(e) => setEditForm({ ...editForm, weightKg: e.target.value })} /></div>
           <div className="field"><label>Water intake (L/day)</label><input className="input" type="number" value={editForm.waterIntakeLiters} onChange={(e) => setEditForm({ ...editForm, waterIntakeLiters: e.target.value })} /></div>
+          <div className="field"><label>Photo</label>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload from PC
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoFile} />
+              </label>
+              <button type="button" className="btn sm" onClick={startCamera}><Camera size={14} /> Take photo</button>
+              {(editForm.photoUrl || photoPreview) && <button type="button" className="btn ghost sm" onClick={() => { setEditForm((f) => ({ ...f, photoUrl: '' })); setPhotoPreview(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}><Trash2 size={14} /> Remove</button>}
+            </div>
+            {(editForm.photoUrl || photoPreview) && <img src={(editForm.photoUrl || photoPreview) as string} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, background: 'var(--surface-2)' }} />}
+          </div>
           <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isMilking} onChange={(e) => setEditForm({ ...editForm, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isPregnant} onChange={(e) => setEditForm({ ...editForm, isPregnant: e.target.checked })} /> Pregnant</label></div>
           <div className="field mt"><label>Status</label><select className="select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="deceased">Deceased</option><option value="sold">Sold</option><option value="archived">Archived</option></select></div>
           {editForm.status === 'deceased' && <><div className="field mt"><label>Death date</label><input className="input" type="date" value={editForm.deathDate} onChange={(e) => setEditForm({ ...editForm, deathDate: e.target.value })} /></div><div className="field mt"><label>Death cause</label><input className="input" value={editForm.deathCause} onChange={(e) => setEditForm({ ...editForm, deathCause: e.target.value })} /></div><div className="field mt"><label>Death notes</label><textarea className="input" value={editForm.deathNotes} onChange={(e) => setEditForm({ ...editForm, deathNotes: e.target.value })} /></div></>}
@@ -247,7 +329,7 @@ export function CowProfile({ id }: { id: string }) {
           try {
             await createTreatment({
               cow_id: id,
-              disease_id: treatForm.disease,
+              disease: treatForm.disease,
               diagnosis: treatForm.diagnosis,
               treatment_plan: '',
               veterinarian_name: treatForm.vetName,
@@ -269,6 +351,15 @@ export function CowProfile({ id }: { id: string }) {
             <button className="btn" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving…' : 'Save'}</button>
           </div>
         </form>
+      </Modal>}
+
+      {cameraOpen && <Modal title="Take photo" onClose={() => { setCameraOpen(false); stopCamera(); }}>
+        <video ref={videoRef} style={{ width: '100%', borderRadius: 8, background: '#000' }} playsInline muted />
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <div className="row mt" style={{ justifyContent: 'center', gap: 10 }}>
+          <button type="button" className="btn" onClick={capturePhoto}><Camera size={16} /> Capture</button>
+          <button type="button" className="btn ghost" onClick={() => { setCameraOpen(false); stopCamera(); }}>Cancel</button>
+        </div>
       </Modal>}
     </div>
   );

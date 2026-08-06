@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 
 export type ThemeName = 'light' | 'dark' | 'contrast';
 
@@ -15,12 +15,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return (saved as ThemeName) || 'light';
   });
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('dairy-theme', theme);
-  }, [theme]);
+  const setTheme = (t: ThemeName) => {
+    setThemeState(t);
+    localStorage.setItem('dairy-theme', t);
+    document.documentElement.setAttribute('data-theme', t);
+  };
 
-  return <Ctx.Provider value={{ theme, setTheme: setThemeState }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ theme, setTheme }}>{children}</Ctx.Provider>;
 }
 
 export const useTheme = () => useContext(Ctx);

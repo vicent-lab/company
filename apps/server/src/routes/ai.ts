@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { query } from '../db/index.js';
 import { requireAuth, resolveFarmId } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/errors.js';
+import {
+  answerMilkDecline, answerCowsNeedingAttention, answerTomorrowPlan, answerCowProfitability,
+  answerIncreaseProfit, answerPregnancyCandidates, answerFinancialReport, answerFeedCostIncrease,
+} from '../ai/qa-answers.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -9,6 +13,18 @@ router.use(requireAuth);
 function classifyIntent(q: string): { intent: string; confidence: number; entities: string[] } {
   const lower = q.toLowerCase();
   const entities: string[] = [];
+
+  // Specific, data-grounded question patterns are checked first so they take priority
+  // over the broader topic keywords below (e.g. "milk" alone routes to milk_production,
+  // but "milk...falling" should route to the trend/decline analysis instead).
+  if (/\b(milk|production|yield)\b/.test(lower) && /\b(fall|falling|fell|drop|dropp|declin|decreas|down|less|reduc)\b/.test(lower)) return { intent: 'milk_decline', confidence: 0.95, entities };
+  if (/\bcow(s)?\b/.test(lower) && /\battention|priorit|watch|focus\b/.test(lower)) return { intent: 'attention_today', confidence: 0.9, entities };
+  if (/\btomorrow\b/.test(lower)) return { intent: 'tomorrow_plan', confidence: 0.9, entities };
+  if (/\bcow(s)?\b/.test(lower) && /\bmoney|costing|expensive|losing money|unprofitable|profitab/.test(lower)) return { intent: 'cow_profitability', confidence: 0.9, entities };
+  if (/\bprofit\b/.test(lower) && /\bincreas|improve|boost|raise|more\b/.test(lower)) return { intent: 'increase_profit', confidence: 0.9, entities };
+  if (/pregnan/.test(lower) && /\bwhich|likely|candidate|probably\b/.test(lower)) return { intent: 'pregnancy_candidates', confidence: 0.9, entities };
+  if (/report/.test(lower) && /financ/.test(lower)) return { intent: 'financial_report', confidence: 0.9, entities };
+  if (/feed/.test(lower) && /cost/.test(lower) && /(increas|rising|risen|rose|expensive|higher|up|why)/.test(lower)) return { intent: 'feed_cost_increase', confidence: 0.9, entities };
 
   if (/\b(vaccin|vaccination|booster|shot|injection|immune|antibody)\b/.test(lower)) return { intent: 'vaccination', confidence: 0.95, entities };
   if (/\b(milk|litre|liter|production|yield|milking|udder|mastitis|fat|snf|butterfat)\b/.test(lower)) return { intent: 'milk_production', confidence: 0.95, entities };
@@ -152,6 +168,38 @@ router.post('/ask', asyncHandler(async (req, res) => {
 
     case 'goodbye':
       answer = 'Goodbye! Your farm data is always here when you need it. Have a great day!';
+      break;
+
+    case 'milk_decline':
+      answer = await answerMilkDecline(farmId);
+      break;
+
+    case 'attention_today':
+      answer = await answerCowsNeedingAttention(farmId);
+      break;
+
+    case 'tomorrow_plan':
+      answer = await answerTomorrowPlan(farmId);
+      break;
+
+    case 'cow_profitability':
+      answer = await answerCowProfitability(farmId);
+      break;
+
+    case 'increase_profit':
+      answer = await answerIncreaseProfit(farmId);
+      break;
+
+    case 'pregnancy_candidates':
+      answer = await answerPregnancyCandidates(farmId);
+      break;
+
+    case 'financial_report':
+      answer = await answerFinancialReport(farmId);
+      break;
+
+    case 'feed_cost_increase':
+      answer = await answerFeedCostIncrease(farmId);
       break;
 
     case 'vaccination': {

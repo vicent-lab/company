@@ -32,7 +32,7 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({ data: rows, count: rows.length });
 }));
 
-router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
+router.post('/', requirePermission('task:write'), asyncHandler(async (req, res) => {
   const b = taskSchema.parse(req.body);
   const farmId = resolveFarmId(req);
   const { rows } = await query(
@@ -45,11 +45,11 @@ router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) 
   res.status(201).json(rows[0]);
 }));
 
-router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
+router.patch('/:id', requirePermission('task:write'), asyncHandler(async (req, res) => {
   const b = taskSchema.partial().parse(req.body);
   const existing = await query('SELECT farm_id FROM tasks WHERE id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Task not found');
-  if (req.user!.role !== 'administrator' && existing.rows[0].farm_id !== resolveFarmId(req))
+  if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== resolveFarmId(req))
     throw new HttpError(403, 'Access denied');
   const sets: string[] = [];
   const params: any[] = [];
@@ -76,10 +76,10 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   res.json(rows[0]);
 }));
 
-router.delete('/:id', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
+router.delete('/:id', requirePermission('task:write'), asyncHandler(async (req, res) => {
   const existing = await query('SELECT farm_id FROM tasks WHERE id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Task not found');
-  if (req.user!.role !== 'administrator' && existing.rows[0].farm_id !== resolveFarmId(req))
+  if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== resolveFarmId(req))
     throw new HttpError(403, 'Access denied');
   await query('DELETE FROM tasks WHERE id=$1', [req.params.id]);
   await audit(req.user, 'delete', 'task', req.params.id);

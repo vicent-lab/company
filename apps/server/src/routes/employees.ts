@@ -48,7 +48,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   const b = patchSchema.parse(req.body);
   const existing = await query('SELECT farm_id FROM employees WHERE id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Employee not found');
-  if (req.user!.role !== 'administrator' && existing.rows[0].farm_id !== req.user!.farmId)
+  if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
   const sets: string[] = [];
   const params: any[] = [];
@@ -68,7 +68,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
 router.delete('/:id', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
   const existing = await query('SELECT farm_id FROM employees WHERE id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Employee not found');
-  if (req.user!.role !== 'administrator' && existing.rows[0].farm_id !== req.user!.farmId)
+  if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
   await query('DELETE FROM employees WHERE id=$1', [req.params.id]);
   await audit(req.user, 'delete', 'employee', req.params.id);

@@ -1,10 +1,17 @@
 import { useRef, useState } from 'react';
 import { useFarm } from '../app';
 import { PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, BarChart, DoughnutChart, chartColors, gridColor, tickColor, useToast, useAsync, Skeleton } from '../ui';
-import { predictions, analytics, finance, weather, sustainability, notifications, aiAsk } from '../data';
-import { Bot, Send, TrendingUp, TrendingDown, CloudSun, Droplets, Wind, Thermometer, Leaf, AlertTriangle, Syringe, HeartPulse, Flame, Package, CreditCard, FileDown, Mic, Sparkles } from 'lucide-react';
+import { predictions, analytics, finance, weather, sustainability, notifications, aiAsk, dashboardSummary, breedPopulation, healthDistribution } from '../data';
+import { Bot, Send, TrendingUp, TrendingDown, CloudSun, Droplets, Wind, Thermometer, Leaf, AlertTriangle, Syringe, HeartPulse, Flame, Package, CreditCard, FileDown, Mic, Sparkles, Activity } from 'lucide-react';
 import { fmt } from '../format';
-import { exportTable, exportPDF, toCSV, download } from '../export';
+import { exportTable, exportPDF, exportReport, openReportWindow, toCSV, download } from '../export';
+
+// "write/generate/get me a report" (about the farm, in pdf, etc.) — distinguished from
+// a plain question that happens to mention "report" (e.g. "financial report for March")
+// by requiring an explicit request-to-produce-something verb alongside it.
+const REPORT_TOPIC = /\b(report|pdf)\b/i;
+const REPORT_VERB = /\b(write|generate|create|make|produce|build|prepare|compile|give me|get me|send me|download|export|need|want)\b/i;
+const isReportRequest = (q: string) => REPORT_TOPIC.test(q) && REPORT_VERB.test(q);
 
 export function AIAssistant() {
   const { farmId } = useFarm();
@@ -17,11 +24,65 @@ export function AIAssistant() {
   const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
+  const generateFarmReport = async (target: Window | null): Promise<string> => {
+    const [summary, breeds, health, fin] = await Promise.all([
+      dashboardSummary(farmId), breedPopulation(farmId), healthDistribution(farmId), finance(farmId),
+    ]);
+    const sections = [
+      {
+        heading: 'Herd overview',
+        headers: ['Metric', 'Value'],
+        rows: [
+          ['Total cows', summary.totalCows],
+          ['Milking cows', summary.milkingCows],
+          ['Pregnant cows', summary.pregnantCows],
+          ['Cows needing attention', summary.sickCows],
+          ['Milk produced today (L)', summary.milkToday],
+          ['Feed stock (kg)', summary.feedStock],
+          ['Vaccinations due (next 7 days)', summary.upcomingVacc],
+        ],
+      },
+      { heading: 'Breed population', headers: ['Breed', 'Count'], rows: (breeds || []).map((b: any) => [b.breed, b.count]) },
+      { heading: 'Health distribution', headers: ['Health status', 'Count'], rows: (health || []).map((h: any) => [h.health, h.count]) },
+      {
+        heading: "Financial snapshot (this month)",
+        headers: ['Metric', 'Value'],
+        rows: [
+          ['Revenue', fmt.money(summary.revenue)],
+          ['Expenses', fmt.money(summary.expenses)],
+          ['Profit', fmt.money(summary.profit)],
+          ['Outstanding balance', fmt.money(fin.outstanding || 0)],
+        ],
+      },
+      ...(fin.outstandingList?.length ? [{
+        heading: 'Outstanding invoices',
+        headers: ['Customer', 'Type', 'Amount', 'Status'],
+        rows: fin.outstandingList.map((o: any) => [o.customerName, o.saleType, fmt.money(o.amount), o.status]),
+      }] : []),
+    ];
+    const now = new Date();
+    exportReport('DairyOS Farm Report', `Generated ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}`, sections, target);
+    return target
+      ? "I've put together your farm report — herd overview, breed and health distribution, and this month's finances — and opened it in a new tab. Use your browser's print dialog (Ctrl/Cmd+P → Save as PDF) to save it."
+      : "I generated your farm report, but the browser blocked the pop-up — please allow pop-ups for this site and ask me again.";
+  };
+
   const send = (text?: string) => {
     const q = (text ?? input).trim();
     if (!q) return;
     setInput('');
     setTyping(true);
+    if (isReportRequest(q)) {
+      const w = openReportWindow('Generating your farm report…');
+      generateFarmReport(w).then((a) => {
+        setMsgs((m) => [...m, { q, a }]);
+        setTyping(false);
+      }).catch(() => {
+        setMsgs((m) => [...m, { q, a: 'Sorry, I could not generate the report right now.' }]);
+        setTyping(false);
+      });
+      return;
+    }
     aiAsk(q, farmId).then((a) => {
       setMsgs((m) => [...m, { q, a }]);
       setTyping(false);
@@ -52,6 +113,7 @@ export function AIAssistant() {
     'How do I use this project?',
     'Give me health advice.',
     'How can I improve profitability?',
+    'Write a PDF report about my farm.',
   ];
 
   return (
@@ -62,8 +124,8 @@ export function AIAssistant() {
           {msgs.map((m, i) => (
             <div key={i} className="reveal" style={{ marginBottom: 16 }}>
               {m.a ? <><div className="row" style={{ justifyContent: 'flex-end' }}><div className="card" style={{ background: 'var(--primary)', color: '#fff', maxWidth: '75%', border: 0 }}>{m.q}</div></div>
-              <div className="row mt" style={{ marginTop: 10 }}><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ maxWidth: '80%', border: 0, background: 'var(--surface-2)' }}>{m.a}</div></div></>
-                : <div className="row"><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ border: 0, background: 'var(--surface-2)' }}>{m.q}</div></div>}
+              <div className="row mt" style={{ marginTop: 10 }}><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ maxWidth: '80%', border: 0, background: 'var(--surface-2)', whiteSpace: 'pre-wrap' }}>{m.a}</div></div></>
+                : <div className="row"><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ border: 0, background: 'var(--surface-2)', whiteSpace: 'pre-wrap' }}>{m.q}</div></div>}
             </div>
           ))}
           {typing && <div className="row mt"><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ border: 0, background: 'var(--surface-2)' }}>Thinking…</div></div>}
@@ -74,7 +136,7 @@ export function AIAssistant() {
         </div>
         <div className="row mt" style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
           <input className="input" placeholder="Ask your farm assistant…" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
-          <button className={`btn ghost sm ${listening ? '' : ''}`} style={listening ? { background: 'var(--danger)', color: '#fff' } : {}} onClick={voice}><Mic size={16} /></button>
+          <button className="btn ghost sm" style={listening ? { background: 'var(--danger)', color: '#fff' } : {}} onClick={voice}><Mic size={16} /></button>
           <button className="btn" onClick={() => send()}><Send size={16} /></button>
         </div>
       </div>
@@ -84,30 +146,125 @@ export function AIAssistant() {
 
 export function Predictions() {
   const { farmId } = useFarm();
-  const { data: p } = useAsync(() => predictions(farmId), [farmId]);
-  const d = p || ({} as any);
+  const { data: predictionsList } = useAsync(() => predictions(farmId), [farmId]);
+  const preds = Array.isArray(predictionsList) ? predictionsList : [];
+  const byCategory = Object.fromEntries(preds.map((p: any) => [p.category, p]));
+
+  const milk = byCategory['milk_production'] as any;
+  const disease = byCategory['disease_risk'] as any;
+  const pregnancy = byCategory['pregnancy_success'] as any;
+  const calving = byCategory['calving_date'] as any;
+  const feed = byCategory['feed_shortage'] as any;
+  const medicine = byCategory['medicine_shortage'] as any;
+  const equipment = byCategory['equipment_failure'] as any;
+  const cashFlow = byCategory['cash_flow'] as any;
+  const profit = byCategory['profit'] as any;
+  const productivity = byCategory['cow_productivity'] as any;
+  const workload = byCategory['farmer_workload'] as any;
+  const stress = byCategory['animal_stress'] as any;
+  const water = byCategory['water_requirements'] as any;
+
   const gc = chartColors();
   const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: tickColor() }, grid: { color: gridColor() } }, y: { ticks: { color: tickColor() }, grid: { color: gridColor() } } } };
+
+  const Pill = ({ children, tone = 'info' }: { children: React.ReactNode; tone?: string }) => (
+    <span className={`pill ${tone}`} style={{ fontSize: 11, textTransform: 'capitalize' }}>{children}</span>
+  );
+
   return (
     <div>
-      <PageHeader eyebrow="AI PREDICTIONS" title="Forecasts & risk" desc="Machine-learning estimates from your live data." />
-      <div className="four">
-        <Kpi icon={<TrendingUp size={18} />} label="Milk next month" value={<AnimatedCounter value={d.milkNext6?.[5] ?? 0} suffix=" L" />} delta="+3%" />
-        <Kpi icon={<Package size={18} />} label="Feed needed" value={<AnimatedCounter value={d.feedNeeded ?? 0} suffix=" kg" />} delta="next 30d" tone="down" />
-        <Kpi icon={<HeartPulse size={18} />} label="Pregnancy success" value={<AnimatedCounter value={d.pregnancySuccess ?? 0} suffix="%" />} delta="model" />
-        <Kpi icon={<AlertTriangle size={18} />} label="Disease risk" value={d.diseaseRisk ?? '—'} delta={`score ${d.diseaseRiskScore ?? 0}`} tone={(d.diseaseRiskScore ?? 0) > 40 ? 'down' : 'up'} />
+      <PageHeader eyebrow="AI PREDICTIONS" title="Forecasts & risk" desc="Machine-learning estimates across 13 farm dimensions from your live data." />
+
+      <div className="four mt">
+        <Kpi icon={<TrendingUp size={18} />} label="Milk forecast (7d)" value={<AnimatedCounter value={milk?.forecast?.[6] ?? 0} suffix=" L" />} delta={milk?.trend?.replace('_', ' ') || '—'} tone={milk?.trend === 'increasing' ? 'up' : milk?.trend === 'decreasing' ? 'down' : undefined} />
+        <Kpi icon={<HeartPulse size={18} />} label="Disease risk" value={disease?.level ?? '—'} delta={`score ${disease?.score ?? 0}`} tone={(disease?.score ?? 0) > 50 ? 'down' : 'up'} />
+        <Kpi icon={<Activity size={18} />} label="Pregnancy success" value={<AnimatedCounter value={pregnancy?.predictedRate ?? 0} suffix="%" />} delta="predicted" />
+        <Kpi icon={<AlertTriangle size={18} />} label="Calving soon" value={<AnimatedCounter value={calving?.nextMonthCount ?? 0} suffix="" />} delta="next 30d" tone={(calving?.nextMonthCount ?? 0) > 0 ? 'down' : 'up'} />
       </div>
+
       <div className="split mt">
-        <ChartCard title="Milk output — next 6 months" subtitle="Predicted litres">
-          <LineChart data={{ labels: ['M1','M2','M3','M4','M5','M6'], datasets: [{ label: 'Predicted', data: d.milkNext6 || [], borderColor: gc[0], backgroundColor: gc[0] + '22', fill: true, tension: 0.4, pointRadius: 3, borderWidth: 3 }] }} options={opts} />
+        <ChartCard title="Milk output — next 7 days" subtitle="Predicted litres">
+          <LineChart data={{ labels: Array.from({ length: 7 }, (_, i) => `D${i + 1}`), datasets: [{ label: 'Predicted', data: milk?.forecast || [], borderColor: gc[0], backgroundColor: gc[0] + '22', fill: true, tension: 0.4, pointRadius: 3, borderWidth: 3 }] }} options={opts} />
         </ChartCard>
-        <ChartCard title="Profit trend" subtitle="Monthly % change">
-          <BarChart data={{ labels: ['M1','M2','M3','M4','M5','M6'], datasets: [{ label: 'Δ%', data: d.profitTrend || [], backgroundColor: (d.profitTrend || []).map((v: number) => v >= 0 ? gc[0] : gc[4]), borderRadius: 6 }] }} options={opts} />
+        <ChartCard title="Cash flow projection" subtitle="Next 90 days">
+          <BarChart data={{ labels: ['30d','60d','90d'], datasets: [{ label: 'Net', data: [cashFlow?.next30Days ?? 0, ((cashFlow?.next30Days ?? 0) * 2), cashFlow?.next90Days ?? 0], backgroundColor: [gc[0], gc[1], gc[2]], borderRadius: 6 }] }} options={opts} />
         </ChartCard>
       </div>
+
+      <div className="three mt">
+        <div className="card">
+          <h3>Feed shortage risk</h3>
+          <p className="mt">Days remaining: <b>{feed?.daysRemaining ?? '—'}</b></p>
+          <div className="row mt" style={{ gap: 8 }}><Pill tone={feed?.riskLevel === 'High' ? 'danger' : feed?.riskLevel === 'Moderate' ? 'warn' : 'ok'}>{feed?.riskLevel || '—'}</Pill><span className="muted" style={{ fontSize: 12 }}>{feed?.shortageType}</span></div>
+        </div>
+        <div className="card">
+          <h3>Medicine shortage risk</h3>
+          <p className="mt">Critical medicines: <b>{(medicine?.criticalMedicines || []).length}</b></p>
+          <div className="row mt" style={{ gap: 8 }}><Pill tone={medicine?.riskLevel === 'High' ? 'danger' : medicine?.riskLevel === 'Moderate' ? 'warn' : 'ok'}>{medicine?.riskLevel || '—'}</Pill></div>
+          {(medicine?.criticalMedicines || []).slice(0, 3).map((m: any, i: number) => (
+            <div key={i} className="between mt" style={{ alignItems: 'center' }}><span>{m.name}</span><span className="muted" style={{ fontSize: 12 }}>Stock: {m.stock}</span></div>
+          ))}
+        </div>
+        <div className="card">
+          <h3>Equipment failure risk</h3>
+          <p className="mt">Risk score: <b>{equipment?.riskScore ?? 0}/100</b></p>
+          <div className="row mt" style={{ gap: 8 }}><Pill tone={(equipment?.riskScore ?? 0) > 50 ? 'danger' : 'ok'}>{equipment?.atRiskItems?.length ? 'At risk' : 'Low risk'}</Pill></div>
+        </div>
+      </div>
+
       <div className="two mt">
-        <div className="card"><h3>Inventory shortage risk</h3><p className="mt">Model predicts <b>{d.inventoryShortage ?? '—'}</b> may run low within 10 days. Pre-order recommended.</p><div className="progress mt"><span style={{ width: '30%' }} /></div></div>
-        <div className="card"><h3>Recommendation</h3><p className="mt">Increase concentrate by 8% for lactating cows and schedule boosters. Expected +2.4% yield.</p></div>
+        <div className="card">
+          <h3>Profit outlook</h3>
+          <div className="row mt" style={{ gap: 16 }}>
+            <div><div className="muted" style={{ fontSize: 12 }}>Next 30 days</div><b>${(profit?.next30Days ?? 0).toLocaleString()}</b></div>
+            <div><div className="muted" style={{ fontSize: 12 }}>Next 90 days</div><b>${(profit?.next90Days ?? 0).toLocaleString()}</b></div>
+            <div><div className="muted" style={{ fontSize: 12 }}>Margin</div><b>{profit?.margin ?? 0}%</b></div>
+          </div>
+          <Pill tone={profit?.trend === 'increasing' ? 'ok' : profit?.trend === 'decreasing' ? 'danger' : 'info'}>{profit?.trend || '—'}</Pill>
+        </div>
+        <div className="card">
+          <h3>Farmer workload</h3>
+          <div className="row mt" style={{ gap: 16 }}>
+            <div><div className="muted" style={{ fontSize: 12 }}>Pending tasks</div><b>{workload?.pendingTasks ?? 0}</b></div>
+            <div><div className="muted" style={{ fontSize: 12 }}>Workload score</div><b>{workload?.score ?? 0}/100</b></div>
+          </div>
+          <p className="mt muted" style={{ fontSize: 13 }}>{workload?.recommendation}</p>
+        </div>
+      </div>
+
+      <div className="three mt">
+        <div className="card">
+          <h3>Animal stress (THI)</h3>
+          <p className="mt">Current risk: <b>{stress?.currentRisk ?? '—'}</b></p>
+          <div className="row mt" style={{ gap: 8 }}><Pill tone={stress?.currentRisk === 'High' ? 'danger' : stress?.currentRisk === 'Moderate' ? 'warn' : 'ok'}>{stress?.thi ?? '—'} THI</Pill></div>
+          <p className="muted mt" style={{ fontSize: 13 }}>{stress?.recommendation}</p>
+        </div>
+        <div className="card">
+          <h3>Water requirements</h3>
+          <p className="mt">Daily need: <b>{(water?.dailyNeedLiters ?? 0).toLocaleString()} L</b></p>
+          <p className="muted mt" style={{ fontSize: 13 }}>Available: {(water?.currentAvailability ?? 0).toLocaleString()} L</p>
+          <div className="row mt" style={{ gap: 8 }}><Pill tone={water?.riskLevel === 'High' ? 'danger' : 'ok'}>{water?.riskLevel || '—'}</Pill></div>
+        </div>
+        <div className="card">
+          <h3>Top cow productivity</h3>
+          {(productivity?.topPerformers || []).slice(0, 3).map((c: any, i: number) => (
+            <div key={i} className="between mt" style={{ alignItems: 'center' }}><span>{c.cowCode}</span><span className="muted" style={{ fontSize: 12 }}>{c.predictedYield} L/day</span></div>
+          ))}
+          {(productivity?.topPerformers || []).length === 0 && <p className="muted mt" style={{ fontSize: 13 }}>No data yet.</p>}
+        </div>
+      </div>
+
+      <div className="card mt">
+        <h3>Upcoming calvings (next 60 days)</h3>
+        <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
+          <table>
+            <thead><tr><th>Cow</th><th>Expected date</th><th>Days until</th></tr></thead>
+            <tbody>{(calving?.upcoming || []).slice(0, 10).map((c: any, i: number) => (
+              <tr key={i}><td>{c.cowCode}</td><td>{fmt.shortDate(c.expectedDate)}</td><td>{c.daysUntil}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+        {(calving?.upcoming || []).length === 0 && <p className="muted mt" style={{ fontSize: 13 }}>No calvings expected in the next 60 days.</p>}
       </div>
     </div>
   );
@@ -190,9 +347,22 @@ export function Financial() {
             options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: tickColor() }, grid: { color: gridColor() } }, y: { ticks: { color: tickColor() }, grid: { color: gridColor() } } } }} />
         </ChartCard>
         <div className="card"><h3>Outstanding payments</h3>
-          <div className="between mt"><span>Supplier #INV-228</span><b>$4,200</b></div>
-          <div className="between mt"><span>Vet services</span><b>$1,800</b></div>
-          <button className="btn sm mt" onClick={() => push('Reminder sent')}>Send reminder</button>
+          {(d.outstandingList || []).map((o: any) => (
+            <div className="between mt" key={o.id} style={{ alignItems: 'center' }}>
+              <div>
+                <div>{o.customerName}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{o.saleType} · {fmt.shortDate(o.saleDate)} · <span className={`pill ${o.status === 'overdue' ? 'danger' : 'warn'}`}>{o.status}</span></div>
+              </div>
+              <div className="row" style={{ gap: 10 }}>
+                <b>{fmt.money(o.amount)}</b>
+                <button className="btn ghost sm" disabled={!o.customerEmail}
+                  onClick={() => push(o.customerEmail ? `Reminder sent to ${o.customerEmail}` : 'No email on file for this customer')}>
+                  Send reminder
+                </button>
+              </div>
+            </div>
+          ))}
+          {!(d.outstandingList || []).length && <p className="muted mt">No outstanding payments.</p>}
         </div>
       </div>
     </div>
@@ -200,7 +370,8 @@ export function Financial() {
 }
 
 export function Weather() {
-  const { data: w } = useAsync(() => weather(), []);
+  const { farmId } = useFarm();
+  const { data: w } = useAsync(() => weather(farmId), [farmId]);
   const d = w || ({} as any);
   return (
     <div>

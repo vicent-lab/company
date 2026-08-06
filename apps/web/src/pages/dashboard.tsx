@@ -3,9 +3,9 @@ import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { Kpi, AnimatedCounter, Skeleton, ChartCard, BarChart, LineChart, DoughnutChart, chartColors, gridColor, tickColor, PageHeader, Progress, useAsync } from '../ui';
 import {
-  dashboardSummary, milkTrend, incomeExpense, feedConsumption, breedPopulation, healthDistribution,
+  dashboardSummary, milkTrend, incomeExpense, feedConsumption, breedPopulation, healthDistribution, farmScore,
 } from '../data';
-import { Beef, Milk, DollarSign, Wallet, HeartPulse, Stethoscope, Wheat, Syringe, ArrowUpRight } from 'lucide-react';
+import { Beef, Milk, DollarSign, Wallet, HeartPulse, Stethoscope, Wheat, Syringe, ArrowUpRight, Gauge } from 'lucide-react';
 import { fmt } from '../format';
 
 export function Dashboard() {
@@ -20,6 +20,7 @@ export function Dashboard() {
   const feed = useAsync(() => feedConsumption(farmId), [farmId]);
   const breeds = useAsync(() => breedPopulation(farmId), [farmId]);
   const health = useAsync(() => healthDistribution(farmId), [farmId]);
+  const score = useAsync(() => farmScore(farmId), [farmId]);
 
   const s = sum.data || ({} as any);
   const m = milk.data || [];
@@ -49,6 +50,9 @@ export function Dashboard() {
         <Kpi icon={<Stethoscope size={20} />} label="Sick cows" value={<AnimatedCounter value={s.sickCows ?? 0} />} delta={s.sickCows ? 'needs care' : 'none'} tone={s.sickCows ? 'down' : 'up'} loading={loading} />
         <Kpi icon={<Wheat size={20} />} label="Feed stock" value={<AnimatedCounter value={s.feedStock ?? 0} suffix=" kg" />} delta="12 days left" loading={loading} />
         <Kpi icon={<Syringe size={20} />} label="Upcoming vaccinations" value={<AnimatedCounter value={s.upcomingVacc ?? 0} />} delta="next 7 days" tone={s.upcomingVacc ? 'down' : 'up'} loading={loading} />
+        <div onClick={() => navigate('/app/farm-score')} style={{ cursor: 'pointer' }}>
+          <Kpi icon={<Gauge size={20} />} label="AI Farm Score" value={<AnimatedCounter value={score.data?.overall ?? 0} suffix="/100" />} delta="view breakdown →" tone={(score.data?.overall ?? 0) >= 60 ? 'up' : 'down'} loading={score.loading} />
+        </div>
       </div>
 
       <div className="split mt">

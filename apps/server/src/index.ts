@@ -2,10 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './env.js';
 import { healthCheck } from './db/index.js';
+import { runContinuousLearningCycle } from './ai/outcome-verifier.js';
+import { snapshotAllFarmScores } from './ai/farm-score.js';
+import farmScoreRoutes from './routes/farm-score.js';
 import { notFound, errorHandler } from './lib/errors.js';
 import authRoutes from './routes/auth.js';
 import farmRoutes from './routes/farms.js';
 import cowRoutes from './routes/cows.js';
+import barnRoutes from './routes/barns.js';
+import securityRoutes from './routes/security.js';
+import platformRoutes from './routes/platform.js';
 import milkRoutes from './routes/milk.js';
 import dashboardRoutes from './routes/dashboard.js';
 import predictionRoutes from './routes/predictions.js';
@@ -15,6 +21,12 @@ import weatherRoutes from './routes/weather.js';
 import notificationRoutes from './routes/notifications.js';
 import sustainabilityRoutes from './routes/sustainability.js';
 import aiRoutes from './routes/ai.js';
+import aiAdvisorRoutes from './routes/ai-advisor.js';
+import autopilotRoutes from './routes/autopilot.js';
+import executiveAiRoutes from './routes/executive-ai.js';
+import intelligenceRoutes from './routes/intelligence.js';
+import healthRoutes from './routes/health.js';
+import whatIfRoutes from './routes/what-if.js';
 import galleryRoutes from './routes/gallery.js';
 import customerRoutes from './routes/customers.js';
 import employeeRoutes from './routes/employees.js';
@@ -23,6 +35,7 @@ import treatmentRoutes from './routes/treatments.js';
 import taskRoutes from './routes/tasks.js';
 import dailyActivityRoutes from './routes/daily-activities.js';
 import mapRoutes from './routes/map.js';
+import cowLocationRoutes from './routes/cow-locations.js';
 import heatDetectionRoutes from './routes/heat-detection.js';
 import breedingRoutes from './routes/breeding.js';
 import semenRoutes from './routes/semen.js';
@@ -44,7 +57,7 @@ import payrollRoutes from './routes/payroll.js';
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '6mb' }));
 
 app.get('/health', async (_req, res) => {
   res.json({ status: 'ok', db: await healthCheck(), time: new Date().toISOString() });
@@ -55,6 +68,9 @@ api.get('/', (_req, res) => res.json({ name: 'Smart Dairy API', version: '0.1.0'
 api.use('/auth', authRoutes);
 api.use('/farms', farmRoutes);
 api.use('/cows', cowRoutes);
+api.use('/barns', barnRoutes);
+api.use('/security', securityRoutes);
+api.use('/platform', platformRoutes);
 api.use('/milk-records', milkRoutes);
 api.use('/dashboard', dashboardRoutes);
 api.use('/predictions', predictionRoutes);
@@ -63,7 +79,14 @@ api.use('/finance', financeRoutes);
 api.use('/weather', weatherRoutes);
 api.use('/notifications', notificationRoutes);
 api.use('/sustainability', sustainabilityRoutes);
-api.use('/ai', aiRoutes);
+  api.use('/ai', aiRoutes);
+  api.use('/ai-advisor', aiAdvisorRoutes);
+  api.use('/executive', executiveAiRoutes);
+  api.use('/intelligence', intelligenceRoutes);
+  api.use('/farm-score', farmScoreRoutes);
+  api.use('/autopilot', autopilotRoutes);
+  api.use('/health', healthRoutes);
+  api.use('/what-if', whatIfRoutes);
 api.use('/gallery', galleryRoutes);
 api.use('/customers', customerRoutes);
 api.use('/employees', employeeRoutes);
@@ -72,6 +95,7 @@ api.use('/treatments', treatmentRoutes);
 api.use('/tasks', taskRoutes);
 api.use('/daily-activities', dailyActivityRoutes);
 api.use('/map', mapRoutes);
+api.use('/cow-locations', cowLocationRoutes);
 api.use('/heat-detection', heatDetectionRoutes);
 api.use('/breeding', breedingRoutes);
 api.use('/semen', semenRoutes);
@@ -96,4 +120,17 @@ app.use(errorHandler);
 
 app.listen(config.port, () => {
   console.log(`🐄 Dairy API listening on http://localhost:${config.port} (env=${config.env})`);
+
+  // Continuous learning: periodically verify past predictions and check whether farmers
+  // who followed advice actually saw the predicted improvement, across every farm.
+  const runCycle = () => {
+    runContinuousLearningCycle()
+      .then((r) => console.log(`🧠 Continuous learning cycle: ${r.farms} farm(s), ${r.verified} predictions verified, ${r.followedUp} advice follow-ups checked`))
+      .catch((err) => console.error('Continuous learning cycle failed:', err));
+    snapshotAllFarmScores()
+      .then((r) => console.log(`📊 Farm score snapshot: ${r.farms} farm(s) scored`))
+      .catch((err) => console.error('Farm score snapshot failed:', err));
+  };
+  runCycle();
+  setInterval(runCycle, config.learningCycleIntervalHours * 60 * 60 * 1000);
 });

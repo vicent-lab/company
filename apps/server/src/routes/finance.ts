@@ -17,6 +17,11 @@ router.get('/', asyncHandler(async (req, res) => {
     `SELECT category, SUM(amount) AS v FROM expenses WHERE farm_id=$1 AND incurred_on >= date_trunc('year', current_date) GROUP BY category ORDER BY v DESC`, [farmId]);
   const outstanding = await query(
     `SELECT COALESCE(SUM(total_amount),0) AS o FROM sales WHERE farm_id=$1 AND payment_status <> 'paid'`, [farmId]);
+  const outstandingList = await query(
+    `SELECT s.id, s.sale_type, s.sale_date, s.total_amount, s.payment_status, c.name AS customer_name, c.email AS customer_email
+     FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
+     WHERE s.farm_id=$1 AND s.payment_status <> 'paid'
+     ORDER BY s.total_amount DESC LIMIT 10`, [farmId]);
   const sales = await query(
     `SELECT to_char(sale_date,'Mon') AS m, count(*)::int AS n FROM sales WHERE farm_id=$1 AND sale_date >= date_trunc('year', current_date) GROUP BY 1, date_trunc('month', sale_date) ORDER BY date_trunc('month', sale_date)`, [farmId]);
   const im = new Map(income.rows.map((r) => [r.m, Math.round(Number(r.v))]));
@@ -25,6 +30,15 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({
     cashFlow: months.map((m, i) => (im.get(m) ?? 0) - (em.get(m) ?? 0)),
     outstanding: Math.round(Number(outstanding.rows[0].o)),
+    outstandingList: outstandingList.rows.map((r) => ({
+      id: r.id,
+      customerName: r.customer_name || 'Unknown customer',
+      customerEmail: r.customer_email || null,
+      saleType: r.sale_type,
+      saleDate: r.sale_date,
+      amount: Math.round(Number(r.total_amount)),
+      status: r.payment_status,
+    })),
     categories: cat.rows.map((r) => ({ name: r.category, value: Math.round(Number(r.v)) })),
     salesTrend: months.map((m) => sm.get(m) ?? 0),
     incomeTotal: months.reduce((s, m) => s + (im.get(m) ?? 0), 0),

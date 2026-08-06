@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/index.js';
-import { requireAuth, requirePermission, resolveFarmId, audit, isAdmin } from '../middleware/auth.js';
+import { requireAuth, requirePermission, resolveFarmId, audit, isSuperAdmin } from '../middleware/auth.js';
 import { HttpError, asyncHandler } from '../lib/errors.js';
 
 const router = Router();
@@ -36,7 +36,7 @@ router.post('/', requirePermission('milk:write'), asyncHandler(async (req, res) 
   const farmId = resolveFarmId(req);
   const cow = await query('SELECT id, farm_id FROM cows WHERE id=$1', [b.cowId]);
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
-  if (req.user!.role !== 'administrator' && cow.rows[0].farm_id !== farmId)
+  if (!req.user!.isSuperAdmin && cow.rows[0].farm_id !== farmId)
     throw new HttpError(403, 'Cow does not belong to this farm');
   const { rows } = await query(
     `INSERT INTO milk_records (farm_id, cow_id, recorded_on, morning_liters, afternoon_liters, evening_liters, fat_percent, snf_percent)
@@ -54,7 +54,7 @@ router.patch('/:id', requirePermission('milk:write'), asyncHandler(async (req, r
   const b = patchSchema.parse(req.body);
   const existing = await query('SELECT farm_id FROM milk_records WHERE id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Milk record not found');
-  if (req.user!.role !== 'administrator' && existing.rows[0].farm_id !== req.user!.farmId)
+  if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
   const sets: string[] = [];
   const params: any[] = [];
@@ -77,7 +77,7 @@ router.patch('/:id', requirePermission('milk:write'), asyncHandler(async (req, r
 router.delete('/:id', requirePermission('milk:write'), asyncHandler(async (req, res) => {
   const existing = await query('SELECT farm_id FROM milk_records WHERE id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Milk record not found');
-  if (req.user!.role !== 'administrator' && existing.rows[0].farm_id !== req.user!.farmId)
+  if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
   await query('DELETE FROM milk_records WHERE id=$1', [req.params.id]);
   await audit(req.user, 'delete', 'milk_record', req.params.id);

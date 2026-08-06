@@ -30,7 +30,7 @@ export function DailySchedule() {
     if (!form.activityType.trim()) { push('Activity type is required'); return; }
     setSaving(true);
     try {
-      await createDailyActivity({
+      const res = await createDailyActivity({
         farmId,
         activity_type: form.activityType,
         description: form.description,
@@ -40,7 +40,7 @@ export function DailySchedule() {
         activity_date: form.activityDate || date,
         employee_id: undefined,
       });
-      push('Activity logged');
+      push(res.queued ? "Saved offline — will sync when you're back online" : 'Activity logged');
       setForm(EMPTY);
       setOpen(false);
       setActKey((k) => k + 1);

@@ -18,9 +18,9 @@ export const PLANS: Plan[] = [
 ];
 
 export const PLAN_FEATURES: Record<PlanName, string[]> = {
-  Starter: ['dashboard', 'cows', 'cow', 'map', 'gallery', 'schedule', 'management'],
-  Pro: ['dashboard', 'cows', 'cow', 'map', 'ai', 'alerts', 'predict', 'analytics', 'finance', 'weather', 'sustainability', 'gallery', 'search', 'gamification', 'schedule', 'tasks', 'management'],
-  Enterprise: ['dashboard', 'cows', 'cow', 'map', 'ai', 'alerts', 'predict', 'analytics', 'finance', 'weather', 'sustainability', 'gallery', 'customers', 'team', 'tasks', 'schedule', 'search', 'gamification', 'management', 'breeding'],
+  Starter: ['dashboard', 'cows', 'cow', 'map', 'gallery', 'schedule', 'management', 'command-center'],
+  Pro: ['dashboard', 'cows', 'cow', 'map', 'ai', 'ai-advisor', 'alerts', 'predict', 'analytics', 'finance', 'weather', 'sustainability', 'gallery', 'search', 'gamification', 'schedule', 'tasks', 'management', 'command-center'],
+  Enterprise: ['dashboard', 'cows', 'cow', 'map', 'ai', 'ai-advisor', 'alerts', 'predict', 'analytics', 'finance', 'weather', 'sustainability', 'gallery', 'customers', 'team', 'tasks', 'schedule', 'search', 'gamification', 'management', 'breeding', 'command-center'],
 };
 
 interface PlanContextValue {

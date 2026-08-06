@@ -1,0 +1,72 @@
+import { query } from '../../db/index.js';
+import { FarmKnowledgeEngine } from '../knowledge/farm-data.js';
+import { type AgentResult } from './types.js';
+
+export class WeatherAgent {
+  constructor(private knowledge: FarmKnowledgeEngine) {}
+
+  async analyze(question: string): Promise<AgentResult> {
+    const weather = await this.knowledge.getWeatherImpact();
+
+    const evidence: string[] = [];
+    const reasoning: string[] = [];
+    const recommendedActions: string[] = [];
+    const risks: string[] = [];
+
+    if (!weather.current) {
+      return {
+        agent: 'weather',
+        title: 'Weather data unavailable',
+        summary: 'No weather data available for analysis.',
+        severity: 'low',
+        confidence: 0.3,
+        evidence: ['No weather observations recorded'],
+        reasoning: ['Cannot assess weather impact without data'],
+        risks: [],
+        recommended_actions: ['Ensure weather data is being recorded'],
+        expected_outcome: 'Weather data enables proactive management decisions.',
+        data: weather,
+      };
+    }
+
+    evidence.push(`Temperature: ${weather.current.temperature_c}°C`);
+    evidence.push(`Humidity: ${weather.current.humidity_pct}%`);
+    evidence.push(`THI: ${weather.thi?.toFixed(1)}`);
+    if (weather.current.rain_mm) evidence.push(`Rainfall: ${weather.current.rain_mm}mm`);
+    if (weather.current.wind_kph) evidence.push(`Wind: ${weather.current.wind_kph} km/h`);
+
+    if (weather.thi && weather.thi >= 72) {
+      risks.push(`Heat stress risk: THI ${weather.thi.toFixed(1)} (threshold 72)`);
+      reasoning.push('High temperature-humidity index reduces feed intake and milk production');
+      recommendedActions.push('Increase water availability');
+      recommendedActions.push('Provide shade and ventilation');
+      recommendedActions.push('Reduce feeding during peak heat hours');
+      recommendedActions.push('Monitor cows for heat stress signs');
+    }
+
+    if (weather.current.rain_mm > 20) {
+      risks.push(`Heavy rainfall: ${weather.current.rain_mm}mm`);
+      reasoning.push('Heavy rain affects grazing and increases foot rot risk');
+      recommendedActions.push('Check drainage systems');
+      recommendedActions.push('Move cattle to covered areas');
+      recommendedActions.push('Monitor for foot rot and skin issues');
+    }
+
+    const severity = weather.thi && weather.thi >= 80 ? 'critical' : weather.thi && weather.thi >= 72 ? 'high' : weather.current.rain_mm > 20 ? 'medium' : 'low';
+    const confidence = 0.85;
+
+    return {
+      agent: 'weather',
+      title: `Weather impact: ${weather.impact}`,
+      summary: weather.impact,
+      severity,
+      confidence,
+      evidence,
+      reasoning,
+      risks,
+      recommended_actions: recommendedActions.length ? recommendedActions : ['No specific weather actions needed'],
+      expected_outcome: 'Proactive weather management minimizes stress and maintains productivity.',
+      data: weather,
+    };
+  }
+}

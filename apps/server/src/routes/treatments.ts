@@ -10,33 +10,49 @@ router.use(requireAuth);
 const schema = z.object({
   cowId: z.string().min(1),
   diseaseId: z.string().optional(),
+  diseaseName: z.string().optional(),
   diagnosis: z.string().optional(),
   treatmentPlan: z.string().optional(),
   veterinarianName: z.string().optional(),
   status: z.string().optional(),
 });
 
-router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
+// The "Disease / Condition" field on the Add Treatment form is free text, not a
+// picker over the diseases table, so look up a matching row by name (case-insensitive)
+// or create one — that's how a free-text field maps onto the normalized FK column.
+async function resolveDiseaseId(diseaseId: string | undefined, diseaseName: string | undefined) {
+  if (diseaseId) return diseaseId;
+  const name = diseaseName?.trim();
+  if (!name) return null;
+  const existing = await query('SELECT id FROM diseases WHERE lower(name) = lower($1)', [name]);
+  if (existing.rows[0]) return existing.rows[0].id;
+  const created = await query('INSERT INTO diseases (name) VALUES ($1) RETURNING id', [name]);
+  return created.rows[0].id;
+}
+
+router.post('/', requirePermission('health:manage'), asyncHandler(async (req, res) => {
   const b = schema.parse(req.body);
   const farmId = resolveFarmId(req);
   const cow = await query('SELECT id, farm_id FROM cows WHERE id=$1', [b.cowId]);
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
   if (cow.rows[0].farm_id !== farmId) throw new HttpError(403, 'Access denied');
+  const diseaseId = await resolveDiseaseId(b.diseaseId, b.diseaseName);
   const { rows } = await query(
-    `INSERT INTO treatments (cow_id, disease_id, diagnosis, treatment_plan, veterinarian_name, diagnosed_on)
-     VALUES ($1,$2,$3,$4,$5,current_date)
+    `INSERT INTO treatments (cow_id, disease_id, diagnosis, treatment_plan, veterinarian_name, status, diagnosed_on)
+     VALUES ($1,$2,$3,$4,$5,$6,current_date)
      RETURNING *`,
-    [b.cowId, b.diseaseId ?? null, b.diagnosis ?? null, b.treatmentPlan ?? null, b.veterinarianName ?? null]
+    [b.cowId, diseaseId, b.diagnosis ?? null, b.treatmentPlan ?? null, b.veterinarianName ?? null, b.status ?? 'Active']
   );
   await audit(req.user!, 'create', 'treatment', rows[0].id);
   res.status(201).json(rows[0]);
 }));
 
-router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
+router.patch('/:id', requirePermission('health:manage'), asyncHandler(async (req, res) => {
   const b = schema.partial().parse(req.body);
   const existing = await query('SELECT t.id, c.farm_id FROM treatments t JOIN cows c ON c.id=t.cow_id WHERE t.id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Treatment not found');
   if (existing.rows[0].farm_id !== resolveFarmId(req)) throw new HttpError(403, 'Access denied');
+  if (b.diseaseName !== undefined) b.diseaseId = (await resolveDiseaseId(b.diseaseId, b.diseaseName)) ?? undefined;
   const sets: string[] = [];
   const params: any[] = [];
   let i = 1;
@@ -53,7 +69,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   res.json(rows[0]);
 }));
 
-router.delete('/:id', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
+router.delete('/:id', requirePermission('health:manage'), asyncHandler(async (req, res) => {
   const existing = await query('SELECT t.id, c.farm_id FROM treatments t JOIN cows c ON c.id=t.cow_id WHERE t.id=$1', [req.params.id]);
   if (!existing.rows[0]) throw new HttpError(404, 'Treatment not found');
   if (existing.rows[0].farm_id !== resolveFarmId(req)) throw new HttpError(403, 'Access denied');

@@ -64,17 +64,14 @@ INSERT INTO diseases (name, description) VALUES
   ('Respiratory','Breathing infection')
 ON CONFLICT (name) DO NOTHING;
 
--- Idempotent cleanup of previously generated demo data (users/roles/farms/barns kept)
+-- Idempotent cleanup of previously generated demo data (users/roles/farms/barns kept).
+-- TRUNCATE ... CASCADE clears every table that hangs off cows/feed_types/employees/customers
+-- (milk records, vaccinations, treatments, breeding, feed stock, attendance, sales, etc.)
+-- regardless of each FK's own ON DELETE setting, so new migrations never need this list updated.
 DELETE FROM notifications WHERE farm_id IN (SELECT id FROM farms);
-DELETE FROM vaccinations WHERE cow_id IN (SELECT id FROM cows WHERE farm_id IN (SELECT id FROM farms));
-DELETE FROM treatments WHERE cow_id IN (SELECT id FROM cows WHERE farm_id IN (SELECT id FROM farms));
-DELETE FROM breeding_records WHERE cow_id IN (SELECT id FROM cows WHERE farm_id IN (SELECT id FROM farms));
-DELETE FROM milk_records WHERE farm_id IN (SELECT id FROM farms);
-DELETE FROM feed_inventory WHERE feed_type_id IN (SELECT id FROM feed_types WHERE farm_id IN (SELECT id FROM farms));
-DELETE FROM feed_types WHERE farm_id IN (SELECT id FROM farms);
 DELETE FROM income WHERE farm_id IN (SELECT id FROM farms);
 DELETE FROM expenses WHERE farm_id IN (SELECT id FROM farms);
-DELETE FROM cows WHERE farm_id IN (SELECT id FROM farms);
+TRUNCATE TABLE cows, feed_types, employees, customers CASCADE;
 
 -- Generate cows, milk records, feed, finance, vaccinations, treatments, breeding, notifications
 DO $$
@@ -89,7 +86,7 @@ BEGIN
   v_acc := ARRAY['FMD','Brucellosis','BVD','Leptospirosis','Clostridial','IBR'];
   FOR f IN
     SELECT id, row_number() OVER () AS rn,
-      CASE WHEN name='Greenfield Dairy' THEN 42 WHEN name='Sunrise Holsteins' THEN 36 ELSE 28 END AS n
+      CASE WHEN name='Greenfield Dairy' THEN 60 WHEN name='Sunrise Holsteins' THEN 48 ELSE 38 END AS n
     FROM farms
   LOOP
     FOR i IN 1..f.n LOOP
@@ -107,7 +104,7 @@ BEGIN
         f.id,
         bid,
         code, tag,
-        (ARRAY['Bella','Daisy','Lola','Molly','Rosie','Clover','Penny','Ruby','Ginger','Luna','Maple','Hazel','Olive','Pearl','Willow','Ivy','Nina','Coco','Sasha','Tilly','Fern','Jade','Sienna','Zoe'])[1+floor(random()*24)::int],
+        (ARRAY['Bella','Daisy','Lola','Molly','Rosie','Buttercup','Clover','Penny','Ruby','Ginger','Luna','Maple','Hazel','Olive','Pearl','Willow','Ivy','Nina','Coco','Sasha','Tilly','Fern','Jade','Sienna','Zoe','Cleo','Mia','Rosi','Annie','Goldie','Blue','Violet','Tess','Nell','Poppy','Wren','Star','Marigold','Winnie','Dottie','Betsy','Flossie','Maisie','Bonnie','Cinnamon','Juniper'])[1+floor(random()*46)::int],
         breed, gender, born, 380 + floor(random()*340)::int, 'active'::cow_status, health::health_status, is_milk, is_preg, 40 + floor(random()*60)::int
       )
       ON CONFLICT (farm_id, cow_code) DO NOTHING;
@@ -149,6 +146,66 @@ BEGIN
           current_date + (10+floor(random()*120))::int, 'Pregnant'
         FROM cows c WHERE c.farm_id=f.id AND c.cow_code=code;
       END IF;
+
+      -- heat detection for a slice of open, healthy females (drives "ready for breeding")
+      IF gender = 'female' AND NOT is_preg AND health = 'healthy' AND random() < 0.12 THEN
+        INSERT INTO heat_detections (farm_id, cow_id, detected_on, confidence, sensor_type, activity_level, temperature_c)
+        VALUES (
+          f.id,
+          (SELECT c.id FROM cows c WHERE c.farm_id=f.id AND c.cow_code=code),
+          now() - (random() * interval '2 days'),
+          round((0.6 + random()*0.35)::numeric, 2),
+          'wearable',
+          round((60 + random()*40)::numeric, 1),
+          round((38.2 + random()*0.8)::numeric, 1)
+        );
+      END IF;
+
+      -- calving history: non-pregnant females may show a recent calving (drives "recently
+      -- calved" on the map); pregnant females may carry an older one (rebred after the
+      -- normal postpartum window) so "history of a difficult calving" can feed calving risk
+      -- even while a cow is currently pregnant again.
+      IF gender = 'female' AND ((NOT is_preg AND random() < 0.35) OR (is_preg AND random() < 0.25)) THEN
+        INSERT INTO calves (farm_id, mother_id, born_on, birth_weight_kg, gender, status)
+        VALUES (
+          f.id,
+          (SELECT c.id FROM cows c WHERE c.farm_id=f.id AND c.cow_code=code),
+          CASE
+            WHEN is_preg THEN current_date - (60 + floor(random()*440))::int
+            WHEN random() < 0.25 THEN current_date - floor(random()*14)::int
+            ELSE current_date - (30 + floor(random()*470))::int
+          END,
+          round((28 + random()*15)::numeric, 1),
+          (ARRAY['female','male'])[1+floor(random()*2)::int],
+          'active'
+        );
+
+        INSERT INTO calving_records (farm_id, cow_id, calving_date, difficulty_score, assistance_required, calf_id)
+        SELECT f.id, cal.mother_id, cal.born_on, d.difficulty, d.difficulty >= 4, cal.id
+        FROM calves cal
+        CROSS JOIN LATERAL (SELECT (CASE WHEN random() < 0.15 THEN 4 + floor(random()*2)::int ELSE 1 + floor(random()*2)::int END) AS difficulty) d
+        WHERE cal.mother_id = (SELECT c.id FROM cows c WHERE c.farm_id=f.id AND c.cow_code=code)
+        ORDER BY cal.born_on DESC LIMIT 1;
+      END IF;
+
+      -- live location: manual zone assignment today, ready for a future RFID/GPS feed
+      INSERT INTO cow_locations (farm_id, cow_id, zone, activity, source)
+      VALUES (
+        f.id,
+        (SELECT c.id FROM cows c WHERE c.farm_id=f.id AND c.cow_code=code),
+        CASE
+          WHEN health <> 'healthy' THEN 'vet'
+          WHEN is_milk THEN (ARRAY['barnA','milk','graze1','graze2'])[1+floor(random()*4)::int]
+          ELSE (ARRAY['barnB','graze2'])[1+floor(random()*2)::int]
+        END,
+        CASE
+          WHEN health <> 'healthy' THEN 'sick_bay'
+          WHEN is_milk THEN (ARRAY['eating','grazing','milking','resting'])[1+floor(random()*4)::int]
+          ELSE (ARRAY['resting','grazing'])[1+floor(random()*2)::int]
+        END,
+        'manual'
+      )
+      ON CONFLICT (cow_id) DO NOTHING;
     END LOOP;
 
     -- feed types & inventory
@@ -159,6 +216,21 @@ BEGIN
     SELECT ft.id, (800+floor(random()*2500))::int, round((0.2+random()*0.8)::numeric,2)
     FROM feed_types ft WHERE ft.farm_id=f.id
     ON CONFLICT DO NOTHING;
+
+    -- per-cow feed consumption for the last 30 days (matches milk_records' depth so the
+    -- feed heat map layer can scrub back a full month, not just a couple of days; sick cows
+    -- eat less, milking cows eat most, matching real appetite patterns)
+    INSERT INTO feed_consumption (cow_id, feed_type_id, consumed_on, quantity)
+    SELECT c.id,
+      (SELECT id FROM feed_types WHERE farm_id=f.id ORDER BY random() LIMIT 1),
+      d::date,
+      CASE
+        WHEN c.health <> 'healthy' THEN 8 + random()*6
+        WHEN c.is_milking THEN 20 + random()*10
+        ELSE 14 + random()*8
+      END
+    FROM cows c, generate_series(current_date-29, current_date, '1 day') d
+    WHERE c.farm_id=f.id;
 
     -- finance: 12 months of income & expense
     INSERT INTO income (farm_id, category, amount, received_on, notes)
@@ -208,4 +280,34 @@ BEGIN
     SELECT e.id, current_date - g, (CASE WHEN random()<0.94 THEN 'present' ELSE 'absent' END)
     FROM employees e, generate_series(0,29) g WHERE e.farm_id=f.id;
   END LOOP;
+
+  -- Sample AI insights for Greenfield (farm 1)
+  INSERT INTO ai_insights (farm_id, type, category, severity, priority, title, description, action_items, confidence_score, expires_at, metadata)
+  VALUES
+    ('00000000-0000-0000-0000-000000000001', 'warning', 'health', 'high', 4,
+     'Cow GF-003 showing declining health trend',
+     'GF-003 has been under treatment for 4 days. Monitor response to antibiotics. If no improvement by end of week, escalate to senior vet.',
+     '[{"label":"Monitor GF-003 vitals daily","done":false},{"label":"Schedule vet review by Friday","done":false}]'::jsonb,
+     0.88, now() + interval '7 days', '{"cow_id":"GF-003"}'::jsonb),
+    ('00000000-0000-0000-0000-000000000001', 'recommendation', 'milk_production', 'medium', 2,
+     'Top 3 producers identified for breeding selection',
+     'GF-012, GF-045, and GF-089 are consistently in the top 10% for milk yield. Consider using these animals for genetic selection and embryo transfer programs.',
+     '[{"label":"Review breeding records for top producers","done":false},{"label":"Schedule semen order for top cows","done":false}]'::jsonb,
+     0.92, now() + interval '14 days', '{}'::jsonb),
+    ('00000000-0000-0000-0000-000000000001', 'warning', 'feed_nutrition', 'critical', 4,
+     'Concentrate feed stock critically low',
+     'Current concentrate stock is 480 kg against reorder level of 2000 kg. At current consumption (~180 kg/day), stock will deplete in 2.7 days.',
+     '[{"label":"Order 5000 kg concentrate","done":false},{"label":"Verify supplier delivery schedule","done":false}]'::jsonb,
+     0.96, now() + interval '3 days', '{"stock":480,"reorder":2000,"days_remaining":2.7}'::jsonb),
+    ('00000000-0000-0000-0000-000000000001', 'action_plan', 'breeding', 'high', 5,
+     'Daily Action Plan — check 2 cows due for calving',
+     'GF-067 expected to calve in 3 days. Prepare calving pen, ensure colostrum supply, and have vet on standby.',
+     '[{"label":"Disinfect calving pen","done":false},{"label":"Confirm colostrum stock","done":false},{"label":"Brief milking crew on signs of calving","done":false}]'::jsonb,
+     0.95, now() + interval '1 day', '{"calving_soon":true}'::jsonb),
+    ('00000000-0000-0000-0000-000000000001', 'recommendation', 'financial', 'low', 1,
+     'Expense optimization: feed costs 32% above target',
+     'Feed expenses are $4,200 this month vs target $3,200. Review feed wastage, negotiate bulk pricing, and consider alternative feed sources.',
+     '[{"label":"Audit feed bunk wastage","done":false},{"label":"Contact 2 alternative suppliers","done":false}]'::jsonb,
+     0.78, now() + interval '14 days', '{}'::jsonb)
+  ON CONFLICT DO NOTHING;
 END $$;

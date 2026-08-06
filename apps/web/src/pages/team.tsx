@@ -14,40 +14,127 @@ import {
   gpsLocations, createGpsLocation,
   attendance, createAttendance,
   payroll, createPayroll,
-  shiftAssignments, assignShift, deleteShiftAssignment
+  shiftAssignments, assignShift, deleteShiftAssignment,
+  getFarmMembers, inviteToFarm,
 } from '../data';
-import { Plus, Trash2, Edit3, Save, X, Clock, CheckCircle, AlertCircle, User, Users, Briefcase, Mail, Phone, MapPin, Calendar, Award, TrendingUp, MessageSquare, Camera, Map, FileText, DollarSign, Send } from 'lucide-react';
+import { Plus, Trash2, Edit3, Save, X, Clock, CheckCircle, AlertCircle, User, Users, Briefcase, Mail, Phone, MapPin, Calendar, Award, TrendingUp, MessageSquare, Camera, Map, FileText, DollarSign, Send, UserPlus, ShieldCheck } from 'lucide-react';
 import { fmt } from '../format';
 
 const EMP_EMPTY = { name: '', job_title: '', hired_on: '', base_salary: '', phone: '', email: '' };
 
-type Tab = 'attendance' | 'gps' | 'shifts' | 'training' | 'performance' | 'payroll' | 'leave' | 'messages';
+const ROLE_OPTIONS = [
+  { value: 'administrator', label: 'Owner' },
+  { value: 'farm_manager', label: 'Manager' },
+  { value: 'veterinarian', label: 'Veterinarian' },
+  { value: 'worker', label: 'Worker' },
+  { value: 'accountant', label: 'Accountant' },
+  { value: 'milk_collector', label: 'Milk Collector' },
+  { value: 'viewer', label: 'Viewer' },
+];
+
+function MembersTab({ farmId }: { farmId: string }) {
+  const { user } = useAuth();
+  const { push } = useToast();
+  const [key, setKey] = useState(0);
+  const refresh = () => setKey((k) => k + 1);
+  const { data, loading } = useAsync(() => getFarmMembers(farmId), [farmId, key]);
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('worker');
+  const [busy, setBusy] = useState(false);
+  const canInvite = user?.role === 'administrator' || user?.role === 'farm_manager';
+
+  const invite = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true);
+    try {
+      const res = await inviteToFarm(farmId, email, role);
+      push(res.devInviteLink ? `Dev mode — invite link: ${res.devInviteLink}` : res.message);
+      setEmail('');
+      refresh();
+    } catch (err: any) {
+      push(err.message || 'Could not send invitation');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      {canInvite && (
+        <div className="card" style={{ padding: 20 }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}><UserPlus size={16} /><b style={{ fontSize: 14 }}>Invite a team member</b></div>
+          <form onSubmit={invite} className="row" style={{ gap: 8 }}>
+            <input className="input" type="email" placeholder="teammate@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ flex: 1 }} />
+            <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
+              {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            <button className="btn sm" disabled={busy}>{busy ? 'Sending…' : 'Invite'}</button>
+          </form>
+        </div>
+      )}
+
+      <div className="card mt" style={{ padding: 20 }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}><ShieldCheck size={16} /><b style={{ fontSize: 14 }}>Members</b></div>
+        {loading ? <Skeleton h={80} /> : !data?.members.length ? <p className="muted" style={{ fontSize: 13 }}>No members yet.</p> : (
+          <div>
+            {data.members.map((m) => (
+              <div key={m.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontSize: 14 }}>{m.name} {m.id === user?.id && <span className="muted" style={{ fontSize: 11 }}>(you)</span>}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{m.email}</div>
+                </div>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  {!m.email_verified && <span className="muted" style={{ fontSize: 11 }}>Unverified</span>}
+                  <span className="pill" style={{ textTransform: 'capitalize' }}>{m.role.replace('_', ' ')}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!!data?.pending.length && (
+        <div className="card mt" style={{ padding: 20 }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}><Mail size={16} /><b style={{ fontSize: 14 }}>Pending invitations</b></div>
+          {data.pending.map((p, i) => (
+            <div key={i} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < data.pending.length - 1 ? '1px solid var(--border)' : 'none' }}>
+              <span style={{ fontSize: 13 }}>{p.email}</span>
+              <span className="pill muted" style={{ textTransform: 'capitalize' }}>{p.role.replace('_', ' ')}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type Tab = 'members' | 'attendance' | 'gps' | 'shifts' | 'training' | 'performance' | 'payroll' | 'leave' | 'messages';
 
 export function Team() {
   const { farmId } = useFarm();
   const { user } = useAuth();
   const [, navigate] = useHashRoute();
   const { push } = useToast();
-  const [tab, setTab] = useState<Tab>('attendance');
+  const [tab, setTab] = useState<Tab>('members');
   const [key, setKey] = useState(0);
   const refresh = () => setKey((k) => k + 1);
 
   const { data: empList, loading: empLoading } = useAsync(() => employees(farmId), [farmId, key]);
-  const { data: shiftList } = useAsync(() => shifts(farmId), [farmId]);
-  const { data: trainingList } = useAsync(() => trainingRecords(farmId), [farmId]);
-  const { data: perfList } = useAsync(() => performanceReviews(farmId), [farmId]);
-  const { data: leaveList } = useAsync(() => leaveRequests(farmId), [farmId]);
-  const { data: msgList } = useAsync(() => messages(farmId), [farmId]);
-  const { data: faceList } = useAsync(() => faceRegistrations(farmId), [farmId]);
-  const { data: gpsList } = useAsync(() => gpsLocations(farmId), [farmId]);
-  const { data: attList } = useAsync(() => attendance(farmId), [farmId]);
-  const { data: payrollList } = useAsync(() => payroll(farmId), [farmId]);
+  const { data: shiftList } = useAsync(() => shifts(farmId), [farmId, key]);
+  const { data: trainingList } = useAsync(() => trainingRecords(farmId), [farmId, key]);
+  const { data: perfList } = useAsync(() => performanceReviews(farmId), [farmId, key]);
+  const { data: leaveList } = useAsync(() => leaveRequests(farmId), [farmId, key]);
+  const { data: msgList } = useAsync(() => messages(farmId), [farmId, key]);
+  const { data: faceList } = useAsync(() => faceRegistrations(farmId), [farmId, key]);
+  const { data: gpsList } = useAsync(() => gpsLocations(farmId), [farmId, key]);
+  const { data: attList } = useAsync(() => attendance(farmId), [farmId, key]);
+  const { data: payrollList } = useAsync(() => payroll(farmId), [farmId, key]);
 
   return (
     <div>
-      <PageHeader eyebrow="TEAM" title="Employee management" desc="Attendance, shifts, training, payroll, leave, and messaging." />
+      <PageHeader eyebrow="TEAM" title="Employee management" desc="Members & roles, attendance, shifts, training, payroll, leave, and messaging." />
       <div className="card reveal" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto' }}>
         {([
+          { key: 'members', label: 'Members', icon: <ShieldCheck size={14} /> },
           { key: 'attendance', label: 'Attendance', icon: <Clock size={14} /> },
           { key: 'gps', label: 'GPS', icon: <MapPin size={14} /> },
           { key: 'shifts', label: 'Shifts', icon: <Calendar size={14} /> },
@@ -64,9 +151,10 @@ export function Team() {
       </div>
 
       <div className="mt">
+        {tab === 'members' && <MembersTab farmId={farmId} />}
         {tab === 'attendance' && <AttendanceTab farmId={farmId} user={user} empList={empList || []} attList={attList || []} faceList={faceList || []} loading={empLoading} refresh={refresh} />}
         {tab === 'gps' && <GpsTab farmId={farmId} empList={empList || []} gpsList={gpsList || []} loading={empLoading} refresh={refresh} />}
-        {tab === 'shifts' && <ShiftsTab farmId={farmId} empList={empList || []} shiftList={shiftList || []} loading={empLoading} refresh={refresh} />}
+        {tab === 'shifts' && <ShiftsTab farmId={farmId} empList={empList || []} shiftList={shiftList || []} loading={empLoading} refresh={refresh} refreshKey={key} />}
         {tab === 'training' && <TrainingTab farmId={farmId} empList={empList || []} trainingList={trainingList || []} loading={empLoading} refresh={refresh} />}
         {tab === 'performance' && <PerformanceTab farmId={farmId} empList={empList || []} perfList={perfList || []} loading={empLoading} refresh={refresh} />}
         {tab === 'payroll' && <PayrollTab farmId={farmId} empList={empList || []} payrollList={payrollList || []} loading={empLoading} refresh={refresh} />}
@@ -88,11 +176,15 @@ function AttendanceTab({ farmId, user, empList, attList, faceList, loading, refr
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await createAttendance(farmId, { ...form, date: new Date().toISOString().slice(0, 10) });
-    push('Attendance recorded');
-    setForm({ employeeId: '', status: 'present', notes: '' });
-    setOpen(false);
-    refresh();
+    try {
+      const res = await createAttendance(farmId, { ...form, date: new Date().toISOString().slice(0, 10) });
+      push(res.queued ? "Saved offline — will sync when you're back online" : 'Attendance recorded');
+      setForm({ employeeId: '', status: 'present', notes: '' });
+      setOpen(false);
+      refresh();
+    } catch (err: any) {
+      push(err.message || 'Could not record attendance');
+    }
     setSaving(false);
   };
 
@@ -261,14 +353,14 @@ function GpsTab({ farmId, empList, gpsList, loading, refresh }: any) {
   );
 }
 
-function ShiftsTab({ farmId, empList, shiftList, loading, refresh }: any) {
+function ShiftsTab({ farmId, empList, shiftList, loading, refresh, refreshKey }: any) {
   const { push } = useToast();
   const [open, setOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [form, setForm] = useState({ name: '', startTime: '08:00', endTime: '17:00', days: [] as string[], color: '#2f7d54' });
   const [assignForm, setAssignForm] = useState({ employeeId: '', shiftId: '' });
   const [saving, setSaving] = useState(false);
-  const { data: assignments } = useAsync(() => shiftAssignments(farmId), [farmId]);
+  const { data: assignments } = useAsync(() => shiftAssignments(farmId), [farmId, refreshKey]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

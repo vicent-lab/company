@@ -1,6 +1,9 @@
-import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useRef, useState, ReactNode } from 'react';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler } from 'chart.js';
 import { Bar, Line, Doughnut } from 'react-chartjs-2';
+import { Eye, EyeOff, WifiOff, CloudUpload } from 'lucide-react';
+import { passwordStrength } from './lib/password-strength';
+import { getQueue, subscribeQueue, initOfflineSync, QueuedWrite } from './lib/offline-queue';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 ChartJS.defaults.font.family = "'DM Sans', sans-serif";
@@ -137,8 +140,18 @@ export function ThemeToggle({ theme, setTheme }: { theme: string; setTheme: (t: 
   );
 }
 
-// ---------- Cow photo (SVG) ----------
-export function CowPhoto({ name, color, size = 64 }: { name: string; color: string; size?: number }) {
+// ---------- Cow photo (SVG or real image) ----------
+export function CowPhoto({ name, color, size = 64, photoUrl }: { name: string; color: string; size?: number; photoUrl?: string | null }) {
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={name}
+        className="photo"
+        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 12 }}
+      />
+    );
+  }
   const initials = name.split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase();
   return (
     <div className="photo" style={{ width: size, height: size, background: `linear-gradient(135deg, ${color}, #173d2b)`, fontSize: size * 0.34 }}>
@@ -185,79 +198,157 @@ export function Progress({ value }: { value: number }) {
   return <div className="progress"><span style={{ width: `${Math.min(100, value)}%` }} /></div>;
 }
 
-export function CowIllustration({ className }: { className?: string }) {
+export function PasswordInput({ value, onChange, placeholder, minLength, required, autoFocus, id }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; minLength?: number; required?: boolean; autoFocus?: boolean; id?: string;
+}) {
+  const [visible, setVisible] = useState(false);
   return (
-    <svg viewBox="0 0 420 320" className={className} style={{ width: '100%', height: '100%', display: 'block' }} aria-hidden="true">
-      <defs>
-        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#c9e4ca" />
-          <stop offset="1" stopColor="#e9f5e6" />
-        </linearGradient>
-        <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-          <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#00000030" />
-        </filter>
-      </defs>
-      <rect width="420" height="320" fill="url(#sky)" rx="18" />
-      <g filter="url(#shadow)">
-        {/* body */}
-        <ellipse cx="210" cy="188" rx="110" ry="68" fill="#fff" stroke="#243b2e" strokeWidth="3" />
-        {/* spots */}
-        <path d="M160,160 q28,-18 54,4 q-14,28 -54,4 z" fill="#243b2e" />
-        <path d="M250,190 q22,-14 42,4 q-10,22 -42,4 z" fill="#243b2e" />
-        <path d="M180,210 q18,-10 32,3 q-8,18 -32,3 z" fill="#243b2e" />
-        {/* udder */}
-        <ellipse cx="210" cy="238" rx="22" ry="14" fill="#f7c5c5" stroke="#243b2e" strokeWidth="2" />
-        {/* legs */}
-        <rect x="155" y="230" width="14" height="44" rx="6" fill="#fff" stroke="#243b2e" strokeWidth="3" />
-        <rect x="251" y="230" width="14" height="44" rx="6" fill="#fff" stroke="#243b2e" strokeWidth="3" />
-        <rect x="185" y="234" width="14" height="40" rx="6" fill="#fff" stroke="#243b2e" strokeWidth="3" />
-        <rect x="221" y="234" width="14" height="40" rx="6" fill="#fff" stroke="#243b2e" strokeWidth="3" />
-        {/* hooves */}
-        <rect x="154" y="266" width="16" height="8" rx="4" fill="#5c4033" />
-        <rect x="250" y="266" width="16" height="8" rx="4" fill="#5c4033" />
-        <rect x="184" y="266" width="16" height="8" rx="4" fill="#5c4033" />
-        <rect x="220" y="266" width="16" height="8" rx="4" fill="#5c4033" />
-        {/* neck */}
-        <path d="M130,175 q20,-40 0,-60" fill="none" stroke="#fff" strokeWidth="34" strokeLinecap="round" />
-        <path d="M130,175 q20,-40 0,-60" fill="none" stroke="#243b2e" strokeWidth="3" />
-        {/* head */}
-        <ellipse cx="108" cy="108" rx="34" ry="30" fill="#fff" stroke="#243b2e" strokeWidth="3" />
-        {/* muzzle */}
-        <ellipse cx="92" cy="118" rx="16" ry="12" fill="#f7c5c5" stroke="#243b2e" strokeWidth="2" />
-        {/* eyes */}
-        <circle cx="100" cy="100" r="3.5" fill="#243b2e" />
-        <circle cx="118" cy="100" r="3.5" fill="#243b2e" />
-        <circle cx="101" cy="99" r="1.2" fill="#fff" />
-        <circle cx="119" cy="99" r="1.2" fill="#fff" />
-        {/* ears */}
-        <path d="M84,86 q-10,-14 2,-18 q8,8 2,18 z" fill="#fff" stroke="#243b2e" strokeWidth="2.5" />
-        <path d="M128,86 q10,-14 -2,-18 q-8,8 -2,18 z" fill="#fff" stroke="#243b2e" strokeWidth="2.5" />
-        {/* horns */}
-        <path d="M90,88 q-6,-16 2,-22" fill="none" stroke="#d8b88a" strokeWidth="4" strokeLinecap="round" />
-        <path d="M124,88 q6,-16 -2,-22" fill="none" stroke="#d8b88a" strokeWidth="4" strokeLinecap="round" />
-        {/* tail */}
-        <path d="M315,180 q28,-8 30,18" fill="none" stroke="#243b2e" strokeWidth="3" strokeLinecap="round" />
-        <circle cx="345" cy="178" r="5" fill="#243b2e" />
-      </g>
-      {/* ground */}
-      <ellipse cx="210" cy="286" rx="160" ry="14" fill="#cfe6cd" opacity="0.6" />
-    </svg>
+    <div style={{ position: 'relative' }}>
+      <input
+        id={id} className="input" type={visible ? 'text' : 'password'} value={value}
+        onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        minLength={minLength} required={required} autoFocus={autoFocus}
+        style={{ paddingRight: 38 }}
+      />
+      <button
+        type="button" onClick={() => setVisible((v) => !v)} tabIndex={-1}
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        style={{
+          position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+          background: 'none', border: 'none', padding: 6, cursor: 'pointer', color: 'var(--text-soft)',
+          display: 'grid', placeItems: 'center', lineHeight: 0,
+        }}
+      >
+        {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  );
+}
+
+export function OfflineBanner() {
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [queue, setQueue] = useState<QueuedWrite[]>(getQueue());
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    initOfflineSync();
+    const unsub = subscribeQueue(setQueue);
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => { unsub(); window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); };
+  }, []);
+
+  if (online && queue.length === 0) return null;
+
+  return (
+    <div style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 200, maxWidth: 300 }}>
+      <div
+        className="card" style={{ padding: '10px 14px', boxShadow: 'var(--shadow)', cursor: queue.length ? 'pointer' : 'default' }}
+        onClick={() => queue.length && setExpanded((v) => !v)}
+      >
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          {online ? <CloudUpload size={16} color="var(--warn)" /> : <WifiOff size={16} color="var(--danger)" />}
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{online ? 'Syncing pending entries…' : "You're offline"}</span>
+        </div>
+        {!online && (
+          <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            Daily logs are saved on this device and will sync automatically once you reconnect.
+          </p>
+        )}
+        {queue.length > 0 && (
+          <p style={{ fontSize: 11, marginTop: 4, color: 'var(--text-soft)' }}>
+            {queue.length} pending {queue.length === 1 ? 'entry' : 'entries'} — tap to view
+          </p>
+        )}
+        {expanded && (
+          <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8, maxHeight: 140, overflowY: 'auto' }}>
+            {queue.map((item) => (
+              <div key={item.id} style={{ fontSize: 11, padding: '3px 0', color: 'var(--text-soft)' }}>
+                {item.label} · {new Date(item.createdAt).toLocaleTimeString()}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function PasswordStrengthMeter({ password }: { password: string }) {
+  const { score, label, color } = passwordStrength(password);
+  if (!password) return null;
+  return (
+    <div style={{ marginTop: -8, marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} style={{ height: 4, flex: 1, borderRadius: 2, background: i < score ? color : 'var(--border)', transition: 'background 0.2s' }} />
+        ))}
+      </div>
+      <span style={{ fontSize: 11, color, marginTop: 3, display: 'block' }}>{label}</span>
+    </div>
   );
 }
 
 // ---------- Async data hook ----------
-export function useAsync<T>(fn: () => Promise<T>, deps: any[]): { data: T | null; loading: boolean; error: string | null } {
+export interface UseAsyncOptions {
+  // Refetch when the tab/window regains focus or becomes visible again, and whenever a
+  // 'dairyos:refresh' event fires (dispatched after the offline queue syncs, or manually
+  // after a mutation elsewhere in the app) — the default "the system refreshes itself
+  // automatically" behavior. Set false for a one-shot fetch that should never re-run itself.
+  refetchOnFocus?: boolean;
+  // Optional interval (ms) to also poll on, for views that want to stay live even while
+  // the tab sits in the foreground untouched (e.g. the Command Center).
+  pollMs?: number;
+}
+
+export function useAsync<T>(fn: () => Promise<T>, deps: any[], options?: UseAsyncOptions): { data: T | null; loading: boolean; error: string | null; refresh: () => void } {
+  const { refetchOnFocus = true, pollMs } = options || {};
   const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({ data: null, loading: true, error: null });
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+
+  // background=true skips the loading-spinner flash — used for refetches the user didn't
+  // explicitly ask for (focus/poll/sync), so the screen doesn't blank out data they're
+  // already looking at just because it's being silently refreshed underneath them.
+  const load = useCallback((background: boolean) => {
+    if (!background) setState((s) => ({ ...s, loading: true, error: null }));
+    return fnRef.current()
+      .then((d) => setState({ data: d, loading: false, error: null }))
+      .catch((e) => setState((s) => ({ ...s, loading: false, error: e.message || 'Failed to load' })));
+  }, []);
+
   useEffect(() => {
     let alive = true;
     setState((s) => ({ ...s, loading: true, error: null }));
-    fn()
+    fnRef.current()
       .then((d) => alive && setState({ data: d, loading: false, error: null }))
-      .catch((e) => alive && setState({ data: null, loading: false, error: e.message || 'Failed to load' }));
+      .catch((e) => alive && setState((s) => ({ ...s, loading: false, error: e.message || 'Failed to load' })));
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  return state;
+
+  useEffect(() => {
+    if (!refetchOnFocus) return;
+    const refetch = () => { if (document.visibilityState === 'visible') load(true); };
+    window.addEventListener('focus', refetch);
+    document.addEventListener('visibilitychange', refetch);
+    window.addEventListener('dairyos:refresh', refetch);
+    return () => {
+      window.removeEventListener('focus', refetch);
+      document.removeEventListener('visibilitychange', refetch);
+      window.removeEventListener('dairyos:refresh', refetch);
+    };
+  }, [refetchOnFocus, load]);
+
+  useEffect(() => {
+    if (!pollMs) return;
+    const id = setInterval(() => load(true), pollMs);
+    return () => clearInterval(id);
+  }, [pollMs, load]);
+
+  return { ...state, refresh: () => load(false) };
 }
 
 // ---------- Plan / paywall ----------
