@@ -117,6 +117,7 @@ api.use('/attendance', attendanceRoutes);
 api.use('/payroll', payrollRoutes);
 
 app.use('/api/v1', api);
+
 app.use(notFound);
 app.use(errorHandler);
 
