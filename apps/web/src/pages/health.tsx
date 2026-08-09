@@ -16,9 +16,15 @@ function HealthRecords({ farmId }: { farmId: string }) {
   const { push } = useToast();
   const [key, setKey] = useState(0);
   const { data: records, loading } = useAsync(() => isLive ? apiGet<any[]>(`/health/records${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]), [farmId, key]);
+  const [cows, setCows] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(HEALTH_EMPTY);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isLive) return;
+    apiGet<{ data: any[] }>(`/cows${q({ farmId, pageSize: 200 })}`).then((r: any) => setCows(r.data || [])).catch(() => {});
+  }, [farmId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +71,7 @@ function HealthRecords({ farmId }: { farmId: string }) {
       )}
       {open && <Modal title="Add health record" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
-          <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{records?.map((r: any) => <option key={r.cow_id} value={r.cow_id}>{r.cow_name} ({r.cow_code})</option>)}</select></div>
+          <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{(cows || []).map((c: any) => <option key={c.id} value={c.id}>{c.name || 'Unnamed'} ({c.cow_code || c.cowCode || '—'})</option>)}</select></div>
           <div className="row" style={{ gap: 10 }}>
             <div className="field"><label>Date</label><input className="input" type="date" value={form.recordedOn} onChange={(e) => setForm({ ...form, recordedOn: e.target.value })} /></div>
             <div className="field"><label>Health status</label><select className="select" value={form.healthStatus} onChange={(e) => setForm({ ...form, healthStatus: e.target.value })}><option value="healthy">Healthy</option><option value="sick">Sick</option><option value="under_treatment">Under treatment</option><option value="critical">Critical</option></select></div>
@@ -170,9 +176,15 @@ function LabTests({ farmId }: { farmId: string }) {
   const { push } = useToast();
   const [key, setKey] = useState(0);
   const { data: tests, loading } = useAsync(() => isLive ? apiGet<any[]>(`/health/lab-tests${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]), [farmId, key]);
+  const [cows, setCows] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(LAB_EMPTY);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isLive) return;
+    apiGet<{ data: any[] }>(`/cows${q({ farmId, pageSize: 200 })}`).then((r: any) => setCows(r.data || [])).catch(() => {});
+  }, [farmId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,7 +222,7 @@ function LabTests({ farmId }: { farmId: string }) {
       )}
       {open && <Modal title="Add lab test" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
-          <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{tests?.map((t: any) => <option key={t.cow_id} value={t.cow_id}>{t.cow_name} ({t.cow_code})</option>)}</select></div>
+          <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{(cows || []).map((c: any) => <option key={c.id} value={c.id}>{c.name || 'Unnamed'} ({c.cow_code || c.cowCode || '—'})</option>)}</select></div>
           <div className="row" style={{ gap: 10 }}>
             <div className="field" style={{ flex: 1 }}><label>Test type</label><input className="input" value={form.testType} onChange={(e) => setForm({ ...form, testType: e.target.value })} required /></div>
             <div className="field" style={{ flex: 1 }}><label>Sample type</label><input className="input" value={form.sampleType} onChange={(e) => setForm({ ...form, sampleType: e.target.value })} required /></div>
@@ -313,9 +325,15 @@ function Quarantine({ farmId }: { farmId: string }) {
   const { push } = useToast();
   const [key, setKey] = useState(0);
   const { data: records, loading } = useAsync(() => isLive ? apiGet<any[]>(`/health/quarantine${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]), [farmId, key]);
+  const [cows, setCows] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(QUARANTINE_EMPTY);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isLive) return;
+    apiGet<{ data: any[] }>(`/cows${q({ farmId, pageSize: 200 })}`).then((r: any) => setCows(r.data || [])).catch(() => {});
+  }, [farmId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -352,7 +370,7 @@ function Quarantine({ farmId }: { farmId: string }) {
       )}
       {open && <Modal title="New quarantine record" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
-          <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{records?.map((q: any) => <option key={q.cow_id} value={q.cow_id}>{q.cow_name} ({q.cow_code})</option>)}</select></div>
+          <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{(cows || []).map((c: any) => <option key={c.id} value={c.id}>{c.name || 'Unnamed'} ({c.cow_code || c.cowCode || '—'})</option>)}</select></div>
           <div className="field"><label>Reason</label><textarea className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required /></div>
           <div className="row" style={{ gap: 10 }}>
             <div className="field"><label>Start date</label><input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required /></div>
