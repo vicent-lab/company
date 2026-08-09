@@ -582,16 +582,33 @@ function toCamelDaily(body: any) {
 export const dailyActivities = (farmId: string, date: string) =>
   isLive ? apiGet<any[]>(`/daily-activities${q({ farmId, date })}`).then((r: any) => r.data) : Promise.resolve(mock.dailyActivities(farmId, date));
 
-export const createDailyActivity = (body: any) =>
-  isLive
-    ? sendOrQueue('/daily-activities', 'POST', toCamelDaily(body), 'Daily activity')
-    : Promise.resolve({ queued: false, data: { ...body, id: 'mock-act-' + Date.now() } });
+export const createDailyActivity = (body: any) => {
+  const data = { ...body, id: 'mock-act-' + Date.now() };
+  if (!isLive) {
+    mock.DAILY_ACTIVITIES.push(data);
+  }
+  return isLive
+    ? sendOrQueue('/daily-activities', 'POST', toCamelDaily(data), 'Daily activity')
+    : Promise.resolve({ queued: false, data });
+};
 
-export const updateDailyActivity = (id: string, body: any) =>
-  isLive ? apiSend(`/daily-activities/${id}`, 'PATCH', toCamelDaily(body)) : Promise.resolve({ ...body, id });
+export const updateDailyActivity = (id: string, body: any) => {
+  if (!isLive) {
+    const idx = mock.DAILY_ACTIVITIES.findIndex((a) => a.id === id);
+    if (idx >= 0) {
+      mock.DAILY_ACTIVITIES[idx] = { ...mock.DAILY_ACTIVITIES[idx], ...body };
+    }
+  }
+  return isLive ? apiSend(`/daily-activities/${id}`, 'PATCH', toCamelDaily(body)) : Promise.resolve({ ...body, id });
+};
 
-export const deleteDailyActivity = (id: string) =>
-  isLive ? apiSend(`/daily-activities/${id}`, 'DELETE') : Promise.resolve();
+export const deleteDailyActivity = (id: string) => {
+  if (!isLive) {
+    const idx = mock.DAILY_ACTIVITIES.findIndex((a) => a.id === id);
+    if (idx >= 0) mock.DAILY_ACTIVITIES.splice(idx, 1);
+  }
+  return isLive ? apiSend(`/daily-activities/${id}`, 'DELETE') : Promise.resolve();
+};
 // ---------- Shifts ----------
 export const shifts = (farmId: string) =>
   isLive ? apiGet<any[]>(`/shifts${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]);
