@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 
 const STORAGE_KEY = 'dairyos_settings';
 
@@ -88,51 +88,38 @@ function loadSettings(): FarmSettings {
   return DEFAULT_SETTINGS;
 }
 
-let listeners: Set<() => void> = new Set();
 let currentSettings: FarmSettings = loadSettings();
+const listeners = new Set<() => void>();
 
-function notifyListeners() {
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function setSettingsGlobal(next: FarmSettings) {
+  currentSettings = next;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   listeners.forEach((fn) => fn());
 }
 
 export function useSettings() {
-  const [settings, setSettings] = useState<FarmSettings>(currentSettings);
-
-  useEffect(() => {
-    const handler = () => setSettings(loadSettings());
-    listeners.add(handler);
-    return () => { listeners.delete(handler); };
-  }, []);
+  const settings = useSyncExternalStore(subscribe, () => currentSettings);
 
   const update = useCallback((path: string[], value: any) => {
-    setSettings((prev) => {
-      const next = { ...prev };
-      let cur: any = next;
-      for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
-      cur[path[path.length - 1]] = value;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      currentSettings = next;
-      notifyListeners();
-      return next;
-    });
-  }, []);
+    const next = { ...settings };
+    let cur: any = next;
+    for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+    cur[path[path.length - 1]] = value;
+    setSettingsGlobal(next);
+  }, [settings]);
 
   const save = useCallback(async () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      currentSettings = settings;
-      notifyListeners();
-      return true;
-    } catch {
-      return false;
-    }
+    setSettingsGlobal(settings);
+    return true;
   }, [settings]);
 
   const reset = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
-    currentSettings = DEFAULT_SETTINGS;
-    setSettings(DEFAULT_SETTINGS);
-    notifyListeners();
+    setSettingsGlobal(DEFAULT_SETTINGS);
   }, []);
 
   return { settings, update, save, reset };
