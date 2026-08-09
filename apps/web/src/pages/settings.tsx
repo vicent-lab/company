@@ -8,76 +8,7 @@ import {
   getLoginHistory, LoginHistoryEntry,
   getSessions, revokeSession, revokeAllOtherSessions, DeviceSession,
 } from '../data';
-
-const STORAGE_KEY = 'dairyos_settings';
-
-interface FarmSettings {
-  farmName: string;
-  alerts: {
-    emailNotifications: boolean;
-    smsNotifications: boolean;
-    pushNotifications: boolean;
-    criticalOnly: boolean;
-    soundEnabled: boolean;
-  };
-  thresholds: {
-    heatStressTHI: number;
-    lowMilkDropPct: number;
-    lowBodyConditionScore: number;
-    highLamenessScore: number;
-    feedStockDaysWarning: number;
-    feedStockDaysCritical: number;
-    medicineExpiryDays: number;
-    vaccinationDueDays: number;
-  };
-  display: {
-    theme: 'light' | 'dark' | 'system';
-    language: 'en' | 'fr' | 'sw';
-    dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD';
-    currency: 'UGX' | 'USD' | 'EUR';
-  };
-  automation: {
-    autoReorderFeed: boolean;
-    autoAcknowledgeLowRisk: boolean;
-    autoScheduleCheckups: boolean;
-    dailyAdviceEnabled: boolean;
-    continuousLearning: boolean;
-  };
-}
-
-const DEFAULT_SETTINGS: FarmSettings = {
-  farmName: 'Greenfield Farm',
-  alerts: {
-    emailNotifications: true,
-    smsNotifications: false,
-    pushNotifications: true,
-    criticalOnly: false,
-    soundEnabled: true,
-  },
-  thresholds: {
-    heatStressTHI: 72,
-    lowMilkDropPct: 15,
-    lowBodyConditionScore: 2,
-    highLamenessScore: 3,
-    feedStockDaysWarning: 7,
-    feedStockDaysCritical: 3,
-    medicineExpiryDays: 14,
-    vaccinationDueDays: 7,
-  },
-  display: {
-    theme: 'system',
-    language: 'en',
-    dateFormat: 'DD/MM/YYYY',
-    currency: 'UGX',
-  },
-  automation: {
-    autoReorderFeed: true,
-    autoAcknowledgeLowRisk: false,
-    autoScheduleCheckups: true,
-    dailyAdviceEnabled: true,
-    continuousLearning: true,
-  },
-};
+import { useSettings, DEFAULT_SETTINGS } from '../lib/useSettings';
 
 function deviceIcon(userAgent: string | null) {
   if (!userAgent) return Monitor;
@@ -251,41 +182,19 @@ function SecuritySection() {
 export function Settings() {
   const { farmId } = useFarm();
   const { push } = useToast();
-  const [settings, setSettings] = useState<FarmSettings>(DEFAULT_SETTINGS);
+  const { settings, save, reset, update } = useSettings();
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed, alerts: { ...DEFAULT_SETTINGS.alerts, ...(parsed.alerts || {}) }, thresholds: { ...DEFAULT_SETTINGS.thresholds, ...(parsed.thresholds || {}) }, display: { ...DEFAULT_SETTINGS.display, ...(parsed.display || {}) }, automation: { ...DEFAULT_SETTINGS.automation, ...(parsed.automation || {}) } });
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  const save = async () => {
+  const handleSave = async () => {
     setSaving(true);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      push('Settings saved');
-    } catch { push('Failed to save settings'); }
+    const ok = await save();
+    if (ok) push('Settings saved'); else push('Failed to save settings');
     setSaving(false);
   };
 
-  const reset = () => {
-    setSettings(DEFAULT_SETTINGS);
+  const handleReset = () => {
+    reset();
     push('Settings reset to defaults');
-  };
-
-  const update = (path: string[], value: any) => {
-    setSettings((prev) => {
-      const next = { ...prev };
-      let cur: any = next;
-      for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
-      cur[path[path.length - 1]] = value;
-      return next;
-    });
   };
 
   const Section = ({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) => (
@@ -310,8 +219,8 @@ export function Settings() {
       <PageHeader eyebrow="SETTINGS" title="Farm configuration" desc="Manage alerts, thresholds, display preferences, and automation rules for your farm."
         actions={
           <div className="row" style={{ gap: 8 }}>
-            <button className="btn ghost sm" onClick={reset}><RotateCcw size={14} /> Reset</button>
-            <button className="btn" onClick={save} disabled={saving}><Save size={14} /> {saving ? 'Saving…' : 'Save settings'}</button>
+            <button className="btn ghost sm" onClick={handleReset}><RotateCcw size={14} /> Reset</button>
+            <button className="btn" onClick={handleSave} disabled={saving}><Save size={14} /> {saving ? 'Saving…' : 'Save settings'}</button>
           </div>
         }
       />

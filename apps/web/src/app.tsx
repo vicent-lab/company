@@ -34,12 +34,6 @@ import { Health } from './pages/health';
 import { AIAdvisor } from './pages/ai-advisor';
 import { FarmScore } from './pages/farm-score';
 import { CommandCenter } from './pages/command-center';
-import ExecutiveBriefPage from './pages/executive/executive-brief';
-import AgentStatusPage from './pages/executive/agent-status';
-import MemoryBrowserPage from './pages/executive/memory-browser';
-import ConversationPage from './pages/executive/conversation';
-import ScenarioSimulatorPage from './pages/executive/scenario-simulator';
-import IntelligencePage from './pages/intelligence';
 import { Settings } from './pages/settings';
 import { PlatformAdmin } from './pages/platform-admin';
 import { Onboarding, EmailVerificationStep } from './pages/onboarding';
@@ -72,8 +66,6 @@ const NAV = [
   { key: 'gamification', icon: Trophy, label: 'Goals' },
   { key: 'breeding', icon: FlaskConical, label: 'Breeding' },
   { key: 'health', icon: Activity, label: 'Health' },
-  { key: 'executive', icon: Sparkles, label: 'Executive AI' },
-  { key: 'intelligence', icon: Brain, label: 'Intelligence' },
   { key: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
@@ -337,7 +329,6 @@ export function AppShell() {
       alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
       weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
       customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
-      executive: 'executive', intelligence: 'intelligence',
     };
     const feature = featureMap[k];
     if (feature && !canAccess(feature)) {
@@ -355,7 +346,6 @@ export function AppShell() {
       alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
       weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
       customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
-      executive: 'executive', intelligence: 'intelligence',
     };
     const feature = featureMap[sub];
     const content = (() => {
@@ -384,8 +374,6 @@ export function AppShell() {
         case 'management': return <Management />;
         case 'breeding': return <Breeding />;
         case 'health': return <Health />;
-        case 'executive': return <ExecutiveBriefPage />;
-        case 'intelligence': return <IntelligencePage />;
         case 'settings': return <Settings />;
         case 'platform-admin': return user?.isSuperAdmin ? <PlatformAdmin /> : <CommandCenter />;
         default: return <CommandCenter />;
