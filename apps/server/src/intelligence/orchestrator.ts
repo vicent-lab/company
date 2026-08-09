@@ -12,15 +12,21 @@ import { SustainabilityAgent } from './agents/sustainability-agent.js';
 import { ComplianceAgent } from './agents/compliance-agent.js';
 import { EmergencyResponseAgent } from './agents/emergency-agent.js';
 import { FarmKnowledgeEngine } from './knowledge/farm-data.js';
+import { PredictionEngine } from './predictions/engine.js';
+import { SimulationEngine } from './simulation/engine.js';
 
 export type { AgentResult, OrchestrationResult } from './agents/types.js';
 
 export class MasterOrchestrator {
   private knowledge: FarmKnowledgeEngine;
   private agents: Map<string, (question: string) => Promise<AgentResult>>;
+  private predictions: PredictionEngine;
+  private simulation: SimulationEngine;
 
   constructor(farmId: string) {
     this.knowledge = new FarmKnowledgeEngine(farmId);
+    this.predictions = new PredictionEngine(this.knowledge);
+    this.simulation = new SimulationEngine(this.knowledge);
     this.agents = new Map([
       ['health', (q) => new HealthAgent(this.knowledge).analyze(q)],
       ['nutrition', (q) => new NutritionAgent(this.knowledge).analyze(q)],
@@ -42,31 +48,115 @@ export class MasterOrchestrator {
     const intent = this.detectIntent(lower);
     const agentsToRun = this.selectAgents(intent, lower);
 
-    const agentResults = await Promise.all(
-      agentsToRun.map((name) => this.agents.get(name)!(question))
-    );
+    const [agentResults, predictions, simulation] = await Promise.all([
+      Promise.all(agentsToRun.map((name) => this.agents.get(name)!(question))),
+      this.runPredictions(intent),
+      this.runSimulation(intent, lower),
+    ]);
 
-    const masterAnswer = this.synthesizeAnswer(question, agentResults);
-    const allEvidence = agentResults.flatMap((r) => r.evidence);
-    const allReasoning = agentResults.flatMap((r) => r.reasoning);
-    const allRisks = agentResults.flatMap((r) => r.risks);
-    const allActions = agentResults.flatMap((r) => r.recommended_actions);
-    const confidence = this.computeConfidence(agentResults);
+    const allResults = [...agentResults, ...predictions, ...simulation].filter(Boolean);
+    const masterAnswer = this.synthesizeAnswer(question, allResults);
+    const allEvidence = allResults.flatMap((r) => r.evidence);
+    const allReasoning = allResults.flatMap((r) => r.reasoning);
+    const allRisks = allResults.flatMap((r) => r.risks);
+    const allActions = allResults.flatMap((r) => r.recommended_actions);
+    const confidence = this.computeConfidence(allResults);
 
     return {
       question,
       intent,
       agents_used: agentsToRun,
-      agent_results: agentResults,
+      agent_results: allResults,
       master_answer: masterAnswer,
       evidence: [...new Set(allEvidence)],
       reasoning: [...new Set(allReasoning)],
       confidence,
       risks: [...new Set(allRisks)],
-      recommended_actions: [...new Set(allActions)].slice(0, 8),
-      expected_outcome: agentResults[0]?.expected_outcome || 'Improved farm operations through data-driven decisions.',
-      follow_up_questions: this.generateFollowUps(intent, agentResults),
-      data_sources: agentsToRun.map((a) => `${a} agent`),
+      recommended_actions: [...new Set(allActions)].slice(0, 10),
+      expected_outcome: allResults[0]?.expected_outcome || 'Improved farm operations through data-driven decisions.',
+      follow_up_questions: this.generateFollowUps(intent, allResults),
+      data_sources: [...new Set([...agentsToRun, ...predictions.map((p) => (p as any).type), ...(simulation ? [(simulation as any).scenario] : [])])],
+    };
+  }
+
+  async generateDailyBriefing(): Promise<OrchestrationResult> {
+    const question = 'Generate daily briefing for the farm manager';
+    const agentsToRun = ['health', 'nutrition', 'milk_production', 'breeding', 'finance', 'weather', 'inventory', 'employee', 'equipment', 'sustainability', 'compliance', 'emergency'];
+
+    const [agentResults, predictions] = await Promise.all([
+      Promise.all(agentsToRun.map((name) => this.agents.get(name)!(question))),
+      this.predictions.predict('all'),
+    ]);
+
+    const allResults = [...agentResults];
+    const critical = allResults.filter((r) => r.severity === 'critical' || r.severity === 'high');
+    const parts: string[] = [];
+
+    parts.push('# Daily Farm Briefing');
+    parts.push(`**Generated:** ${new Date().toLocaleDateString()}`);
+    parts.push('');
+
+    if (critical.length > 0) {
+      parts.push('## 🚨 Urgent Alerts');
+      critical.forEach((r) => {
+        parts.push(`- **${r.agent.toUpperCase()}**: ${r.title}`);
+        parts.push(`  - ${r.summary}`);
+        if (r.recommended_actions.length) {
+          parts.push(`  - Action: ${r.recommended_actions[0]}`);
+        }
+      });
+      parts.push('');
+    }
+
+    parts.push('## 📊 Farm Summary');
+    const overview = await this.knowledge.getOverview();
+    parts.push(`- **Total Cows:** ${overview.total_cows}`);
+    parts.push(`- **Milking:** ${overview.milking_cows}`);
+    parts.push(`- **Sick:** ${overview.sick_cows}`);
+    parts.push(`- **Today's Milk:** ${overview.today_milk_liters.toFixed(1)} L`);
+    parts.push(`- **Feed Days Remaining:** ${overview.feed_days_remaining.toFixed(1)}`);
+    parts.push(`- **Net Profit (MTD):** ${overview.net_profit_this_month.toFixed(2)}`);
+    if (overview.current_thi != null) parts.push(`- **THI:** ${overview.current_thi.toFixed(1)}`);
+    parts.push('');
+
+    parts.push('## 🎯 Today\'s Priorities');
+    const allActions = allResults.flatMap((r) => r.recommended_actions);
+    [...new Set(allActions)].slice(0, 5).forEach((action, i) => {
+      parts.push(`${i + 1}. ${action}`);
+    });
+    parts.push('');
+
+    parts.push('## 🔮 Predictions');
+    predictions.slice(0, 5).forEach((p) => {
+      parts.push(`- **${p.description}**: ${p.predicted_value} (${(p.confidence * 100).toFixed(0)}% confidence)`);
+    });
+    parts.push('');
+
+    parts.push('## 💡 Opportunities');
+    const opportunities = allResults.filter((r) => r.severity === 'low' && r.recommended_actions.length > 0).slice(0, 3);
+    opportunities.forEach((o) => {
+      parts.push(`- **${o.agent.toUpperCase()}**: ${o.recommended_actions[0]}`);
+    });
+
+    return {
+      question,
+      intent: 'daily_briefing',
+      agents_used: agentsToRun,
+      agent_results: allResults,
+      master_answer: parts.join('\n'),
+      evidence: allResults.flatMap((r) => r.evidence),
+      reasoning: allResults.flatMap((r) => r.reasoning),
+      confidence: this.computeConfidence(allResults),
+      risks: [...new Set(allResults.flatMap((r) => r.risks))],
+      recommended_actions: [...new Set(allActions)].slice(0, 10),
+      expected_outcome: 'Daily briefing helps farmer prioritize actions and stay ahead of issues.',
+      follow_up_questions: [
+        'Which cows need immediate attention?',
+        'Show me detailed health report',
+        'What are today\'s financial priorities?',
+        'Run full farm analysis',
+      ],
+      data_sources: agentsToRun,
     };
   }
 
@@ -79,8 +169,10 @@ export class MasterOrchestrator {
     if (/\b(employee|worker|attendance|workload|tasks completed)\b/.test(question)) return 'employee_analysis';
     if (/\b(weather|forecast|temperature|rain|wind|heat)\b/.test(question)) return 'weather_impact';
     if (/\b(breed|breeding|inseminate|pregnant|calve|calving|pregnancy)\b/.test(question)) return 'breeding_analysis';
-    if (/\b(report|generate report|summary|overview)\b/.test(question)) return 'report';
+    if (/\b(report|generate report|summary|overview|briefing)\b/.test(question)) return 'report';
     if (/\b(emergency|urgent|critical|help)\b/.test(question)) return 'emergency';
+    if (/\b(predict|forecast|will|next)\b/.test(question)) return 'prediction';
+    if (/\b(simulate|what if|scenario|what happens)\b/.test(question)) return 'simulation';
     return 'overview';
   }
 
@@ -108,9 +200,70 @@ export class MasterOrchestrator {
         return ['health', 'nutrition', 'milk_production', 'breeding', 'finance', 'weather', 'inventory', 'employee', 'equipment', 'sustainability', 'compliance'];
       case 'emergency':
         return emergencyAgents;
+      case 'prediction':
+        return ['milk_production', 'health', 'nutrition', 'finance', 'weather', 'breeding'];
+      case 'simulation':
+        return ['finance', 'nutrition', 'milk_production'];
       default:
         return ['health', 'nutrition', 'milk_production', 'finance', 'weather', 'inventory'];
     }
+  }
+
+  private async runPredictions(intent: string): Promise<AgentResult[]> {
+    if (intent === 'prediction' || intent === 'report' || intent === 'overview') {
+      const predictions = await this.predictions.predict('all');
+      return predictions.map((p) => ({
+        agent: 'prediction',
+        title: p.description,
+        summary: `${p.description}: ${p.predicted_value} (${(p.confidence * 100).toFixed(0)}% confidence)`,
+        severity: p.confidence > 0.8 ? 'high' : 'medium',
+        confidence: p.confidence,
+        evidence: [p.basis],
+        reasoning: [`Timeframe: ${p.timeframe}`, p.recommendation],
+        risks: [],
+        recommended_actions: [p.recommendation],
+        expected_outcome: 'Predictions help farmer prepare for future events.',
+        data: p,
+      }));
+    }
+    return [];
+  }
+
+  private async runSimulation(intent: string, question: string): Promise<AgentResult[]> {
+    if (intent === 'simulation') {
+      const scenarioMatch = question.match(/(?:what happens if|simulate|what if)\s+(.+?)(?:\?|$)/i);
+      if (scenarioMatch) {
+        const scenario = scenarioMatch[1].trim().toLowerCase();
+        const scenarioMap: Record<string, string> = {
+          'feed prices increase': 'feed_price_increase',
+          'milk prices fall': 'milk_price_fall',
+          'rainfall decreases': 'rainfall_decrease',
+          'hire more workers': 'hire_workers',
+          'buy more cows': 'add_cows',
+          'add more cows': 'add_cows',
+          'remove cows': 'remove_cows',
+          'heat wave': 'heat_wave',
+          'disease outbreak': 'disease_outbreak',
+          'reduce feed': 'feed_reduction',
+        };
+        const scenarioKey = scenarioMap[scenario] || 'generic';
+        const result = await this.simulation.simulate(scenarioKey, {});
+        return [{
+          agent: 'simulation',
+          title: `Simulation: ${scenario}`,
+          summary: result.impacts.map((i) => `${i.metric}: ${i.change}`).join(', '),
+          severity: 'info',
+          confidence: result.confidence,
+          evidence: result.impacts.map((i) => `${i.metric}: ${i.description}`),
+          reasoning: result.recommendations,
+          risks: [],
+          recommended_actions: result.recommendations,
+          expected_outcome: 'Simulation helps farmer understand potential outcomes before making decisions.',
+          data: result,
+        }];
+      }
+    }
+    return [];
   }
 
   private synthesizeAnswer(question: string, results: AgentResult[]): string {
@@ -138,8 +291,33 @@ export class MasterOrchestrator {
       });
     }
 
+    const predictions = results.filter((r) => r.agent === 'prediction');
+    if (predictions.length > 0) {
+      parts.push('## 🔮 Predictions');
+      predictions.forEach((p) => {
+        parts.push(`- **${p.title}**: ${p.summary}`);
+      });
+      parts.push('');
+    }
+
+    const simulations = results.filter((r) => r.agent === 'simulation');
+    if (simulations.length > 0) {
+      parts.push('## 🎬 Simulation Results');
+      simulations.forEach((s) => {
+        parts.push(`### ${s.title}`);
+        parts.push(s.summary);
+        parts.push('');
+        if (s.recommended_actions.length) {
+          parts.push('**Recommendations:**');
+          s.recommended_actions.forEach((a) => parts.push(`- ${a}`));
+          parts.push('');
+        }
+      });
+    }
+
     parts.push('## 📊 Detailed Analysis');
-    results.forEach((r) => {
+    const regularResults = results.filter((r) => !['prediction', 'simulation'].includes(r.agent));
+    regularResults.forEach((r) => {
       if (r.severity === 'low' && critical.length > 0) return;
       parts.push(`### ${r.agent.toUpperCase()}: ${r.title}`);
       parts.push(r.summary);
@@ -196,6 +374,8 @@ export class MasterOrchestrator {
 
     suggestions.push('Run full farm analysis');
     suggestions.push('Generate today\'s executive briefing');
+    suggestions.push('What happens if milk prices fall?');
+    suggestions.push('What happens if feed prices increase?');
 
     return suggestions.slice(0, 6);
   }

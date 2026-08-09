@@ -49,9 +49,18 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
 router.get('/briefing/daily', asyncHandler(async (req, res) => {
   const farmId = getFarmId(req);
-  const generator = new DailyBriefingGenerator(farmId);
-  const briefing = await generator.generate();
+  const orchestrator = new MasterOrchestrator(farmId);
+  const briefing = await orchestrator.generateDailyBriefing();
   res.json({ ok: true, data: briefing });
+}));
+
+router.post('/feedback', asyncHandler(async (req, res) => {
+  const farmId = getFarmId(req);
+  const { insight_id, helpful, accurate, urgent, note } = req.body || {};
+  if (!insight_id) return res.status(400).json({ error: 'insight_id is required' });
+  const engine = new LearningEngine(farmId);
+  await engine.recordFeedback(insight_id, { helpful, accurate, urgent, note: note || '' });
+  res.json({ ok: true });
 }));
 
 router.get('/alerts', asyncHandler(async (req, res) => {

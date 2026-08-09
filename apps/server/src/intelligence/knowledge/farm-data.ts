@@ -284,7 +284,7 @@ export class FarmKnowledgeEngine {
 
   async getEmployeeAnalysis() {
     const [attendance, tasks] = await Promise.all([
-      query(`SELECT u.name, a.attended_on AS date, a.check_in, a.check_out, a.status FROM attendance a JOIN employees e ON e.id=a.employee_id JOIN users u ON u.id=e.user_id WHERE a.farm_id=$1 AND a.attended_on >= CURRENT_DATE - INTERVAL '7 days' ORDER BY a.attended_on DESC, a.check_in DESC LIMIT 50`, [this.farmId]),
+      query(`SELECT u.name, a.attended_on AS date, a.check_in, a.check_out, a.status FROM attendance a JOIN employees e ON e.id=a.employee_id JOIN users u ON u.id=e.user_id WHERE e.farm_id=$1 AND a.attended_on >= CURRENT_DATE - INTERVAL '7 days' ORDER BY a.attended_on DESC, a.check_in DESC LIMIT 50`, [this.farmId]),
       query(`SELECT u.name, count(t.id)::int AS task_count, count(t.id) FILTER (WHERE t.status='completed')::int AS completed FROM tasks t JOIN employees e ON e.id=t.assigned_to JOIN users u ON u.id=e.user_id WHERE t.farm_id=$1 AND t.created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY u.name ORDER BY task_count DESC LIMIT 20`, [this.farmId]),
     ]);
     return { attendance: attendance.rows, tasks: tasks.rows };

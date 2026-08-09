@@ -18,7 +18,7 @@ export class EmergencyResponseAgent {
     const dailyNeed = milking * 25;
     const feedDays = dailyNeed > 0 ? feedStock / dailyNeed : 999;
     const weather = criticalWeather.rows[0];
-    const thi = weather ? (weather.temperature_c * 9) / 5 + 32 - ((0.55 - 0.55 * (weather.humidity_pct / 100)) * (((weather.temperature_c * 9) / 5 + 32) - 58)) : null;
+    const thi = weather ? (Number(weather.temperature_c) * 9) / 5 + 32 - ((0.55 - 0.55 * (Number(weather.humidity_pct) / 100)) * (((Number(weather.temperature_c) * 9) / 5 + 32) - 58)) : null;
 
     const emergencies: string[] = [];
     const evidence: string[] = [];

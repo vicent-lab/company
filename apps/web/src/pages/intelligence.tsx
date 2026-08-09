@@ -5,6 +5,7 @@ import { apiSend } from '../api';
 import { isLive } from '../api';
 import { ConfidenceGauge } from '../components/intelligence/ConfidenceGauge';
 import { FollowUpSuggestions } from '../components/intelligence/FollowUpSuggestions';
+import { AIFeedback } from '../components/intelligence/AIFeedback';
 
 interface AgentResult {
   agent: string;
@@ -221,6 +222,10 @@ export default function IntelligencePage() {
                     <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7, borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: 6 }}>
                       Data sources: {msg.dataUsed.join(', ')}
                     </div>
+                  )}
+
+                  {msg.role === 'assistant' && msg.id && (
+                    <AIFeedback messageId={msg.id} />
                   )}
                 </div>
               </div>
