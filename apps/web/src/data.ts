@@ -557,14 +557,27 @@ export const deleteGalleryItem = (id: string) =>
 export const tasks = (filters?: { status?: string; assignedTo?: string }) =>
   isLive ? apiGet<any[]>(`/tasks${q(filters || {})}`).then((r: any) => r.data) : Promise.resolve(mock.tasks('f1', filters));
 
-export const createTask = (body: any) =>
-  isLive ? apiSend('/tasks', 'POST', body) : Promise.resolve({ ...body, id: 'mock-task-' + Date.now() });
+export const createTask = (body: any) => {
+  const data = { ...body, id: 'mock-task-' + Date.now() };
+  if (!isLive) mock.TASKS.push(data);
+  return isLive ? apiSend('/tasks', 'POST', body) : Promise.resolve(data);
+};
 
-export const updateTask = (id: string, body: any) =>
-  isLive ? apiSend(`/tasks/${id}`, 'PATCH', body) : Promise.resolve({ ...body, id });
+export const updateTask = (id: string, body: any) => {
+  if (!isLive) {
+    const idx = mock.TASKS.findIndex((t: any) => t.id === id);
+    if (idx >= 0) mock.TASKS[idx] = { ...mock.TASKS[idx], ...body };
+  }
+  return isLive ? apiSend(`/tasks/${id}`, 'PATCH', body) : Promise.resolve({ ...body, id });
+};
 
-export const deleteTask = (id: string) =>
-  isLive ? apiSend(`/tasks/${id}`, 'DELETE') : Promise.resolve();
+export const deleteTask = (id: string) => {
+  if (!isLive) {
+    const idx = mock.TASKS.findIndex((t: any) => t.id === id);
+    if (idx >= 0) mock.TASKS.splice(idx, 1);
+  }
+  return isLive ? apiSend(`/tasks/${id}`, 'DELETE') : Promise.resolve();
+};
 
 // ---------- Daily Activities ----------
 function toCamelDaily(body: any) {
