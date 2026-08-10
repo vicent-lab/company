@@ -1096,3 +1096,109 @@ export interface PlatformUser {
   created_at: string; farm_count: number;
 }
 export const getPlatformUsers = () => apiGet<{ data: PlatformUser[] }>('/platform/users');
+
+// ---------- Farm Map Editor ----------
+export interface FarmMapObject {
+  id: string; farmId: string; type: string; name: string; properties: Record<string, any>;
+  geometry: { type: 'Point' | 'LineString' | 'Polygon'; coordinates: number[] | number[][] | number[][][] };
+  zIndex: number; isLocked: boolean; createdBy: string; updatedBy: string; createdAt: string; updatedAt: string;
+}
+
+const mockFarmMapObjects: FarmMapObject[] = [
+  { id: 'mo-1', farmId: 'f1', type: 'barn', name: 'Barn A', properties: { capacity: 60, currentAnimals: 38, waterPoints: 2, feedArea: 'Southeast corner', ventilation: 'Natural + fans', notes: 'Main milking barn' }, geometry: { type: 'Polygon', coordinates: [[[26,28],[34,28],[34,36],[26,36],[26,28]]] }, zIndex: 1, isLocked: false, createdBy: 'u1', updatedBy: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'mo-2', farmId: 'f1', type: 'pasture', name: 'Pasture 1', properties: { areaHectares: 12, grazingType: 'rotational', notes: 'Good cover' }, geometry: { type: 'Polygon', coordinates: [[[38,62],[48,62],[48,72],[38,72],[38,62]]] }, zIndex: 0, isLocked: false, createdBy: 'u1', updatedBy: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'mo-3', farmId: 'f1', type: 'water_point', name: 'Water Tank', properties: { flowRateLpm: 12, temperatureC: 14, status: 'clean', notes: 'Main water supply' }, geometry: { type: 'Point', coordinates: [34, 46] }, zIndex: 2, isLocked: false, createdBy: 'u1', updatedBy: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'mo-4', farmId: 'f1', type: 'feed_store', name: 'Feed Store', properties: { silageKg: 2400, concentrateKg: 380, notes: 'Concentrate running low' }, geometry: { type: 'Point', coordinates: [90, 36] }, zIndex: 2, isLocked: false, createdBy: 'u1', updatedBy: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'mo-5', farmId: 'f1', type: 'milking_area', name: 'Milking Parlor', properties: { stalls: 16, sessionsPerDay: 3, notes: 'Parlour 2x8' }, geometry: { type: 'Polygon', coordinates: [[[14,26],[18,26],[18,30],[14,30],[14,26]]] }, zIndex: 1, isLocked: false, createdBy: 'u1', updatedBy: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+];
+
+let mockUndoLog: any[] = [];
+let mockDraft: FarmMapObject[] = [];
+
+export const listFarmMapObjects = (farmId: string) =>
+  isLive ? apiGet<{ data: FarmMapObject[] }>(`/farm-map/objects?farmId=${farmId}`).then((r) => r.data) : Promise.resolve(mockFarmMapObjects.filter((o) => o.farmId === farmId));
+
+export const createFarmMapObject = (farmId: string, obj: Partial<FarmMapObject>) =>
+  isLive ? apiSend<FarmMapObject>(`/farm-map/objects?farmId=${farmId}`, 'POST', obj) : (() => {
+    const newObj: FarmMapObject = {
+      id: `mo-${Date.now()}`,
+      farmId,
+      type: obj.type || 'custom',
+      name: obj.name || 'New Object',
+      properties: obj.properties || {},
+      geometry: obj.geometry || { type: 'Point', coordinates: [0, 0] },
+      zIndex: obj.zIndex ?? 0,
+      isLocked: obj.isLocked ?? false,
+      createdBy: 'me',
+      updatedBy: 'me',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockFarmMapObjects.push(newObj);
+    mockUndoLog.unshift({ id: `undo-${Date.now()}`, action: 'create', entity_type: 'farm_map_object', entity_id: newObj.id, old_state: null, new_state: newObj });
+    return Promise.resolve(newObj);
+  })();
+
+export const updateFarmMapObject = (farmId: string, id: string, updates: Partial<FarmMapObject>) =>
+  isLive ? apiSend<FarmMapObject>(`/farm-map/objects/${id}?farmId=${farmId}`, 'PATCH', updates) : (() => {
+    const idx = mockFarmMapObjects.findIndex((o) => o.id === id && o.farmId === farmId);
+    if (idx < 0) return Promise.reject(new Error('Not found'));
+    const oldState = { ...mockFarmMapObjects[idx] };
+    mockFarmMapObjects[idx] = { ...mockFarmMapObjects[idx], ...updates, updatedAt: new Date().toISOString() };
+    mockUndoLog.unshift({ id: `undo-${Date.now()}`, action: 'update', entity_type: 'farm_map_object', entity_id: id, old_state: oldState, new_state: mockFarmMapObjects[idx] });
+    return Promise.resolve(mockFarmMapObjects[idx]);
+  })();
+
+export const deleteFarmMapObject = (farmId: string, id: string) =>
+  isLive ? apiSend(`/farm-map/objects/${id}?farmId=${farmId}`, 'DELETE') : (() => {
+    const idx = mockFarmMapObjects.findIndex((o) => o.id === id && o.farmId === farmId);
+    if (idx < 0) return Promise.reject(new Error('Not found'));
+    const oldState = { ...mockFarmMapObjects[idx] };
+    mockFarmMapObjects.splice(idx, 1);
+    mockUndoLog.unshift({ id: `undo-${Date.now()}`, action: 'delete', entity_type: 'farm_map_object', entity_id: id, old_state: oldState, new_state: null });
+    return Promise.resolve();
+  })();
+
+export const moveFarmMapObject = (farmId: string, id: string, geometry: any) =>
+  isLive ? apiSend<{ geometry: any }>(`/farm-map/objects/${id}/move?farmId=${farmId}`, 'POST', { geometry }) : (() => {
+    const obj = mockFarmMapObjects.find((o) => o.id === id && o.farmId === farmId);
+    if (!obj) return Promise.reject(new Error('Not found'));
+    obj.geometry = geometry;
+    obj.updatedAt = new Date().toISOString();
+    return Promise.resolve({ geometry });
+  })();
+
+export const getUndoLog = (farmId: string) =>
+  isLive ? apiGet<{ data: any[] }>(`/farm-map/undo?farmId=${farmId}`).then((r) => r.data) : Promise.resolve(mockUndoLog);
+
+export const undoChange = (farmId: string, undoId: string) =>
+  isLive ? apiSend(`/farm-map/undo/${undoId}?farmId=${farmId}`, 'POST') : (() => {
+    const entry = mockUndoLog.find((e) => e.id === undoId);
+    if (!entry) return Promise.resolve({ ok: true });
+    if (entry.action === 'create') {
+      const idx = mockFarmMapObjects.findIndex((o) => o.id === entry.entity_id);
+      if (idx >= 0) mockFarmMapObjects.splice(idx, 1);
+    } else if (entry.action === 'update') {
+      const obj = mockFarmMapObjects.find((o) => o.id === entry.entity_id);
+      if (obj && entry.old_state) Object.assign(obj, entry.old_state);
+    } else if (entry.action === 'delete' && entry.old_state) {
+      mockFarmMapObjects.push(entry.old_state);
+    }
+    mockUndoLog = mockUndoLog.filter((e) => e.id !== undoId);
+    return Promise.resolve({ ok: true });
+  })();
+
+export const redoChange = (farmId: string) =>
+  isLive ? apiSend(`/farm-map/redo?farmId=${farmId}`, 'POST') : Promise.resolve({ ok: true });
+
+export const saveDraft = (farmId: string, objects: FarmMapObject[]) =>
+  isLive ? apiSend<{ draft: FarmMapObject[] }>(`/farm-map/save-draft?farmId=${farmId}`, 'POST', { objects }) : (() => {
+    mockDraft = [...objects];
+    return Promise.resolve({ draft: mockDraft });
+  })();
+
+export const getDraft = (farmId: string) =>
+  isLive ? apiGet<{ draft: FarmMapObject[] }>(`/farm-map/draft?farmId=${farmId}`).then((r) => r.draft) : Promise.resolve(mockDraft);
+
+export const publishDraft = (farmId: string) =>
+  isLive ? apiSend(`/farm-map/publish?farmId=${farmId}`, 'POST') : Promise.resolve({ ok: true, published: mockDraft.length });

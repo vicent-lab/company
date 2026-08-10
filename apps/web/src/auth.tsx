@@ -9,6 +9,7 @@ export interface FarmMembership { farmId: string; farmName: string; role: string
 interface AuthUser {
   id: string; name: string; email: string;
   farmId: string | null; role: string | null;
+  permissions?: string[];
   accountType?: AccountType | null;
   emailVerified?: boolean;
   isSuperAdmin?: boolean;
@@ -79,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // err.status (423 = locked) and err.body.captchaRequired directly off the ApiError,
   // instead of just a flattened message string.
   const login = async (email: string, password: string, captcha?: { token: string; answer: string }): Promise<LoginResult> => {
-    if (!isLive) { setUser({ id: 'me', name: 'Manager', email, farmId: '', role: 'administrator' }); return { mfaRequired: false }; }
+    if (!isLive) { setUser({ id: 'me', name: 'Manager', email, farmId: '', role: 'administrator', permissions: ['farm:manage','cow:manage','task:manage'] }); return { mfaRequired: false }; }
     const res = await apiSend<SessionResponse | { mfaRequired: true; mfaToken: string }>('/auth/login', 'POST', {
       email, password, captchaToken: captcha?.token, captchaAnswer: captcha?.answer,
     });
@@ -100,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (input: RegisterInput) => {
     const fullName = `${input.firstName} ${input.lastName}`.trim();
-    if (!isLive) { setUser({ id: 'me', name: fullName, email: input.email, farmId: '', role: 'administrator' }); return; }
+    if (!isLive) { setUser({ id: 'me', name: fullName, email: input.email, farmId: '', role: 'administrator', permissions: ['farm:manage','cow:manage','task:manage'] }); return; }
     try {
       const res = await apiSend<SessionResponse>('/auth/register', 'POST', input);
       applySession(res);

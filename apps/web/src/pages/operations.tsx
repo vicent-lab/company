@@ -1,11 +1,13 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useFarm } from '../app';
 import { useTheme } from '../theme';
 import { useHashRoute } from '../router';
+import { useAuth } from '../auth';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, Modal, Progress, useToast, useAsync } from '../ui';
+import { isLive } from '../api';
 import { ALL_COWS, BADGES, LEADERBOARD, BARNS } from '../mock';
-import { listCows, gallery, galleryCategories, createGalleryItem, updateGalleryItem, deleteGalleryItem, mapNodes, cowLocations, moveCowLocation, zoneHeatmap, weather, CowLocationView, CowStatus, ZoneHeat, ZoneRecommendation, Period, CalvingRisk } from '../data';
-import { Home, Droplets, Tractor, Warehouse, Syringe, Wheat, Trophy, Flame, Crown, Search, Filter, Download, Plus, Edit3, Eye, Trash2, FolderOpen, Camera, ZoomIn, ZoomOut, Maximize, Milk, Move as MoveIcon, MapPin, Beef, Utensils, CloudSun, Thermometer, Wind, CloudRain, AlertTriangle, History, Baby, CalendarClock } from 'lucide-react';
+import { listCows, gallery, galleryCategories, createGalleryItem, updateGalleryItem, deleteGalleryItem, mapNodes, cowLocations, moveCowLocation, zoneHeatmap, weather, CowLocationView, CowStatus, ZoneHeat, ZoneRecommendation, Period, CalvingRisk, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, getUndoLog, undoChange, redoChange, saveDraft, getDraft, publishDraft, FarmMapObject } from '../data';
+import { Home, Droplets, Tractor, Warehouse, Syringe, Wheat, Trophy, Flame, Crown, Search, Filter, Download, Plus, Edit3, Eye, Trash2, FolderOpen, Camera, ZoomIn, ZoomOut, Maximize, Milk, Move as MoveIcon, MapPin, Beef, Utensils, CloudSun, Thermometer, Wind, CloudRain, AlertTriangle, History, Baby, CalendarClock, MousePointer2, Square, Minus, Fence, Wrench, Stethoscope, Save, Undo2, Redo2, X } from 'lucide-react';
 import { fmt } from '../format';
 
 const MAP_NODES = [
@@ -180,6 +182,8 @@ export function FarmMap() {
   const { farmId } = useFarm();
   const [, navigate] = useHashRoute();
   const { push } = useToast();
+  const { user } = useAuth();
+  const canEdit = isLive ? (user?.permissions || []).includes('farm:manage') : true;
   const [active, setActive] = useState<string | null>(null);
   const { data: mapData } = useAsync(() => mapNodes(farmId), [farmId]);
   const barns = (mapData?.barns || []).map((b: any) => ({ id: b.id, name: b.name, cows: b.cows, capacity: b.capacity }));
@@ -190,6 +194,221 @@ export function FarmMap() {
   });
   const node = NODES.find((n) => n.id === active);
   const roadPoints = ROAD_LOOP.map((id) => NODES.find((n) => n.id === id)).filter(Boolean) as typeof NODES;
+
+  // --- edit mode ---
+  const [editMode, setEditMode] = useState(false);
+  const [editTool, setEditTool] = useState<'select' | 'move' | 'draw-area' | 'draw-line' | 'add-marker' | 'add-building' | 'add-pasture' | 'add-fence' | 'add-gate' | 'add-water-point' | 'add-feed-store' | 'add-milking-area' | 'add-vet-area' | 'add-equipment-area' | 'add-custom' | 'delete'>('select');
+  const [mapObjects, setMapObjects] = useState<FarmMapObject[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [undoLog, setUndoLog] = useState<any[]>([]);
+  const [drawPoints, setDrawPoints] = useState<{ x: number; y: number }[]>([]);
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [propertyForm, setPropertyForm] = useState({ name: '', type: '', properties: {} as Record<string, any> });
+
+  const loadMapData = async () => {
+    const objs = await listFarmMapObjects(farmId);
+    setMapObjects(objs);
+    const log = await getUndoLog(farmId);
+    setUndoLog(log);
+  };
+
+  useEffect(() => {
+    if (editMode) { void loadMapData(); }
+  }, [editMode]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const selectedObject = mapObjects.find((o) => o.id === selectedId) || null;
+
+  const syncPropertyForm = (obj: FarmMapObject | null) => {
+    if (!obj) { setPropertyForm({ name: '', type: '', properties: {} }); return; }
+    setPropertyForm({ name: obj.name, type: obj.type, properties: { ...obj.properties } });
+  };
+
+  const handleSelectObject = (id: string | null) => {
+    setSelectedId(id);
+    const obj = mapObjects.find((o) => o.id === id) || null;
+    syncPropertyForm(obj);
+    setDrawPoints([]);
+  };
+
+  const handleCreateObject = async (type: string, geometry: any) => {
+    const obj: Partial<FarmMapObject> = {
+      farmId, type, name: `${type.replace(/_/g, ' ')} ${mapObjects.filter((o) => o.type === type).length + 1}`,
+      properties: {}, geometry, zIndex: 0, isLocked: false, createdBy: user?.id || '', updatedBy: user?.id || '',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const created = await createFarmMapObject(farmId, obj);
+    setMapObjects((prev) => [...prev, created]);
+    setSelectedId(created.id);
+    syncPropertyForm(created);
+    setDrawPoints([]);
+    setEditTool('select');
+    push('Object created');
+  };
+
+  const handleUpdateObject = async (id: string, updates: Partial<FarmMapObject>) => {
+    const updated = await updateFarmMapObject(farmId, id, updates);
+    setMapObjects((prev) => prev.map((o) => o.id === id ? { ...o, ...updated } : o));
+    if (selectedId === id) syncPropertyForm(updated);
+  };
+
+  const handleDeleteObject = async () => {
+    if (!selectedId) return;
+    await deleteFarmMapObject(farmId, selectedId);
+    setMapObjects((prev) => prev.filter((o) => o.id !== selectedId));
+    setSelectedId(null);
+    syncPropertyForm(null);
+    push('Object deleted');
+  };
+
+  const handleMoveObject = async (id: string, geometry: any) => {
+    const result = await moveFarmMapObject(farmId, id, geometry);
+    setMapObjects((prev) => prev.map((o) => o.id === id ? { ...o, geometry: result.geometry } : o));
+  };
+
+  const handleSaveProperty = async () => {
+    if (!selectedId || !selectedObject) return;
+    const updates: Partial<FarmMapObject> = {
+      name: propertyForm.name,
+      type: propertyForm.type,
+      properties: propertyForm.properties,
+    };
+    await handleUpdateObject(selectedId, updates);
+    push('Properties saved');
+  };
+
+  const handleUndo = async () => {
+    const entry = undoLog[0];
+    if (!entry) return;
+    await undoChange(farmId, entry.id);
+    await loadMapData();
+    push('Undo applied');
+  };
+
+  const handleRedo = async () => {
+    await redoChange(farmId);
+    await loadMapData();
+    push('Redo applied');
+  };
+
+  const handleSaveDraft = async () => {
+    await saveDraft(farmId, mapObjects);
+    push('Draft saved');
+    setShowSaveConfirm(false);
+  };
+
+  const handlePublish = async () => {
+    await publishDraft(farmId);
+    await loadMapData();
+    push('Draft published');
+    setShowPublishConfirm(false);
+  };
+
+  const projectToScreen = (geometry: FarmMapObject['geometry']) => {
+    if (geometry.type === 'Point') {
+      const c = geometry.coordinates as number[];
+      return { x: c[0], y: c[1] };
+    }
+    if (geometry.type === 'LineString') {
+      return (geometry.coordinates as number[][]).map((c) => ({ x: c[0], y: c[1] }));
+    }
+    if (geometry.type === 'Polygon') {
+      return (geometry.coordinates as number[][][])[0].map((c) => ({ x: c[0], y: c[1] }));
+    }
+    return [];
+  };
+
+  const toGeoJSON = (screenPoints: { x: number; y: number }[], type: 'Point' | 'LineString' | 'Polygon') => {
+    if (type === 'Point' && screenPoints.length === 1) {
+      return { type: 'Point', coordinates: [screenPoints[0].x, screenPoints[0].y] };
+    }
+    if (type === 'LineString') {
+      return { type: 'LineString', coordinates: screenPoints.map((p) => [p.x, p.y]) };
+    }
+    if (type === 'Polygon') {
+      const closed = [...screenPoints, screenPoints[0]];
+      return { type: 'Polygon', coordinates: [closed.map((p) => [p.x, p.y])] };
+    }
+    return { type, coordinates: [] };
+  };
+
+  const handleMapClick = (e: React.MouseEvent) => {
+    if (!editMode) return;
+    if (drag.current.moved) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    if (editTool === 'select') {
+      handleSelectObject(null);
+      return;
+    }
+    if (editTool === 'delete') {
+      if (selectedId) { void handleDeleteObject(); }
+      return;
+    }
+    if (editTool === 'draw-area' || editTool === 'draw-line' || editTool === 'add-marker' || editTool === 'add-building' || editTool === 'add-pasture' || editTool === 'add-fence' || editTool === 'add-gate' || editTool === 'add-water-point' || editTool === 'add-feed-store' || editTool === 'add-milking-area' || editTool === 'add-vet-area' || editTool === 'add-equipment-area' || editTool === 'add-custom') {
+      setDrawPoints((prev) => [...prev, { x, y }]);
+      if (editTool === 'add-marker') {
+        const geo = toGeoJSON([{ x, y }], 'Point');
+        void handleCreateObject('building', geo);
+      }
+    }
+  };
+
+  const finishDrawing = () => {
+    if (drawPoints.length < 2) { setDrawPoints([]); return; }
+    const type = editTool === 'draw-area' ? 'Polygon' : editTool === 'draw-line' ? 'LineString' : 'Polygon';
+    const objectType = editTool === 'draw-area' ? 'pasture' : editTool === 'draw-line' ? 'road' : 'custom';
+    const geo = toGeoJSON(drawPoints, type);
+    void handleCreateObject(objectType, geo);
+  };
+
+  const handleMapDoubleClick = () => {
+    if (drawPoints.length >= 2) finishDrawing();
+  };
+
+  const handleObjectMouseDown = (e: React.MouseEvent, obj: FarmMapObject) => {
+    if (!editMode) return;
+    e.stopPropagation();
+    if (editTool === 'delete') { handleSelectObject(obj.id); void handleDeleteObject(); return; }
+    if (editTool === 'select' || editTool === 'move') {
+      handleSelectObject(obj.id);
+    }
+  };
+
+  const handleMapDrag = (e: React.PointerEvent) => {
+    if (!editMode || !selectedId || editTool !== 'move') return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    const obj = mapObjects.find((o) => o.id === selectedId);
+    if (!obj) return;
+    if (obj.geometry.type === 'Point') {
+      const projected = projectToScreen(obj.geometry) as { x: number; y: number };
+      const dx = x - projected.x;
+      const dy = y - projected.y;
+      const newCoords = [(projected.x + dx), (projected.y + dy)];
+      handleMoveObject(selectedId, { type: 'Point', coordinates: newCoords });
+    } else if (obj.geometry.type === 'Polygon') {
+      const projected = projectToScreen(obj.geometry) as { x: number; y: number }[];
+      const cx = projected.reduce((s, p) => s + p.x, 0) / projected.length;
+      const cy = projected.reduce((s, p) => s + p.y, 0) / projected.length;
+      const dx = x - cx;
+      const dy = y - cy;
+      const newPts = projected.map((p) => [p.x + dx, p.y + dy]);
+      handleMoveObject(selectedId, { type: 'Polygon', coordinates: [newPts] });
+    }
+  };
 
   // --- timeline: which point in time is the map showing ---
   const [period, setPeriod] = useState<Period>('today');
@@ -340,8 +559,44 @@ export function FarmMap() {
             <button className={`btn sm ${viewMode === 'cows' ? '' : 'ghost'}`} disabled={!isToday} title={isToday ? undefined : 'Cow positions are only tracked live — switch the timeline to Today'} onClick={() => setViewMode('cows')}><MapPin size={14} /> Cow view</button>
             <button className={`btn sm ${viewMode === 'calving' ? '' : 'ghost'}`} disabled={!isToday} title={isToday ? undefined : 'Calving status is only tracked live — switch the timeline to Today'} onClick={() => setViewMode('calving')}><Baby size={14} /> Calving</button>
             <button className={`btn sm ${viewMode === 'heatmap' ? '' : 'ghost'}`} onClick={() => setViewMode('heatmap')}><Flame size={14} /> Heat map</button>
+            {canEdit && <button className={`btn sm ${editMode ? '' : 'ghost'}`} onClick={() => { setEditMode(!editMode); if (!editMode) setEditTool('select'); }}><Edit3 size={14} /> {editMode ? 'Exit edit' : 'Edit map'}</button>}
           </div>
         } />
+
+      {editMode && (
+        <div className="card mb" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={`btn sm ${editTool === 'select' ? '' : 'ghost'}`} onClick={() => setEditTool('select')}><MousePointer2 size={14} /> Select</button>
+            <button className={`btn sm ${editTool === 'move' ? '' : 'ghost'}`} onClick={() => setEditTool('move')}><MoveIcon size={14} /> Move</button>
+            <button className={`btn sm ${editTool === 'draw-area' ? '' : 'ghost'}`} onClick={() => { setEditTool('draw-area'); setDrawPoints([]); }}><Square size={14} /> Draw Area</button>
+            <button className={`btn sm ${editTool === 'draw-line' ? '' : 'ghost'}`} onClick={() => { setEditTool('draw-line'); setDrawPoints([]); }}><Minus size={14} /> Draw Line</button>
+            <button className={`btn sm ${editTool === 'add-marker' ? '' : 'ghost'}`} onClick={() => setEditTool('add-marker')}><MapPin size={14} /> Add Marker</button>
+            <button className={`btn sm ${editTool === 'add-building' ? '' : 'ghost'}`} onClick={() => setEditTool('add-building')}><Warehouse size={14} /> Add Building</button>
+            <button className={`btn sm ${editTool === 'add-pasture' ? '' : 'ghost'}`} onClick={() => setEditTool('add-pasture')}><Wheat size={14} /> Add Pasture</button>
+            <button className={`btn sm ${editTool === 'add-fence' ? '' : 'ghost'}`} onClick={() => setEditTool('add-fence')}><Fence size={14} /> Add Fence</button>
+            <button className={`btn sm ${editTool === 'add-gate' ? '' : 'ghost'}`} onClick={() => setEditTool('add-gate')}><Square size={14} /> Add Gate</button>
+            <button className={`btn sm ${editTool === 'add-water-point' ? '' : 'ghost'}`} onClick={() => setEditTool('add-water-point')}><Droplets size={14} /> Add Water Point</button>
+            <button className={`btn sm ${editTool === 'add-feed-store' ? '' : 'ghost'}`} onClick={() => setEditTool('add-feed-store')}><Wheat size={14} /> Add Feed Store</button>
+            <button className={`btn sm ${editTool === 'add-milking-area' ? '' : 'ghost'}`} onClick={() => setEditTool('add-milking-area')}><Milk size={14} /> Add Milking Area</button>
+            <button className={`btn sm ${editTool === 'add-vet-area' ? '' : 'ghost'}`} onClick={() => setEditTool('add-vet-area')}><Stethoscope size={14} /> Add Vet Area</button>
+            <button className={`btn sm ${editTool === 'add-equipment-area' ? '' : 'ghost'}`} onClick={() => setEditTool('add-equipment-area')}><Wrench size={14} /> Add Equipment Area</button>
+            <button className={`btn sm ${editTool === 'add-custom' ? '' : 'ghost'}`} onClick={() => setEditTool('add-custom')}><Plus size={14} /> Add Custom</button>
+            <button className={`btn sm ${editTool === 'delete' ? '' : 'ghost'}`} onClick={() => setEditTool('delete')}><Trash2 size={14} /> Delete</button>
+            <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+            <button className={`btn sm ghost`} onClick={handleUndo} disabled={!undoLog.length}><Undo2 size={14} /> Undo</button>
+            <button className={`btn sm ghost`} onClick={handleRedo}><Redo2 size={14} /> Redo</button>
+            <button className={`btn sm ghost`} onClick={() => setShowSaveConfirm(true)}><Save size={14} /> Save</button>
+            <button className={`btn sm`} onClick={() => setShowPublishConfirm(true)}>Publish</button>
+          </div>
+          {drawPoints.length > 0 && (
+            <div className="row" style={{ gap: 6 }}>
+              <span className="muted" style={{ fontSize: 12 }}>{drawPoints.length} points drawn</span>
+              <button className="btn sm ghost" onClick={finishDrawing}>Finish</button>
+              <button className="btn sm ghost" onClick={() => setDrawPoints([])}>Cancel</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card mb timeline-slider">
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
@@ -375,13 +630,15 @@ export function FarmMap() {
       <div
         ref={viewportRef}
         className={`map ${theme === 'dark' ? 'dark' : ''}`}
-        style={{ cursor: zoom > 1 ? 'grab' : 'default', touchAction: 'none' }}
+        style={{ cursor: editMode ? (editTool === 'move' ? 'move' : editTool === 'delete' ? 'not-allowed' : 'crosshair') : (zoom > 1 ? 'grab' : 'default'), touchAction: 'none' }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
+        onPointerMove={(e) => { onPointerMove(e); handleMapDrag(e); }}
         onPointerUp={endPointer}
         onPointerCancel={endPointer}
         onPointerLeave={endPointer}
+        onClick={editMode ? handleMapClick : undefined}
+        onDoubleClick={editMode ? handleMapDoubleClick : undefined}
       >
         <div className={`map-scene ${interacting ? 'panning' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center center' }}>
           <svg className="map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -420,7 +677,7 @@ export function FarmMap() {
                 style={{ left: pos.x + '%', top: pos.y + '%', background: STATUS_COLOR[c.status] }}
                 onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
             );
-          }))}
+          }          ))}
           {isCalving && NODES.map((n) => (calvingByZone[n.id] || []).map((c, idx) => {
             const total = calvingByZone[n.id].length;
             const pos = jitterFor(n.x, n.y, idx, total);
@@ -431,6 +688,57 @@ export function FarmMap() {
                 onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
             );
           }))}
+          {editMode && mapObjects.map((obj) => {
+            const projected = projectToScreen(obj.geometry);
+            const isSelected = obj.id === selectedId;
+            const color = obj.properties?.color || 'var(--primary)';
+            if (obj.geometry.type === 'Point') {
+              const p = projected as { x: number; y: number };
+              return (
+                <div key={obj.id} className={`node ${isSelected ? 'active' : ''}`}
+                  style={{ left: p.x + '%', top: p.y + '%', borderColor: color, cursor: editTool === 'move' ? 'move' : 'pointer', zIndex: obj.zIndex }}
+                  onMouseDown={(e) => handleObjectMouseDown(e, obj)}>
+                  <span style={{ color, display: 'grid', placeItems: 'center' }}><MapPin size={16} /></span>
+                  <span>{obj.name}</span>
+                </div>
+              );
+            }
+            if (obj.geometry.type === 'Polygon') {
+              const pts = projected as { x: number; y: number }[];
+              const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+              return (
+                <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
+                  <polygon points={pointsStr} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.5}
+                    style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
+                    onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
+                  {isSelected && pts.map((p, i) => (
+                    <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.5} fill={color} style={{ pointerEvents: 'all', cursor: 'move' }}
+                      onMouseDown={(e) => { e.stopPropagation(); handleSelectObject(obj.id); }} />
+                  ))}
+                </svg>
+              );
+            }
+            if (obj.geometry.type === 'LineString') {
+              const pts = projected as { x: number; y: number }[];
+              const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+              return (
+                <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
+                  <polyline points={pointsStr} fill="none" stroke={color} strokeWidth={0.8}
+                    style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
+                    onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
+                </svg>
+              );
+            }
+            return null;
+          })}
+          {editMode && drawPoints.length > 0 && (
+            <svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 999 }}>
+              <polyline points={drawPoints.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="var(--primary)" strokeWidth={0.5} strokeDasharray="2 2" />
+              {drawPoints.map((p, i) => (
+                <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.2} fill="var(--primary)" />
+              ))}
+            </svg>
+          )}
         </div>
         <div className="map-compass" title="North">N</div>
         <div className="map-zoom">
@@ -444,6 +752,42 @@ export function FarmMap() {
           ? HEAT_LEGEND[heatLayer].map((l) => <div className="item" key={l.label}><span className="dot" style={{ background: l.color }} /> {l.label}</div>)
           : MAP_LEGEND.map((l) => <div className="item" key={l.label}><span className="dot" style={{ background: l.tone }} /> {l.label}</div>)}
       </div>
+
+      {editMode && selectedObject && (
+        <div className="card mt" style={{ border: '1px solid var(--primary)', background: 'var(--surface)' }}>
+          <div className="between" style={{ marginBottom: 12 }}>
+            <b style={{ fontSize: 15 }}>Properties</b>
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn sm ghost" onClick={() => setSelectedId(null)}><X size={14} /></button>
+            </div>
+          </div>
+          <div className="field"><label>Name</label><input className="input" value={propertyForm.name} onChange={(e) => setPropertyForm((f) => ({ ...f, name: e.target.value }))} /></div>
+          <div className="field"><label>Type</label>
+            <select className="select" value={propertyForm.type} onChange={(e) => setPropertyForm((f) => ({ ...f, type: e.target.value }))}>
+              <option value="building">Building</option><option value="barn">Barn</option><option value="pasture">Pasture</option><option value="road">Road</option><option value="fence">Fence</option><option value="gate">Gate</option><option value="water_point">Water Point</option><option value="feed_store">Feed Store</option><option value="milking_area">Milking Area</option><option value="vet_area">Vet Area</option><option value="equipment_area">Equipment Area</option><option value="custom">Custom</option>
+            </select>
+          </div>
+          {propertyForm.type === 'barn' && <>
+            <div className="field"><label>Capacity</label><input className="input" type="number" value={propertyForm.properties?.capacity ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, capacity: Number(e.target.value) } }))} /></div>
+            <div className="field"><label>Current Animals</label><input className="input" type="number" value={propertyForm.properties?.currentAnimals ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, currentAnimals: Number(e.target.value) } }))} /></div>
+            <div className="field"><label>Water Points</label><input className="input" type="number" value={propertyForm.properties?.waterPoints ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, waterPoints: Number(e.target.value) } }))} /></div>
+            <div className="field"><label>Feed Area</label><input className="input" value={propertyForm.properties?.feedArea ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, feedArea: e.target.value } }))} /></div>
+            <div className="field"><label>Ventilation</label><input className="input" value={propertyForm.properties?.ventilation ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, ventilation: e.target.value } }))} /></div>
+          </>}
+          <div className="field"><label>Notes</label><textarea className="input" rows={3} value={propertyForm.properties?.notes ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, notes: e.target.value } }))} /></div>
+          <div className="field"><label>Color</label><input type="color" value={propertyForm.properties?.color || '#3b82f6'} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, color: e.target.value } }))} style={{ width: 48, height: 32, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} /></div>
+          <div className="field"><label>Locked</label><input type="checkbox" checked={selectedObject.isLocked} onChange={(e) => handleUpdateObject(selectedObject.id, { isLocked: e.target.checked })} /></div>
+          {selectedObject.geometry.type === 'Point' && (
+            <div className="field"><label>GPS Coordinates</label><span className="muted" style={{ fontSize: 13 }}>{((selectedObject.geometry.coordinates as number[])[1]).toFixed(6)}, {((selectedObject.geometry.coordinates as number[])[0]).toFixed(6)}</span></div>
+          )}
+          {selectedObject.geometry.type === 'Polygon' && (
+            <div className="field"><label>Area</label><span className="muted" style={{ fontSize: 13 }}>Polygon with {(selectedObject.geometry.coordinates as number[][][])[0].length - 1} points</span></div>
+          )}
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 8 }}>
+            <button className="btn sm" onClick={handleSaveProperty}>Save</button>
+          </div>
+        </div>
+      )}
 
       {zoneRecommendations.length > 0 && (
         <div className="mt">
@@ -667,6 +1011,22 @@ export function FarmMap() {
         <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
           <button className="btn ghost sm" onClick={() => { setActiveCow(null); navigate('/app/cow/' + activeCow.cowId); }}>View full profile</button>
           <button className="btn sm" onClick={submitMove}><MoveIcon size={14} /> Save location</button>
+        </div>
+      </Modal>}
+
+      {showSaveConfirm && <Modal title="Save draft" onClose={() => setShowSaveConfirm(false)}>
+        <p style={{ fontSize: 14 }}>Save current map edits as a draft? You can publish later.</p>
+        <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn ghost" onClick={() => setShowSaveConfirm(false)}>Cancel</button>
+          <button className="btn" onClick={handleSaveDraft}>Save draft</button>
+        </div>
+      </Modal>}
+
+      {showPublishConfirm && <Modal title="Publish draft" onClose={() => setShowPublishConfirm(false)}>
+        <p style={{ fontSize: 14 }}>Publish the current draft to make it live? This will replace the current live map objects.</p>
+        <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn ghost" onClick={() => setShowPublishConfirm(false)}>Cancel</button>
+          <button className="btn" onClick={handlePublish}>Publish</button>
         </div>
       </Modal>}
     </div>
