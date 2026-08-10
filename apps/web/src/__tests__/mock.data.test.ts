@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analytics, finance, farmSummary } from '../mock';
-import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange } from '../data';
+import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, formatHectares, formatAcres, formatMeters, formatMeasurementValue } from '../data';
 
 describe('mock data fixes', () => {
   it('finance includes incomeTotal and expenseTotal', async () => {
@@ -95,5 +95,62 @@ describe('mock data fixes', () => {
     expect(log).toBeDefined();
     const red = await redoChange('f1');
     expect(red).toBeDefined();
+  });
+
+  it('getFarmLocation returns mock location', async () => {
+    const loc = await getFarmLocation('f1');
+    expect(loc).toHaveProperty('farmId', 'f1');
+    expect(loc).toHaveProperty('latitude');
+    expect(loc).toHaveProperty('longitude');
+  });
+
+  it('createFarmBoundary adds boundary in mock mode', async () => {
+    const before = (await listFarmBoundaries('f1')).length;
+    await createFarmBoundary('f1', { name: 'Test Boundary', geometry: { type: 'Polygon', coordinates: [[[0,0],[1,0],[1,1],[0,1],[0,0]]] } });
+    const after = (await listFarmBoundaries('f1')).length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('listFarmPastures returns pastures in mock mode', async () => {
+    const pastures = await listFarmPastures('f1');
+    expect(Array.isArray(pastures)).toBe(true);
+  });
+
+  it('createFarmPasture adds pasture in mock mode', async () => {
+    const before = (await listFarmPastures('f1')).length;
+    await createFarmPasture('f1', { name: 'Test Pasture', geometry: { type: 'Polygon', coordinates: [[[0,0],[1,0],[1,1],[0,1],[0,0]]] } });
+    const after = (await listFarmPastures('f1')).length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('createMapMeasurement adds measurement in mock mode', async () => {
+    const before = (await listMapMeasurements('f1')).length;
+    await createMapMeasurement('f1', { type: 'distance', geometry: { type: 'LineString', coordinates: [[0,0],[1,1]] } });
+    const after = (await listMapMeasurements('f1')).length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('mapAiQuery returns highlights for known queries', async () => {
+    const result = await mapAiQuery('f1', 'How large is my farm?');
+    expect(result).toHaveProperty('text');
+    expect(typeof result.text).toBe('string');
+  });
+
+  it('formatHectares returns formatted string', () => {
+    expect(formatHectares(12.3456)).toBe('12.35 ha');
+  });
+
+  it('formatAcres returns formatted string', () => {
+    expect(formatAcres(30.5)).toBe('30.50 ac');
+  });
+
+  it('formatMeters returns formatted string', () => {
+    expect(formatMeters(500)).toBe('500.0 m');
+    expect(formatMeters(1500)).toBe('1.50 km');
+  });
+
+  it('formatMeasurementValue returns formatted string', () => {
+    expect(formatMeasurementValue(100, 'distance')).toBe('100.0 m');
+    expect(formatMeasurementValue(0.5, 'area')).toBe('0.50 ha');
   });
 });

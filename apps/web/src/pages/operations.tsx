@@ -6,7 +6,7 @@ import { useAuth } from '../auth';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, Modal, Progress, useToast, useAsync } from '../ui';
 import { isLive } from '../api';
 import { ALL_COWS, BADGES, LEADERBOARD, BARNS } from '../mock';
-import { listCows, gallery, galleryCategories, createGalleryItem, updateGalleryItem, deleteGalleryItem, mapNodes, cowLocations, moveCowLocation, zoneHeatmap, weather, CowLocationView, CowStatus, ZoneHeat, ZoneRecommendation, Period, CalvingRisk, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, getUndoLog, undoChange, redoChange, saveDraft, getDraft, publishDraft, FarmMapObject } from '../data';
+import { listCows, gallery, galleryCategories, createGalleryItem, updateGalleryItem, deleteGalleryItem, mapNodes, cowLocations, moveCowLocation, zoneHeatmap, weather, CowLocationView, CowStatus, ZoneHeat, ZoneRecommendation, Period, CalvingRisk, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, getUndoLog, undoChange, redoChange, saveDraft, getDraft, publishDraft, FarmMapObject, getFarmLocation, updateFarmLocation, listFarmBoundaries, createFarmBoundary, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, getMapLayers, updateMapLayers, getMapProviders, updateMapProviders, mapAiQuery, mapAiHighlight, FarmBoundary, FarmPasture, MapMeasurement, MapProviderSettings, MapAiQueryResult, FarmLocation, formatHectares, formatAcres, formatMeters, formatMeasurementValue } from '../data';
 import { Home, Droplets, Tractor, Warehouse, Syringe, Wheat, Trophy, Flame, Crown, Search, Filter, Download, Plus, Edit3, Eye, Trash2, FolderOpen, Camera, ZoomIn, ZoomOut, Maximize, Milk, Move as MoveIcon, MapPin, Beef, Utensils, CloudSun, Thermometer, Wind, CloudRain, AlertTriangle, History, Baby, CalendarClock, MousePointer2, Square, Minus, Fence, Wrench, Stethoscope, Save, Undo2, Redo2, X } from 'lucide-react';
 import { fmt } from '../format';
 
@@ -206,6 +206,28 @@ export function FarmMap() {
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [propertyForm, setPropertyForm] = useState({ name: '', type: '', properties: {} as Record<string, any> });
 
+  const [mapStyle, setMapStyle] = useState<'farm-layout' | 'standard' | 'satellite' | 'terrain' | 'ai-analysis'>('farm-layout');
+  const [farmLocation, setFarmLocation] = useState<FarmLocation | null>(null);
+  const [boundaries, setBoundaries] = useState<FarmBoundary[]>([]);
+  const [pastures, setPastures] = useState<FarmPasture[]>([]);
+  const [measurements, setMeasurements] = useState<MapMeasurement[]>([]);
+  const [activeLayers, setActiveLayers] = useState<Record<string, boolean>>({});
+  const [measureTool, setMeasureTool] = useState<'none' | 'distance' | 'area' | 'perimeter' | 'boundary' | 'pasture'>('none');
+  const [drawingPoints, setDrawingPoints] = useState<{ lng: number; lat: number }[]>([]);
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiResult, setAiResult] = useState<MapAiQueryResult | null>(null);
+  const [aiHighlights, setAiHighlights] = useState<any>({ type: 'FeatureCollection', features: [] });
+  const [mapReady, setMapReady] = useState(false);
+  const [showLayerPanel, setShowLayerPanel] = useState(false);
+  const [showBoundaryModal, setShowBoundaryModal] = useState(false);
+  const [showPastureModal, setShowPastureModal] = useState(false);
+  const [selectedPasture, setSelectedPasture] = useState<FarmPasture | null>(null);
+  const [showMeasureModal, setShowMeasureModal] = useState(false);
+  const [offline, setOffline] = useState(false);
+
+  const mapInstanceRef = useRef<any>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+
   const loadMapData = async () => {
     const objs = await listFarmMapObjects(farmId);
     setMapObjects(objs);
@@ -216,6 +238,201 @@ export function FarmMap() {
   useEffect(() => {
     if (editMode) { void loadMapData(); }
   }, [editMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMapSettings = async () => {
+      try {
+        const [loc, b, p, m, layers] = await Promise.all([
+          getFarmLocation(farmId),
+          listFarmBoundaries(farmId),
+          listFarmPastures(farmId),
+          listMapMeasurements(farmId),
+          getMapLayers(farmId),
+        ]);
+        if (!cancelled) {
+          setFarmLocation(loc);
+          setBoundaries(b);
+          setPastures(p);
+          setMeasurements(m);
+          setActiveLayers(layers.layers);
+        }
+      } catch { /* best-effort */ }
+    };
+    void loadMapSettings();
+    return () => { cancelled = true; };
+  }, [farmId, mapStyle]);
+
+  useEffect(() => {
+    const offlineBanner = () => setOffline(!navigator.onLine);
+    window.addEventListener('online', offlineBanner);
+    window.addEventListener('offline', offlineBanner);
+    return () => {
+      window.removeEventListener('online', offlineBanner);
+      window.removeEventListener('offline', offlineBanner);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mapStyle === 'farm-layout' || typeof window === 'undefined') return;
+    let cancelled = false;
+    const loadMapLibre = async () => {
+      const w = window as any;
+      if (!w.maplibregl) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+        document.head.appendChild(link);
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('Failed to load maplibre-gl'));
+          document.head.appendChild(s);
+        });
+      }
+      if (cancelled) return;
+      setMapReady(true);
+    };
+    void loadMapLibre();
+    return () => { cancelled = true; };
+  }, [mapStyle]);
+
+  useEffect(() => {
+    if (!mapReady || mapStyle === 'farm-layout' || !mapContainerRef.current) return;
+    const w = window as any;
+    if (!w.maplibregl) return;
+    const map = new w.maplibregl.Map({
+      container: mapContainerRef.current,
+      style: mapStyle === 'satellite' ? {
+        version: 8,
+        sources: { esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256 } },
+        layers: [{ id: 'esri', type: 'raster', source: 'esri' }],
+      } : mapStyle === 'terrain' ? {
+        version: 8,
+        sources: { otm: { type: 'raster', tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
+        layers: [{ id: 'otm', type: 'raster', source: 'otm' }],
+      } : mapStyle === 'ai-analysis' ? {
+        version: 8,
+        sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
+        layers: [
+          { id: 'background', type: 'background', paint: { 'background-color': 'transparent' } },
+          { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.6 } },
+        ],
+      } : {
+        version: 8,
+        sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
+        layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+      },
+    });
+    map.addControl(new w.maplibregl.NavigationControl(), 'top-right');
+    map.on('load', () => {
+      map.addSource('farm-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: 'boundary-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'boundary'], paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.15 } });
+      map.addLayer({ id: 'boundary-line', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'boundary'], paint: { 'line-color': '#3b82f6', 'line-width': 2 } });
+      map.addLayer({ id: 'pasture-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'pasture'], paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 } });
+      map.addLayer({ id: 'pasture-line', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'pasture'], paint: { 'line-color': ['get', 'color'], 'line-width': 1.5 } });
+      map.addLayer({ id: 'node-circle', type: 'circle', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'node'], paint: { 'circle-radius': 6, 'circle-color': ['coalesce', ['get', 'tone'], '#3b82f6'] } });
+      map.addLayer({ id: 'measure-line', type: 'line', source: 'farm-overlay', filter: ['in', ['get', 'type'], 'distance', 'perimeter'], paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [2, 2] } });
+      map.addLayer({ id: 'measure-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'area'], paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.2 } });
+      map.addLayer({ id: 'highlight', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'highlight'], paint: { 'line-color': '#ef4444', 'line-width': 3 } });
+    });
+    map.on('error', () => { setMapStyle('farm-layout'); setOffline(true); });
+    mapInstanceRef.current = map;
+    return () => { map.remove(); mapInstanceRef.current = null; };
+  }, [mapReady, mapStyle]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !map.getSource('farm-overlay')) return;
+    const features: any[] = [];
+    if (activeLayers.boundary || activeLayers.buildings) {
+      for (const b of boundaries) features.push({ type: 'Feature', properties: { type: 'boundary', name: b.name }, geometry: b.geometry });
+    }
+    if (activeLayers.buildings) {
+      for (const n of NODES) {
+        features.push({ type: 'Feature', properties: { type: 'node', id: n.id, label: n.label }, geometry: { type: 'Point', coordinates: [n.x, n.y] } });
+      }
+    }
+    if (activeLayers.pastures) {
+      for (const p of pastures) features.push({ type: 'Feature', properties: { type: 'pasture', name: p.name, color: p.color }, geometry: p.geometry });
+    }
+    if (activeLayers.water) {
+      for (const o of mapObjects.filter((o: any) => o.type === 'water_point')) features.push({ type: 'Feature', properties: { type: 'water_point', name: o.name }, geometry: o.geometry });
+    }
+    if (activeLayers.roads) {
+      for (const o of mapObjects.filter((o: any) => o.type === 'road')) features.push({ type: 'Feature', properties: { type: 'road', name: o.name }, geometry: o.geometry });
+    }
+    if (activeLayers.fences) {
+      for (const o of mapObjects.filter((o: any) => o.type === 'fence')) features.push({ type: 'Feature', properties: { type: 'fence', name: o.name }, geometry: o.geometry });
+    }
+    if (activeLayers.equipment) {
+      for (const o of mapObjects.filter((o: any) => o.type === 'equipment_area')) features.push({ type: 'Feature', properties: { type: 'equipment', name: o.name }, geometry: o.geometry });
+    }
+    for (const h of aiHighlights.features) features.push(h);
+    (map.getSource('farm-overlay') as any).setData({ type: 'FeatureCollection', features });
+  }, [mapReady, mapStyle, boundaries, pastures, mapObjects, activeLayers, aiHighlights]);
+
+  useEffect(() => {
+    if (!mapReady || mapStyle === 'farm-layout' || !mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+    const handleMapClick = (e: any) => {
+      if (measureTool === 'none') return;
+      const { lng, lat } = e.lngLat;
+      setDrawingPoints((prev) => [...prev, { lng, lat }]);
+    };
+    const handleDblClick = () => {
+      if (drawingPoints.length >= 2) finishMapDrawing();
+    };
+    map.on('click', handleMapClick);
+    map.on('dblclick', handleDblClick);
+    return () => {
+      map.off('click', handleMapClick);
+      map.off('dblclick', handleDblClick);
+    };
+  }, [mapReady, mapStyle, measureTool, drawingPoints]);
+
+  const finishMapDrawing = async () => {
+    if (drawingPoints.length < 2) { setDrawingPoints([]); return; }
+    if (measureTool === 'boundary') {
+      const geo = { type: 'Polygon', coordinates: [drawingPoints.map((p) => [p.lng, p.lat])] };
+      await createFarmBoundary(farmId, { name: 'Farm Boundary', geometry: geo });
+      void listFarmBoundaries(farmId).then(setBoundaries);
+      push('Boundary created');
+    } else if (measureTool === 'pasture') {
+      const geo = { type: 'Polygon', coordinates: [drawingPoints.map((p) => [p.lng, p.lat])] };
+      setSelectedPasture({ id: '', farmId, name: '', geometry: geo, areaHectares: 0, areaAcres: 0, perimeterMeters: 0, currentAnimals: 0, capacity: null, condition: null, grazingStatus: null, lastGrazingOn: null, nextRecommendedGrazing: null, notes: null, color: '#3b82f6', isLocked: false, createdBy: '', updatedBy: '', createdAt: '', updatedAt: '' });
+      setShowPastureModal(true);
+    } else if (measureTool === 'distance') {
+      await createMapMeasurement(farmId, { type: 'distance', geometry: { type: 'LineString', coordinates: drawingPoints.map((p) => [p.lng, p.lat]) } });
+      void listMapMeasurements(farmId).then(setMeasurements);
+      push('Distance measured');
+    } else if (measureTool === 'area') {
+      await createMapMeasurement(farmId, { type: 'area', geometry: { type: 'Polygon', coordinates: [drawingPoints.map((p) => [p.lng, p.lat])] } });
+      void listMapMeasurements(farmId).then(setMeasurements);
+      push('Area measured');
+    } else if (measureTool === 'perimeter') {
+      await createMapMeasurement(farmId, { type: 'perimeter', geometry: { type: 'Polygon', coordinates: [drawingPoints.map((p) => [p.lng, p.lat])] } });
+      void listMapMeasurements(farmId).then(setMeasurements);
+      push('Perimeter measured');
+    }
+    setDrawingPoints([]);
+    setMeasureTool('none');
+  };
+
+  const handleAiQuery = async () => {
+    if (!aiQuery.trim()) return;
+    try {
+      const result = await mapAiQuery(farmId, aiQuery);
+      setAiResult(result);
+      if (result.highlights) {
+        setAiHighlights({
+          type: 'FeatureCollection',
+          features: result.highlights.map((h) => ({ type: 'Feature', properties: { type: 'highlight', label: h.label }, geometry: h.geometry })),
+        });
+      }
+    } catch { push('AI query failed'); }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -627,126 +844,140 @@ export function FarmMap() {
           ))}
         </div>
       )}
-      <div
-        ref={viewportRef}
-        className={`map ${theme === 'dark' ? 'dark' : ''}`}
-        style={{ cursor: editMode ? (editTool === 'move' ? 'move' : editTool === 'delete' ? 'not-allowed' : 'crosshair') : (zoom > 1 ? 'grab' : 'default'), touchAction: 'none' }}
-        onWheel={onWheel}
-        onPointerDown={onPointerDown}
-        onPointerMove={(e) => { onPointerMove(e); handleMapDrag(e); }}
-        onPointerUp={endPointer}
-        onPointerCancel={endPointer}
-        onPointerLeave={endPointer}
-        onClick={editMode ? handleMapClick : undefined}
-        onDoubleClick={editMode ? handleMapDoubleClick : undefined}
-      >
-        <div className={`map-scene ${interacting ? 'panning' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center center' }}>
-          <svg className="map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline className="road" points={roadPoints.map((n) => `${n.x},${n.y}`).join(' ')} />
-          </svg>
-          {NODES.map((n) => {
-            const zh = heatByZone[n.id];
-            const tone = isHeat ? zoneColor(n.id, heatLayer, zh, weatherData) : n.tone;
-            const recs = zh?.recommendations || [];
-            const worst = recs.some((r) => r.severity === 'critical') ? 'critical' : recs.length ? 'warning' : null;
-            return (
-              <button key={n.id} className={`node ${active === n.id ? 'active' : ''}`}
-                style={{
-                  left: n.x + '%', top: n.y + '%', borderColor: tone,
-                  background: isHeat ? `color-mix(in srgb, ${tone} 20%, var(--surface))` : undefined,
-                }}
-                onClick={() => { if (!drag.current.moved) setActive(n.id); drag.current.moved = false; }}>
-                {worst && (
-                  <span className="node-alert" style={{ background: worst === 'critical' ? 'var(--danger)' : 'var(--warn)' }} title={`${recs.length} AI recommendation${recs.length > 1 ? 's' : ''}`}>
-                    <AlertTriangle size={11} />
-                  </span>
-                )}
-                <span style={{ color: tone, display: 'grid', placeItems: 'center' }}>{n.icon}</span>
-                <span>
-                  {n.label}
-                  {isHeat && <><br /><small style={{ fontWeight: 700, opacity: 0.85 }}>{zoneValue(n.id, heatLayer, zh, weatherData)}</small></>}
-                </span>
-              </button>
-            );
-          })}
-          {viewMode === 'cows' && NODES.map((n) => (cowsByZone[n.id] || []).map((c, idx) => {
-            const total = cowsByZone[n.id].length;
-            const pos = jitterFor(n.x, n.y, idx, total);
-            return (
-              <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${STATUS_LABEL[c.status]}`}
-                style={{ left: pos.x + '%', top: pos.y + '%', background: STATUS_COLOR[c.status] }}
-                onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
-            );
-          }          ))}
-          {isCalving && NODES.map((n) => (calvingByZone[n.id] || []).map((c, idx) => {
-            const total = calvingByZone[n.id].length;
-            const pos = jitterFor(n.x, n.y, idx, total);
-            const marker = calvingMarkerFor(c) as CalvingMarker;
-            return (
-              <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${CALVING_LABEL[marker]}`}
-                style={{ left: pos.x + '%', top: pos.y + '%', background: CALVING_COLOR[marker] }}
-                onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
-            );
-          }))}
-          {editMode && mapObjects.map((obj) => {
-            const projected = projectToScreen(obj.geometry);
-            const isSelected = obj.id === selectedId;
-            const color = obj.properties?.color || 'var(--primary)';
-            if (obj.geometry.type === 'Point') {
-              const p = projected as { x: number; y: number };
-              return (
-                <div key={obj.id} className={`node ${isSelected ? 'active' : ''}`}
-                  style={{ left: p.x + '%', top: p.y + '%', borderColor: color, cursor: editTool === 'move' ? 'move' : 'pointer', zIndex: obj.zIndex }}
-                  onMouseDown={(e) => handleObjectMouseDown(e, obj)}>
-                  <span style={{ color, display: 'grid', placeItems: 'center' }}><MapPin size={16} /></span>
-                  <span>{obj.name}</span>
-                </div>
-              );
-            }
-            if (obj.geometry.type === 'Polygon') {
-              const pts = projected as { x: number; y: number }[];
-              const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
-              return (
-                <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
-                  <polygon points={pointsStr} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.5}
-                    style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
-                    onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
-                  {isSelected && pts.map((p, i) => (
-                    <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.5} fill={color} style={{ pointerEvents: 'all', cursor: 'move' }}
-                      onMouseDown={(e) => { e.stopPropagation(); handleSelectObject(obj.id); }} />
-                  ))}
-                </svg>
-              );
-            }
-            if (obj.geometry.type === 'LineString') {
-              const pts = projected as { x: number; y: number }[];
-              const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
-              return (
-                <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
-                  <polyline points={pointsStr} fill="none" stroke={color} strokeWidth={0.8}
-                    style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
-                    onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
-                </svg>
-              );
-            }
-            return null;
-          })}
-          {editMode && drawPoints.length > 0 && (
-            <svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 999 }}>
-              <polyline points={drawPoints.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="var(--primary)" strokeWidth={0.5} strokeDasharray="2 2" />
-              {drawPoints.map((p, i) => (
-                <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.2} fill="var(--primary)" />
-              ))}
+
+      {offline && (
+        <div className="card mb" style={{ background: 'var(--warn-soft)', borderColor: 'transparent' }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <AlertTriangle size={16} color="var(--warn)" />
+            <span style={{ fontSize: 14 }}>Offline — showing schematic view</span>
+          </div>
+        </div>
+      )}
+
+      {mapStyle === 'farm-layout' ? (
+        <div
+          ref={viewportRef}
+          className={`map ${theme === 'dark' ? 'dark' : ''}`}
+          style={{ cursor: editMode ? (editTool === 'move' ? 'move' : editTool === 'delete' ? 'not-allowed' : 'crosshair') : (zoom > 1 ? 'grab' : 'default'), touchAction: 'none' }}
+          onWheel={onWheel}
+          onPointerDown={onPointerDown}
+          onPointerMove={(e) => { onPointerMove(e); handleMapDrag(e); }}
+          onPointerUp={endPointer}
+          onPointerCancel={endPointer}
+          onPointerLeave={endPointer}
+          onClick={editMode ? handleMapClick : undefined}
+          onDoubleClick={editMode ? handleMapDoubleClick : undefined}
+        >
+          <div className={`map-scene ${interacting ? 'panning' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center center' }}>
+            <svg className="map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <polyline className="road" points={roadPoints.map((n) => `${n.x},${n.y}`).join(' ')} />
             </svg>
-          )}
+            {NODES.map((n) => {
+              const zh = heatByZone[n.id];
+              const tone = isHeat ? zoneColor(n.id, heatLayer, zh, weatherData) : n.tone;
+              const recs = zh?.recommendations || [];
+              const worst = recs.some((r) => r.severity === 'critical') ? 'critical' : recs.length ? 'warning' : null;
+              return (
+                <button key={n.id} className={`node ${active === n.id ? 'active' : ''}`}
+                  style={{
+                    left: n.x + '%', top: n.y + '%', borderColor: tone,
+                    background: isHeat ? `color-mix(in srgb, ${tone} 20%, var(--surface))` : undefined,
+                  }}
+                  onClick={() => { if (!drag.current.moved) setActive(n.id); drag.current.moved = false; }}>
+                  {worst && (
+                    <span className="node-alert" style={{ background: worst === 'critical' ? 'var(--danger)' : 'var(--warn)' }} title={`${recs.length} AI recommendation${recs.length > 1 ? 's' : ''}`}>
+                      <AlertTriangle size={11} />
+                    </span>
+                  )}
+                  <span style={{ color: tone, display: 'grid', placeItems: 'center' }}>{n.icon}</span>
+                  <span>
+                    {n.label}
+                    {isHeat && <><br /><small style={{ fontWeight: 700, opacity: 0.85 }}>{zoneValue(n.id, heatLayer, zh, weatherData)}</small></>}
+                  </span>
+                </button>
+              );
+            })}
+            {viewMode === 'cows' && NODES.map((n) => (cowsByZone[n.id] || []).map((c, idx) => {
+              const total = cowsByZone[n.id].length;
+              const pos = jitterFor(n.x, n.y, idx, total);
+              return (
+                <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${STATUS_LABEL[c.status]}`}
+                  style={{ left: pos.x + '%', top: pos.y + '%', background: STATUS_COLOR[c.status] }}
+                  onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
+              );
+            }          ))}
+            {isCalving && NODES.map((n) => (calvingByZone[n.id] || []).map((c, idx) => {
+              const total = calvingByZone[n.id].length;
+              const pos = jitterFor(n.x, n.y, idx, total);
+              const marker = calvingMarkerFor(c) as CalvingMarker;
+              return (
+                <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${CALVING_LABEL[marker]}`}
+                  style={{ left: pos.x + '%', top: pos.y + '%', background: CALVING_COLOR[marker] }}
+                  onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
+              );
+            }))}
+            {editMode && mapObjects.map((obj) => {
+              const projected = projectToScreen(obj.geometry);
+              const isSelected = obj.id === selectedId;
+              const color = obj.properties?.color || 'var(--primary)';
+              if (obj.geometry.type === 'Point') {
+                const p = projected as { x: number; y: number };
+                return (
+                  <div key={obj.id} className={`node ${isSelected ? 'active' : ''}`}
+                    style={{ left: p.x + '%', top: p.y + '%', borderColor: color, cursor: editTool === 'move' ? 'move' : 'pointer', zIndex: obj.zIndex }}
+                    onMouseDown={(e) => handleObjectMouseDown(e, obj)}>
+                    <span style={{ color, display: 'grid', placeItems: 'center' }}><MapPin size={16} /></span>
+                    <span>{obj.name}</span>
+                  </div>
+                );
+              }
+              if (obj.geometry.type === 'Polygon') {
+                const pts = projected as { x: number; y: number }[];
+                const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+                return (
+                  <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
+                    <polygon points={pointsStr} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.5}
+                      style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
+                      onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
+                    {isSelected && pts.map((p, i) => (
+                      <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.5} fill={color} style={{ pointerEvents: 'all', cursor: 'move' }}
+                        onMouseDown={(e) => { e.stopPropagation(); handleSelectObject(obj.id); }} />
+                    ))}
+                  </svg>
+                );
+              }
+              if (obj.geometry.type === 'LineString') {
+                const pts = projected as { x: number; y: number }[];
+                const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+                return (
+                  <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
+                    <polyline points={pointsStr} fill="none" stroke={color} strokeWidth={0.8}
+                      style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
+                      onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
+                  </svg>
+                );
+              }
+              return null;
+            })}
+            {editMode && drawPoints.length > 0 && (
+              <svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 999 }}>
+                <polyline points={drawPoints.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="var(--primary)" strokeWidth={0.5} strokeDasharray="2 2" />
+                {drawPoints.map((p, i) => (
+                  <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.2} fill="var(--primary)" />
+                ))}
+              </svg>
+            )}
+          </div>
+          <div className="map-compass" title="North">N</div>
+          <div className="map-zoom">
+            <button type="button" onClick={() => setZoomClamped(zoom + 0.4)} title="Zoom in"><ZoomIn size={15} /></button>
+            <button type="button" onClick={() => setZoomClamped(zoom - 0.4)} title="Zoom out"><ZoomOut size={15} /></button>
+            <button type="button" onClick={resetView} title="Reset view"><Maximize size={15} /></button>
+          </div>
         </div>
-        <div className="map-compass" title="North">N</div>
-        <div className="map-zoom">
-          <button type="button" onClick={() => setZoomClamped(zoom + 0.4)} title="Zoom in"><ZoomIn size={15} /></button>
-          <button type="button" onClick={() => setZoomClamped(zoom - 0.4)} title="Zoom out"><ZoomOut size={15} /></button>
-          <button type="button" onClick={resetView} title="Reset view"><Maximize size={15} /></button>
-        </div>
-      </div>
+      ) : (
+        <div ref={mapContainerRef} style={{ width: '100%', height: 500, background: 'var(--surface-2)', borderRadius: 8 }} />
+      )}
       <div className="map-legend">
         {isHeat
           ? HEAT_LEGEND[heatLayer].map((l) => <div className="item" key={l.label}><span className="dot" style={{ background: l.color }} /> {l.label}</div>)
@@ -995,25 +1226,72 @@ export function FarmMap() {
               <p style={{ fontSize: 13, marginTop: 4, fontWeight: 700 }}>
                 {activeCow.calvingRisk === 'high' ? 'High risk' : 'Watch closely'}: {calvingRiskReasons(activeCow).join(' · ')}
               </p>
-            )}
-          </div>
-        )}
-        <div className="field mt"><label>Move to zone</label>
-          <div className="row" style={{ gap: 8 }}>
-            <select className="select" value={moveZone} onChange={(e) => setMoveZone(e.target.value)}>
-              {NODES.map((n) => <option key={n.id} value={n.id}>{ZONE_LABEL[n.id]}</option>)}
-            </select>
-            <select className="select" value={moveActivity} onChange={(e) => setMoveActivity(e.target.value)}>
-              {ACTIVITIES.map((a) => <option key={a} value={a}>{ACTIVITY_LABEL[a]}</option>)}
-            </select>
-          </div>
+          )}
         </div>
-        <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
-          <button className="btn ghost sm" onClick={() => { setActiveCow(null); navigate('/app/cow/' + activeCow.cowId); }}>View full profile</button>
-          <button className="btn sm" onClick={submitMove}><MoveIcon size={14} /> Save location</button>
-        </div>
-      </Modal>}
+         )}
+       </Modal>}
 
+      <div className="card mb" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <span className="muted" style={{ fontSize: 12, marginRight: 4 }}>Map style</span>
+          <button className={`btn sm ${mapStyle === 'farm-layout' ? '' : 'ghost'}`} onClick={() => setMapStyle('farm-layout')}><MapPin size={14} /> Farm Layout</button>
+          <button className={`btn sm ${mapStyle === 'standard' ? '' : 'ghost'}`} onClick={() => setMapStyle('standard')}><MapPin size={14} /> Standard</button>
+          <button className={`btn sm ${mapStyle === 'satellite' ? '' : 'ghost'}`} onClick={() => setMapStyle('satellite')}><MapPin size={14} /> Satellite</button>
+          <button className={`btn sm ${mapStyle === 'terrain' ? '' : 'ghost'}`} onClick={() => setMapStyle('terrain')}><MapPin size={14} /> Terrain</button>
+          <button className={`btn sm ${mapStyle === 'ai-analysis' ? '' : 'ghost'}`} onClick={() => setMapStyle('ai-analysis')}><MapPin size={14} /> AI Analysis</button>
+          <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+          {mapStyle !== 'farm-layout' && canEdit && (
+            <>
+              <button className={`btn sm ${measureTool === 'boundary' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'boundary' ? 'none' : 'boundary'); setDrawingPoints([]); }}><Fence size={14} /> Draw Boundary</button>
+              <button className={`btn sm ${measureTool === 'pasture' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'pasture' ? 'none' : 'pasture'); setDrawingPoints([]); }}><Wheat size={14} /> Draw Pasture</button>
+              <button className={`btn sm ${measureTool === 'distance' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'distance' ? 'none' : 'distance'); setDrawingPoints([]); }}><Minus size={14} /> Distance</button>
+              <button className={`btn sm ${measureTool === 'area' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'area' ? 'none' : 'area'); setDrawingPoints([]); }}><Square size={14} /> Area</button>
+              <button className={`btn sm ${measureTool === 'perimeter' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'perimeter' ? 'none' : 'perimeter'); setDrawingPoints([]); }}><Fence size={14} /> Perimeter</button>
+              {drawingPoints.length > 0 && (
+                <div className="row" style={{ gap: 6 }}>
+                  <span className="muted" style={{ fontSize: 12 }}>{drawingPoints.length} points</span>
+                  <button className="btn sm ghost" onClick={finishMapDrawing}>Finish</button>
+                  <button className="btn sm ghost" onClick={() => setDrawingPoints([])}>Cancel</button>
+                </div>
+              )}
+            </>
+          )}
+          <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+          <button className={`btn sm ${showLayerPanel ? '' : 'ghost'}`} onClick={() => setShowLayerPanel((p) => !p)}><Filter size={14} /> Layers</button>
+          <button className={`btn sm ghost`} onClick={() => { setAiQuery(''); setAiResult(null); }}><Search size={14} /> AI Map</button>
+        </div>
+      </div>
+
+      {showLayerPanel && (
+        <div className="card mb" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Layers</span>
+          {Object.entries({ satellite: 'Satellite', boundary: 'Farm Boundary', buildings: 'Buildings', pastures: 'Pastures', cows: 'Cows', water: 'Water', roads: 'Roads', fences: 'Fences', equipment: 'Equipment', healthRisk: 'Health Risk', milkProduction: 'Milk Production', weather: 'Weather', aiAlerts: 'AI Alerts' }).map(([key, label]) => (
+            <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!activeLayers[key]} onChange={(e) => {
+                const next = { ...activeLayers, [key]: e.target.checked };
+                setActiveLayers(next);
+                void updateMapLayers(farmId, next);
+              }} />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {aiQuery && (
+        <div className="card mb" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input className="input" placeholder="Ask about your farm map..." value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { void handleAiQuery(); } }} />
+          <button className="btn sm" onClick={() => void handleAiQuery()}>Ask</button>
+          <button className="btn sm ghost" onClick={() => { setAiQuery(''); setAiResult(null); }}>Clear</button>
+        </div>
+      )}
+
+      {aiResult && (
+        <div className="card mb" style={{ borderLeft: '4px solid var(--primary)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>AI Map Answer</div>
+          <p style={{ fontSize: 14 }}>{aiResult.text}</p>
+        </div>
+      )}
       {showSaveConfirm && <Modal title="Save draft" onClose={() => setShowSaveConfirm(false)}>
         <p style={{ fontSize: 14 }}>Save current map edits as a draft? You can publish later.</p>
         <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
@@ -1029,6 +1307,122 @@ export function FarmMap() {
           <button className="btn" onClick={handlePublish}>Publish</button>
         </div>
       </Modal>}
+
+      {showBoundaryModal && <Modal title="Farm Boundary" onClose={() => setShowBoundaryModal(false)}>
+        <p style={{ fontSize: 14 }}>Draw a boundary on the map using the Draw Boundary tool. The area and perimeter will be calculated automatically.</p>
+        <div className="field mt"><label>Name</label><input className="input" placeholder="Boundary name" /></div>
+        <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn ghost" onClick={() => setShowBoundaryModal(false)}>Close</button>
+        </div>
+      </Modal>}
+
+      {showPastureModal && selectedPasture && <Modal title={selectedPasture.id ? 'Edit Pasture' : 'New Pasture'} onClose={() => { setShowPastureModal(false); setSelectedPasture(null); }}>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target as HTMLFormElement);
+          const data = {
+            name: String(fd.get('name') || selectedPasture.name),
+            geometry: selectedPasture.geometry,
+            currentAnimals: Number(fd.get('currentAnimals') || selectedPasture.currentAnimals),
+            capacity: fd.get('capacity') ? Number(fd.get('capacity')) : null,
+            condition: String(fd.get('condition') || ''),
+            grazingStatus: String(fd.get('grazingStatus') || ''),
+            lastGrazingOn: String(fd.get('lastGrazingOn') || ''),
+            nextRecommendedGrazing: String(fd.get('nextRecommendedGrazing') || ''),
+            notes: String(fd.get('notes') || ''),
+            color: String(fd.get('color') || '#3b82f6'),
+          };
+          if (selectedPasture.id) {
+            await updateFarmPasture(farmId, selectedPasture.id, data);
+          } else {
+            await createFarmPasture(farmId, data);
+          }
+          void listFarmPastures(farmId).then(setPastures);
+          setShowPastureModal(false);
+          setSelectedPasture(null);
+          push(selectedPasture.id ? 'Pasture updated' : 'Pasture created');
+        }}>
+          <div className="field"><label>Name</label><input className="input" name="name" defaultValue={selectedPasture.name} required /></div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="field"><label>Current Animals</label><input className="input" type="number" name="currentAnimals" defaultValue={selectedPasture.currentAnimals} /></div>
+            <div className="field"><label>Capacity</label><input className="input" type="number" name="capacity" defaultValue={selectedPasture.capacity ?? ''} /></div>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="field"><label>Condition</label>
+              <select className="select" name="condition" defaultValue={selectedPasture.condition || ''}>
+                <option value="">Select</option><option value="excellent">Excellent</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option>
+              </select>
+            </div>
+            <div className="field"><label>Grazing Status</label>
+              <select className="select" name="grazingStatus" defaultValue={selectedPasture.grazingStatus || ''}>
+                <option value="">Select</option><option value="active">Active</option><option value="resting">Resting</option><option value="preparing">Preparing</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="field"><label>Last Grazing</label><input className="input" type="date" name="lastGrazingOn" defaultValue={selectedPasture.lastGrazingOn || ''} /></div>
+            <div className="field"><label>Next Recommended</label><input className="input" type="date" name="nextRecommendedGrazing" defaultValue={selectedPasture.nextRecommendedGrazing || ''} /></div>
+          </div>
+          <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={3} defaultValue={selectedPasture.notes || ''} /></div>
+          <div className="field"><label>Color</label><input type="color" name="color" defaultValue={selectedPasture.color || '#3b82f6'} style={{ width: 48, height: 32, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} /></div>
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => { setShowPastureModal(false); setSelectedPasture(null); }}>Cancel</button>
+            <button type="submit" className="btn">Save</button>
+          </div>
+        </form>
+      </Modal>}
+
+      {showMeasureModal && <Modal title="Measurement" onClose={() => setShowMeasureModal(false)}>
+        <p style={{ fontSize: 14 }}>Draw on the map using the measurement tools to calculate distance, area, or perimeter.</p>
+        <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn ghost" onClick={() => setShowMeasureModal(false)}>Close</button>
+        </div>
+      </Modal>}
+
+      {pastures.length > 0 && (
+        <div className="card mt">
+          <h3 style={{ fontSize: 16, marginBottom: 10 }}>Pastures</h3>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Area</th><th>Animals</th><th>Capacity</th><th>Condition</th><th>Grazing</th><th></th></tr></thead>
+              <tbody>
+                {pastures.map((p) => (
+                  <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedPasture(p)}>
+                    <td><b>{p.name}</b></td>
+                    <td>{formatHectares(p.areaHectares)} / {formatAcres(p.areaAcres)}</td>
+                    <td>{p.currentAnimals} / {p.capacity ?? '—'}</td>
+                    <td>{p.condition || '—'}</td>
+                    <td>{p.grazingStatus || '—'}</td>
+                    <td><button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); setSelectedPasture(p); setShowPastureModal(true); }}><Edit3 size={13} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {measurements.length > 0 && (
+        <div className="card mt">
+          <h3 style={{ fontSize: 16, marginBottom: 10 }}>Measurements</h3>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Type</th><th>Value</th><th>Notes</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                {measurements.map((m) => (
+                  <tr key={m.id}>
+                    <td style={{ textTransform: 'capitalize' }}>{m.type}</td>
+                    <td>{formatMeasurementValue(m.valueMeters, m.type)} {m.valueHectares ? formatHectares(m.valueHectares) : ''}</td>
+                    <td>{m.notes || '—'}</td>
+                    <td>{new Date(m.createdAt).toLocaleDateString()}</td>
+                    <td><button className="btn ghost sm" onClick={async () => { await deleteMapMeasurement(farmId, m.id); setMeasurements((prev) => prev.filter((x) => x.id !== m.id)); push('Measurement deleted'); }}><Trash2 size={13} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

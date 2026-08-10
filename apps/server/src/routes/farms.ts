@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { query, getClient } from '../db/index.js';
-import { requireAuth, audit } from '../middleware/auth.js';
+import { requireAuth, requirePermission, audit } from '../middleware/auth.js';
 import { signToken } from '../lib/jwt.js';
 import { generateToken, hashToken } from '../lib/tokens.js';
 import { HttpError, asyncHandler } from '../lib/errors.js';
@@ -241,6 +241,66 @@ router.post('/:id/invitations', asyncHandler(async (req, res) => {
     message: `Invitation sent to ${body.email} — they'll join as ${body.role.replace('_', ' ')} once they sign up.`,
     pending: true,
     ...(devLink ? { devInviteLink: devLink } : {}),
+  });
+}));
+
+// GET /farms/:id/location
+router.get('/:id/location', asyncHandler(async (req, res) => {
+  const farmId = req.params.id;
+  if (!req.user!.isSuperAdmin) {
+    const member = await query('SELECT 1 FROM user_farms WHERE user_id=$1 AND farm_id=$2', [req.user!.id, farmId]);
+    if (!member.rows[0]) throw new HttpError(403, 'Access denied');
+  }
+  const { rows } = await query(
+    `SELECT latitude, longitude, location_accuracy, default_map_center_lat, default_map_center_lng, default_map_zoom FROM farms WHERE id=$1`,
+    [farmId]
+  );
+  const r = rows[0] || {};
+  res.json({
+    farmId,
+    latitude: r.latitude ?? null,
+    longitude: r.longitude ?? null,
+    locationAccuracy: r.location_accuracy ?? null,
+    defaultCenterLat: r.default_map_center_lat ?? null,
+    defaultCenterLng: r.default_map_center_lng ?? null,
+    defaultZoom: r.default_map_zoom ?? null,
+  });
+}));
+
+// PATCH /farms/:id/location
+router.patch('/:id/location', requirePermission('farm:manage'), asyncHandler(async (req, res) => {
+  const farmId = req.params.id;
+  const body = z.object({
+    latitude: z.coerce.number().min(-90).max(90).optional(),
+    longitude: z.coerce.number().min(-180).max(180).optional(),
+    locationAccuracy: z.coerce.number().positive().optional(),
+    defaultCenterLat: z.coerce.number().min(-90).max(90).optional(),
+    defaultCenterLng: z.coerce.number().min(-180).max(180).optional(),
+    defaultZoom: z.coerce.number().min(1).max(20).optional(),
+  }).parse(req.body);
+  const { rows } = await query(
+    `UPDATE farms SET
+       latitude = COALESCE($1, latitude),
+       longitude = COALESCE($2, longitude),
+       location_accuracy = COALESCE($3, location_accuracy),
+       default_map_center_lat = COALESCE($4, default_map_center_lat),
+       default_map_center_lng = COALESCE($5, default_map_center_lng),
+       default_map_zoom = COALESCE($6, default_map_zoom),
+       updated_at = now()
+     WHERE id = $7 RETURNING latitude, longitude, location_accuracy, default_map_center_lat, default_map_center_lng, default_map_zoom`,
+    [body.latitude ?? null, body.longitude ?? null, body.locationAccuracy ?? null, body.defaultCenterLat ?? null, body.defaultCenterLng ?? null, body.defaultZoom ?? null, farmId]
+  );
+  if (!rows[0]) throw new HttpError(404, 'Farm not found');
+  const r = rows[0];
+  await audit(req.user, 'update', 'farm_location', farmId, body);
+  res.json({
+    farmId,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    locationAccuracy: r.location_accuracy,
+    defaultCenterLat: r.default_map_center_lat,
+    defaultCenterLng: r.default_map_center_lng,
+    defaultZoom: r.default_map_zoom,
   });
 }));
 

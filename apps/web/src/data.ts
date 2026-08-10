@@ -1115,6 +1115,10 @@ const mockFarmMapObjects: FarmMapObject[] = [
 let mockUndoLog: any[] = [];
 let mockDraft: FarmMapObject[] = [];
 
+const mockFarmBoundaries: FarmBoundary[] = [];
+const mockFarmPastures: FarmPasture[] = [];
+const mockMapMeasurements: MapMeasurement[] = [];
+
 export const listFarmMapObjects = (farmId: string) =>
   isLive ? apiGet<{ data: FarmMapObject[] }>(`/farm-map/objects?farmId=${farmId}`).then((r) => r.data) : Promise.resolve(mockFarmMapObjects.filter((o) => o.farmId === farmId));
 
@@ -1202,3 +1206,244 @@ export const getDraft = (farmId: string) =>
 
 export const publishDraft = (farmId: string) =>
   isLive ? apiSend(`/farm-map/publish?farmId=${farmId}`, 'POST') : Promise.resolve({ ok: true, published: mockDraft.length });
+
+// ---------- Farm Satellite Map ----------
+export interface FarmLocation {
+  farmId: string;
+  latitude: number | null;
+  longitude: number | null;
+  locationAccuracy: number | null;
+  defaultCenterLat: number | null;
+  defaultCenterLng: number | null;
+  defaultZoom: number | null;
+}
+
+export interface FarmBoundary {
+  id: string;
+  farmId: string;
+  name: string;
+  geometry: any;
+  areaHectares: number;
+  areaAcres: number;
+  perimeterMeters: number;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FarmPasture {
+  id: string;
+  farmId: string;
+  name: string;
+  geometry: any;
+  areaHectares: number;
+  areaAcres: number;
+  perimeterMeters: number;
+  currentAnimals: number;
+  capacity: number | null;
+  condition: string | null;
+  grazingStatus: string | null;
+  lastGrazingOn: string | null;
+  nextRecommendedGrazing: string | null;
+  notes: string | null;
+  color: string;
+  isLocked: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MapMeasurement {
+  id: string;
+  farmId: string;
+  userId: string;
+  type: 'distance' | 'area' | 'perimeter';
+  geometry: any;
+  valueMeters: number | null;
+  valueHectares: number | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface MapProviderSettings {
+  provider: string;
+  style: string;
+  satelliteProvider: string;
+  enabledLayers: Record<string, boolean>;
+}
+
+export interface MapAiQueryResult {
+  text: string;
+  highlights?: { type: string; geometry: any; label?: string }[];
+}
+
+export const getFarmLocation = (farmId: string) =>
+  isLive ? apiGet<FarmLocation>(`/farm-map/location?farmId=${farmId}`) : Promise.resolve({
+    farmId,
+    latitude: null,
+    longitude: null,
+    locationAccuracy: null,
+    defaultCenterLat: null,
+    defaultCenterLng: null,
+    defaultZoom: null,
+  });
+
+export const updateFarmLocation = (farmId: string, body: Partial<FarmLocation>) =>
+  isLive ? apiSend<FarmLocation>(`/farm-map/location?farmId=${farmId}`, 'PATCH', body) : Promise.resolve({ farmId, ...body });
+
+export const listFarmBoundaries = (farmId: string) =>
+  isLive ? apiGet<{ data: FarmBoundary[] }>(`/farm-map/boundary?farmId=${farmId}`).then((r) => r.data) : Promise.resolve(mockFarmBoundaries.filter((b) => b.farmId === farmId));
+
+export const createFarmBoundary = (farmId: string, body: { name: string; geometry: any }) =>
+  isLive ? apiSend<FarmBoundary>(`/farm-map/boundary?farmId=${farmId}`, 'POST', body) : (() => {
+    const b: FarmBoundary = {
+      id: 'bnd-' + Date.now(),
+      farmId,
+      name: body.name,
+      geometry: body.geometry,
+      areaHectares: 0,
+      areaAcres: 0,
+      perimeterMeters: 0,
+      createdBy: 'me',
+      updatedBy: 'me',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockFarmBoundaries.push(b);
+    return Promise.resolve(b);
+  })();
+
+export const deleteFarmBoundary = (farmId: string, id: string) =>
+  isLive ? apiSend(`/farm-map/boundary/${id}?farmId=${farmId}`, 'DELETE') : (() => {
+    const idx = mockFarmBoundaries.findIndex((b) => b.id === id && b.farmId === farmId);
+    if (idx >= 0) mockFarmBoundaries.splice(idx, 1);
+    return Promise.resolve();
+  })();
+
+export const listFarmPastures = (farmId: string) =>
+  isLive ? apiGet<{ data: FarmPasture[] }>(`/farm-map/pastures?farmId=${farmId}`).then((r) => r.data) : Promise.resolve(mockFarmPastures.filter((p) => p.farmId === farmId));
+
+export const createFarmPasture = (farmId: string, body: Partial<FarmPasture> & { name: string; geometry: any }) =>
+  isLive ? apiSend<FarmPasture>(`/farm-map/pastures?farmId=${farmId}`, 'POST', body) : (() => {
+    const p: FarmPasture = {
+      id: 'past-' + Date.now(),
+      farmId,
+      name: body.name,
+      geometry: body.geometry,
+      areaHectares: 0,
+      areaAcres: 0,
+      perimeterMeters: 0,
+      currentAnimals: body.currentAnimals ?? 0,
+      capacity: body.capacity ?? null,
+      condition: body.condition ?? null,
+      grazingStatus: body.grazingStatus ?? null,
+      lastGrazingOn: body.lastGrazingOn ?? null,
+      nextRecommendedGrazing: body.nextRecommendedGrazing ?? null,
+      notes: body.notes ?? null,
+      color: body.color || '#3b82f6',
+      isLocked: false,
+      createdBy: 'me',
+      updatedBy: 'me',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockFarmPastures.push(p);
+    return Promise.resolve(p);
+  })();
+
+export const updateFarmPasture = (farmId: string, id: string, body: Partial<FarmPasture>) =>
+  isLive ? apiSend<FarmPasture>(`/farm-map/pastures/${id}?farmId=${farmId}`, 'PATCH', body) : (() => {
+    const p = mockFarmPastures.find((x) => x.id === id && x.farmId === farmId);
+    if (!p) return Promise.reject(new Error('Not found'));
+    Object.assign(p, body, { updatedAt: new Date().toISOString() });
+    return Promise.resolve(p);
+  })();
+
+export const deleteFarmPasture = (farmId: string, id: string) =>
+  isLive ? apiSend(`/farm-map/pastures/${id}?farmId=${farmId}`, 'DELETE') : (() => {
+    const idx = mockFarmPastures.findIndex((p) => p.id === id && p.farmId === farmId);
+    if (idx >= 0) mockFarmPastures.splice(idx, 1);
+    return Promise.resolve();
+  })();
+
+export const createMapMeasurement = (farmId: string, body: { type: 'distance' | 'area' | 'perimeter'; geometry: any; notes?: string }) =>
+  isLive ? apiSend<MapMeasurement>(`/farm-map/measure?farmId=${farmId}`, 'POST', body) : (() => {
+    const m: MapMeasurement = {
+      id: 'meas-' + Date.now(),
+      farmId,
+      userId: 'me',
+      type: body.type,
+      geometry: body.geometry,
+      valueMeters: 0,
+      valueHectares: 0,
+      notes: body.notes || null,
+      createdAt: new Date().toISOString(),
+    };
+    mockMapMeasurements.push(m);
+    return Promise.resolve(m);
+  })();
+
+export const listMapMeasurements = (farmId: string) =>
+  isLive ? apiGet<{ data: MapMeasurement[] }>(`/farm-map/measurements?farmId=${farmId}`).then((r) => r.data) : Promise.resolve(mockMapMeasurements.filter((m) => m.farmId === farmId));
+
+export const deleteMapMeasurement = (farmId: string, id: string) =>
+  isLive ? apiSend(`/farm-map/measurements/${id}?farmId=${farmId}`, 'DELETE') : (() => {
+    const idx = mockMapMeasurements.findIndex((m) => m.id === id && m.farmId === farmId);
+    if (idx >= 0) mockMapMeasurements.splice(idx, 1);
+    return Promise.resolve();
+  })();
+
+export const getMapLayers = (farmId: string) =>
+  isLive ? apiGet<{ layers: Record<string, boolean> }>(`/farm-map/layers?farmId=${farmId}`) : Promise.resolve({
+    layers: { satellite: true, boundary: true, buildings: true, pastures: true, cows: true, water: true, roads: true, fences: true, equipment: true, healthRisk: true, milkProduction: true, weather: true, aiAlerts: true },
+  });
+
+export const updateMapLayers = (farmId: string, layers: Record<string, boolean>) =>
+  isLive ? apiSend<{ layers: Record<string, boolean> }>(`/farm-map/layers?farmId=${farmId}`, 'PATCH', { layers }) : Promise.resolve({ layers });
+
+export const getMapProviders = (farmId: string) =>
+  isLive ? apiGet<MapProviderSettings>(`/farm-map/providers?farmId=${farmId}`) : Promise.resolve({
+    provider: 'osm',
+    style: 'standard',
+    satelliteProvider: 'esri',
+    enabledLayers: {},
+  });
+
+export const updateMapProviders = (farmId: string, settings: Partial<MapProviderSettings>) =>
+  isLive ? apiSend<MapProviderSettings>(`/farm-map/providers?farmId=${farmId}`, 'PATCH', settings) : Promise.resolve({
+    provider: settings.provider || 'osm',
+    style: settings.style || 'standard',
+    satelliteProvider: settings.satelliteProvider || 'esri',
+    enabledLayers: settings.enabledLayers || {},
+  });
+
+export const mapAiQuery = (farmId: string, query: string) =>
+  isLive ? apiSend<MapAiQueryResult>(`/farm-map/ai-query?farmId=${farmId}`, 'POST', { query }) : Promise.resolve({
+    text: 'Mock AI: Try asking about farm size, pastures, or water points.',
+    highlights: [],
+  });
+
+export const mapAiHighlight = (farmId: string, payload: { entityType: string; entityId: string; action?: string }) =>
+  isLive ? apiSend(`/farm-map/ai-highlight?farmId=${farmId}`, 'POST', payload) : Promise.resolve({ ok: true });
+
+export function formatHectares(h: number) {
+  return `${h.toFixed(2)} ha`;
+}
+
+export function formatAcres(a: number) {
+  return `${a.toFixed(2)} ac`;
+}
+
+export function formatMeters(m: number) {
+  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`;
+  return `${m.toFixed(1)} m`;
+}
+
+export function formatMeasurementValue(value: number | null, type: string) {
+  if (value === null || value === undefined) return '—';
+  if (type === 'distance') return formatMeters(value);
+  if (type === 'perimeter') return formatMeters(value);
+  return formatHectares(value);
+}
