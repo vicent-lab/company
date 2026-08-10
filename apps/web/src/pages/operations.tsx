@@ -299,6 +299,11 @@ export function FarmMap() {
   }, [mapStyle]);
 
   useEffect(() => {
+    if (mapStyle !== 'farm-layout') return;
+    setMapReady(false);
+  }, [mapStyle]);
+
+  useEffect(() => {
     if (!mapReady || mapStyle === 'farm-layout' || !mapContainerRef.current) return;
     const w = window as any;
     if (!w.maplibregl) return;
@@ -436,8 +441,8 @@ export function FarmMap() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndo(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndoRef.current(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedoRef.current(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -516,6 +521,11 @@ export function FarmMap() {
     await loadMapData();
     push('Redo applied');
   };
+
+  const handleUndoRef = useRef(handleUndo);
+  handleUndoRef.current = handleUndo;
+  const handleRedoRef = useRef(handleRedo);
+  handleRedoRef.current = handleRedo;
 
   const handleSaveDraft = async () => {
     await saveDraft(farmId, mapObjects);
@@ -1258,7 +1268,7 @@ export function FarmMap() {
           )}
           <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
           <button className={`btn sm ${showLayerPanel ? '' : 'ghost'}`} onClick={() => setShowLayerPanel((p) => !p)}><Filter size={14} /> Layers</button>
-          <button className={`btn sm ghost`} onClick={() => { setAiQuery(''); setAiResult(null); }}><Search size={14} /> AI Map</button>
+          <button className={`btn sm ghost`} onClick={() => { setAiQuery((q) => q ? '' : 'Ask about your farm map...'); setAiResult(null); }}><Search size={14} /> AI Map</button>
         </div>
       </div>
 
