@@ -244,84 +244,93 @@ export function FarmMap() {
     if (editMode) { void loadMapData(); }
   }, [editMode]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadMapSettings = async () => {
-      try {
-        const [loc, b, p, m, layers] = await Promise.all([
-          getFarmLocation(farmId),
-          listFarmBoundaries(farmId),
-          listFarmPastures(farmId),
-          listMapMeasurements(farmId),
-          getMapLayers(farmId),
-        ]);
-        if (!cancelled) {
-          setFarmLocation(loc);
-          setBoundaries(b);
-          setPastures(p);
-          setMeasurements(m);
-          setActiveLayers(layers.layers);
-        }
-      } catch { /* best-effort */ }
-    };
-    void loadMapSettings();
-    return () => { cancelled = true; };
-  }, [farmId, mapStyle]);
+   useEffect(() => {
+     let cancelled = false;
+     const loadMapSettings = async () => {
+       try {
+         const [loc, b, p, m, layers] = await Promise.all([
+           getFarmLocation(farmId),
+           listFarmBoundaries(farmId),
+           listFarmPastures(farmId),
+           listMapMeasurements(farmId),
+           getMapLayers(farmId),
+         ]);
+         if (!cancelled) {
+           setFarmLocation(loc);
+           setBoundaries(b);
+           setPastures(p);
+           setMeasurements(m);
+           setActiveLayers(layers.layers);
+         }
+       } catch { /* best-effort */ }
+     };
+     void loadMapSettings();
+     return () => { cancelled = true; };
+   }, [farmId, mapStyle]);
 
-  useEffect(() => {
-    const offlineBanner = () => setOffline(!navigator.onLine);
-    window.addEventListener('online', offlineBanner);
-    window.addEventListener('offline', offlineBanner);
-    return () => {
-      window.removeEventListener('online', offlineBanner);
-      window.removeEventListener('offline', offlineBanner);
-    };
-  }, []);
+   useEffect(() => {
+     const updateOffline = () => setOffline(!navigator.onLine);
+     updateOffline();
+     window.addEventListener('online', updateOffline);
+     window.addEventListener('offline', updateOffline);
+     return () => {
+       window.removeEventListener('online', updateOffline);
+       window.removeEventListener('offline', updateOffline);
+     };
+   }, []);
 
-  useEffect(() => {
-    if (mapStyle === 'farm-layout' || typeof window === 'undefined') return;
-    let cancelled = false;
-    const loadGoogleMaps = async () => {
-      try {
-        if (!googleMapsApiKeyRef.current) {
-          try {
-            const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '';
-            const res = await fetch(`${apiBase}/farm-map/google-maps-key`);
-            const data = await res.json();
-            if (data.key) googleMapsApiKeyRef.current = data.key;
-          } catch { /* ignore */ }
-        }
-        if (!googleMapsApiKeyRef.current || cancelled) {
-          if (!cancelled) setOffline(true);
-          return;
-        }
-        await import('../data').then(m => m.loadGoogleMapsScript(googleMapsApiKeyRef.current!));
-        if (!cancelled) {
-          setGoogleMapsLoaded(true);
-          setMapReady(true);
-          setGoogleMapsError(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setOffline(true);
-          setGoogleMapsError(true);
-        }
-      }
-    };
-    void loadGoogleMaps();
-    return () => { cancelled = true; };
-  }, [mapStyle]);
+   useEffect(() => {
+     if (mapStyle === 'farm-layout' || typeof window === 'undefined') return;
+     let cancelled = false;
+     const loadGoogleMaps = async () => {
+       try {
+         if (!googleMapsApiKeyRef.current) {
+           try {
+             const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '';
+             const res = await fetch(`${apiBase}/farm-map/google-maps-key`);
+             const data = await res.json();
+             if (data.key) googleMapsApiKeyRef.current = data.key;
+           } catch { /* ignore */ }
+         }
+         if (!googleMapsApiKeyRef.current || cancelled) {
+           if (!cancelled) {
+             setGoogleMapsError(true);
+             setMapStyle('farm-layout');
+           }
+           return;
+         }
+         await import('../data').then(m => m.loadGoogleMapsScript(googleMapsApiKeyRef.current!));
+         if (!cancelled) {
+           setGoogleMapsLoaded(true);
+           setMapReady(true);
+           setGoogleMapsError(false);
+           setOffline(false);
+         }
+       } catch {
+         if (!cancelled) {
+           setGoogleMapsError(true);
+           setMapStyle('farm-layout');
+         }
+       }
+     };
+     void loadGoogleMaps();
+     return () => { cancelled = true; };
+   }, [mapStyle]);
 
-  useEffect(() => {
-    if (mapStyle !== 'farm-layout') return;
-    setMapReady(false);
-  }, [mapStyle]);
+   useEffect(() => {
+     if (mapStyle !== 'farm-layout') {
+       setOffline(false);
+       setGoogleMapsError(false);
+     } else {
+       setMapReady(false);
+     }
+   }, [mapStyle]);
 
-  useEffect(() => {
-    if (googleMapsError && mapStyle !== 'farm-layout') {
-      setMapStyle('farm-layout');
-    }
-  }, [googleMapsError, mapStyle]);
+   useEffect(() => {
+     if (googleMapsError && mapStyle !== 'farm-layout' && !offline) {
+       setMapStyle('farm-layout');
+     }
+   }, [googleMapsError, mapStyle, offline]);
 
   useEffect(() => {
     if (!mapReady || mapStyle === 'farm-layout' || !mapContainerRef.current) return;
