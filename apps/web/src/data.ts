@@ -469,11 +469,11 @@ export const zoneHeatmap = async (farmId: string, period: mock.Period = 'today')
 // ---------- Notifications ----------
 const TONE: Record<string, string> = { sick: 'danger', vaccination: 'warn', feed: 'warn', medicine: 'warn', heat: 'info', calving: 'info', task: 'info', payment: 'warn' };
 export const notifications = async () => {
-  if (!isLive) return mock.NOTIFICATIONS;
+  if (!isLive) return mock.NOTIFICATIONS.map((n: any) => ({ ...n, read_at: n.read_at || null }));
   const r = await apiGet<{ data: any[] }>('/notifications');
   return r.data.map((n) => ({
     id: n.id, type: n.type, title: n.title, body: n.body,
-    tone: TONE[n.type] || 'info', time: n.read_at ? 'read' : 'new',
+    tone: TONE[n.type] || 'info', time: n.read_at ? 'read' : 'new', read_at: n.read_at || null,
   }));
 };
 

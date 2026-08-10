@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useFarm } from '../app';
 import { PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, BarChart, DoughnutChart, chartColors, gridColor, tickColor, useToast, useAsync, Skeleton } from '../ui';
 import { predictions, analytics, finance, weather, sustainability, notifications, aiAsk, dashboardSummary, breedPopulation, healthDistribution } from '../data';
+import { isLive, apiSend } from '../api';
 import { Bot, Send, TrendingUp, TrendingDown, CloudSun, Droplets, Wind, Thermometer, Leaf, AlertTriangle, Syringe, HeartPulse, Flame, Package, CreditCard, FileDown, Mic, Sparkles, Activity } from 'lucide-react';
 import { fmt } from '../format';
 import { exportTable, exportPDF, exportReport, openReportWindow, toCSV, download } from '../export';
@@ -430,19 +431,34 @@ export function Alerts() {
   const { push } = useToast();
   const { data: list } = useAsync(() => notifications(), []);
   const items = list || [];
+  const [readIds, setReadIds] = useState<Set<string | number>>(new Set());
+  const unreadCount = items.filter((n: any) => !readIds.has(n.id) && !n.read_at).length;
+
+  const markAllRead = async () => {
+    const ids = items.map((n: any) => n.id);
+    setReadIds(new Set(ids));
+    try {
+      await Promise.all(ids.map((id: string | number) => apiSend(`/notifications/${id}/read`, 'POST').catch(() => {})));
+      push('All notifications marked as read');
+    } catch (err: any) { push(err.message); }
+  };
+
   const toneIcon = (t: string) => t === 'danger' ? <AlertTriangle size={16} color="var(--danger)" /> : t === 'warn' ? <Syringe size={16} color="var(--warn)" /> : <HeartPulse size={16} color="var(--info)" />;
   return (
     <div>
       <PageHeader eyebrow="SMART NOTIFICATIONS" title="Alerts & reminders" desc="Automated alerts across your farm."
-        actions={<button className="btn sm" onClick={() => push('All marked read')}>Mark all read</button>} />
+        actions={<button className="btn sm" onClick={markAllRead} disabled={unreadCount === 0}>Mark all read</button>} />
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {items.map((n: any) => (
-          <div key={n.id} className="between" style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div className="row"><span style={{ color: n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)', display: 'grid', placeItems: 'center' }}>{toneIcon(n.tone)}</span>
-              <div><b>{n.title}</b><div className="muted" style={{ fontSize: 13 }}>{n.body}</div></div></div>
-            <div className="row"><span className="muted" style={{ fontSize: 12 }}>{n.time}</span><span className={`pill ${n.tone}`}>{n.type}</span></div>
-          </div>
-        ))}
+        {items.map((n: any) => {
+          const isRead = readIds.has(n.id) || !!n.read_at;
+          return (
+            <div key={n.id} className="between" style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', opacity: isRead ? 0.6 : 1, background: isRead ? 'transparent' : 'var(--primary-soft)' }}>
+              <div className="row"><span style={{ color: n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)', display: 'grid', placeItems: 'center' }}>{toneIcon(n.tone)}</span>
+                <div><b>{n.title}</b><div className="muted" style={{ fontSize: 13 }}>{n.body}</div></div></div>
+              <div className="row"><span className="muted" style={{ fontSize: 12 }}>{isRead ? 'Read' : n.time}</span><span className={`pill ${n.tone}`}>{n.type}</span></div>
+            </div>
+          );
+        })}
         {!items.length && <div className="muted" style={{ padding: 20 }}>No notifications.</div>}
       </div>
     </div>

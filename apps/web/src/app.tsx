@@ -5,7 +5,7 @@ import { ThemeToggle, PageHeader, Modal, PasswordInput, OfflineBanner } from './
 import { FARMS, NOTIFICATIONS } from './mock';
 import { useAsync } from './ui';
 import { isLive, ApiError } from './api';
-import { loadFarms, forgotPassword, getCaptcha, requestPhoneOtp } from './data';
+import { loadFarms, forgotPassword, getCaptcha, requestPhoneOtp, notifications } from './data';
 import { useAuth, LoginResult } from './auth';
 import {
   LayoutDashboard, Beef, MapPin, Activity, Bot, Bell, TrendingUp, BarChart3, DollarSign,
@@ -274,9 +274,7 @@ export function AppShell() {
   const [userMenu, setUserMenu] = useState(false);
   const [search, setSearch] = useState('');
   const [verifySkipped, setVerifySkipped] = useState(false);
-  // Refetch once a user is actually authenticated — called with no deps this ran once at
-  // mount (often pre-login, 401ing) and never again, so the farm list silently stayed on
-  // the offline mock fallback for the rest of the session even after a real login.
+  const [notificationsList, setNotificationsList] = useState<any[]>([]);
   const { data: farms } = useAsync(loadFarms, [user?.id, user?.farmId]);
   const farmList = farms && farms.length ? farms : FARMS;
   const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
@@ -287,6 +285,14 @@ export function AppShell() {
       if (id) setFarmId(id);
     }
   }, [isLive, user, farmList, farmId]);
+
+  useEffect(() => {
+    if (!isLive) {
+      setNotificationsList(NOTIFICATIONS);
+      return;
+    }
+    notifications().then((r: any) => setNotificationsList(r.data || r || [])).catch(() => {});
+  }, [isLive, user, farmId]);
 
   if (isLive && loading) {
     return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}><p className="muted">Loading…</p></main>;
@@ -452,11 +458,11 @@ export function AppShell() {
 
             <div className="menu">
               <button className="btn ghost sm" style={{ position: 'relative' }} onClick={() => setBell((v) => !v)}>
-                <Bell size={16} /> <span className="badge-dot" style={{ position: 'absolute', top: -4, right: -4 }}>{NOTIFICATIONS.length}</span>
+                <Bell size={16} /> <span className="badge-dot" style={{ position: 'absolute', top: -4, right: -4 }}>{notificationsList.filter((n: any) => !n.read_at).length}</span>
               </button>
               {bell && (
                 <div className="menu-pop" style={{ minWidth: 300 }} onMouseLeave={() => setBell(false)}>
-                  {NOTIFICATIONS.slice(0, 6).map((n) => (
+                  {notificationsList.slice(0, 6).map((n: any) => (
                     <button key={n.id} onClick={() => { setBell(false); go('alerts'); }}>
                       <Bell size={15} color={n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />
                       <span><b>{n.title}</b><br /><span className="muted" style={{ fontSize: 12 }}>{n.body}</span></span>
