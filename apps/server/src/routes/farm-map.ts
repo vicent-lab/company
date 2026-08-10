@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/index.js';
 import { requireAuth, requirePermission, resolveFarmId, audit } from '../middleware/auth.js';
 import { HttpError, asyncHandler } from '../lib/errors.js';
+import { config } from '../env.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -199,7 +200,7 @@ router.post('/publish', requirePermission('farm:manage'), asyncHandler(async (re
 router.get('/location', asyncHandler(async (req, res) => {
   const farmId = resolveFarmId(req);
   const { rows } = await query(
-    `SELECT latitude, longitude, location_accuracy, default_map_center_lat, default_map_center_lng, default_map_zoom FROM farms WHERE id=$1`,
+    `SELECT latitude, longitude, location_accuracy, default_map_center_lat, default_map_center_lng, default_map_zoom, address, city, district, country, plus_code FROM farms WHERE id=$1`,
     [farmId]
   );
   const r = rows[0] || {};
@@ -211,6 +212,11 @@ router.get('/location', asyncHandler(async (req, res) => {
     defaultCenterLat: r.default_map_center_lat ?? null,
     defaultCenterLng: r.default_map_center_lng ?? null,
     defaultZoom: r.default_map_zoom ?? null,
+    address: r.address ?? null,
+    city: r.city ?? null,
+    district: r.district ?? null,
+    country: r.country ?? null,
+    plusCode: r.plus_code ?? null,
   });
 }));
 
@@ -223,6 +229,11 @@ router.patch('/location', requirePermission('farm:manage'), asyncHandler(async (
     defaultCenterLat: z.coerce.number().min(-90).max(90).optional(),
     defaultCenterLng: z.coerce.number().min(-180).max(180).optional(),
     defaultZoom: z.coerce.number().min(1).max(20).optional(),
+    address: z.string().optional().nullable(),
+    city: z.string().optional().nullable(),
+    district: z.string().optional().nullable(),
+    country: z.string().optional().nullable(),
+    plusCode: z.string().optional().nullable(),
   }).parse(req.body);
   const { rows } = await query(
     `UPDATE farms SET
@@ -232,9 +243,14 @@ router.patch('/location', requirePermission('farm:manage'), asyncHandler(async (
        default_map_center_lat = COALESCE($4, default_map_center_lat),
        default_map_center_lng = COALESCE($5, default_map_center_lng),
        default_map_zoom = COALESCE($6, default_map_zoom),
+       address = COALESCE($7, address),
+       city = COALESCE($8, city),
+       district = COALESCE($9, district),
+       country = COALESCE($10, country),
+       plus_code = COALESCE($11, plus_code),
        updated_at = now()
-     WHERE id = $7 RETURNING latitude, longitude, location_accuracy, default_map_center_lat, default_map_center_lng, default_map_zoom`,
-    [body.latitude ?? null, body.longitude ?? null, body.locationAccuracy ?? null, body.defaultCenterLat ?? null, body.defaultCenterLng ?? null, body.defaultZoom ?? null, farmId]
+     WHERE id = $12 RETURNING latitude, longitude, location_accuracy, default_map_center_lat, default_map_center_lng, default_map_zoom, address, city, district, country, plus_code`,
+    [body.latitude ?? null, body.longitude ?? null, body.locationAccuracy ?? null, body.defaultCenterLat ?? null, body.defaultCenterLng ?? null, body.defaultZoom ?? null, body.address ?? null, body.city ?? null, body.district ?? null, body.country ?? null, body.plusCode ?? null, farmId]
   );
   if (!rows[0]) throw new HttpError(404, 'Farm not found');
   const r = rows[0];
@@ -247,6 +263,11 @@ router.patch('/location', requirePermission('farm:manage'), asyncHandler(async (
     defaultCenterLat: r.default_map_center_lat,
     defaultCenterLng: r.default_map_center_lng,
     defaultZoom: r.default_map_zoom,
+    address: r.address,
+    city: r.city,
+    district: r.district,
+    country: r.country,
+    plusCode: r.plus_code,
   });
 }));
 
@@ -519,6 +540,13 @@ router.get('/providers', asyncHandler(async (req, res) => {
     satelliteProvider: r.satellite_provider || 'esri',
     enabledLayers: r.enabled_layers || {},
   });
+}));
+
+router.get('/google-maps-key', asyncHandler(async (req, res) => {
+  if (!config.googleMapsApiKey) {
+    return res.json({ key: null, configured: false });
+  }
+  res.json({ key: config.googleMapsApiKey, configured: true });
 }));
 
 router.patch('/providers', requirePermission('farm:manage'), asyncHandler(async (req, res) => {

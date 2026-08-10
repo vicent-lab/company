@@ -206,7 +206,7 @@ export function FarmMap() {
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [propertyForm, setPropertyForm] = useState({ name: '', type: '', properties: {} as Record<string, any> });
 
-  const [mapStyle, setMapStyle] = useState<'farm-layout' | 'standard' | 'satellite' | 'terrain' | 'ai-analysis'>('farm-layout');
+  const [mapStyle, setMapStyle] = useState<'farm-layout' | 'standard' | 'satellite' | 'terrain' | 'hybrid' | 'ai-analysis'>('satellite');
   const [farmLocation, setFarmLocation] = useState<FarmLocation | null>(null);
   const [boundaries, setBoundaries] = useState<FarmBoundary[]>([]);
   const [pastures, setPastures] = useState<FarmPasture[]>([]);
@@ -224,9 +224,14 @@ export function FarmMap() {
   const [selectedPasture, setSelectedPasture] = useState<FarmPasture | null>(null);
   const [showMeasureModal, setShowMeasureModal] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
+  const [googleMapsError, setGoogleMapsError] = useState(false);
 
   const mapInstanceRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const googleMapRef = useRef<any>(null);
+  const mapOverlaysRef = useRef<any[]>([]);
+  const googleMapsApiKeyRef = useRef<string | null>(null);
 
   const loadMapData = async () => {
     const objs = await listFarmMapObjects(farmId);
@@ -276,25 +281,34 @@ export function FarmMap() {
   useEffect(() => {
     if (mapStyle === 'farm-layout' || typeof window === 'undefined') return;
     let cancelled = false;
-    const loadMapLibre = async () => {
-      const w = window as any;
-      if (!w.maplibregl) {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
-        document.head.appendChild(link);
-        await new Promise<void>((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
-          s.onload = () => resolve();
-          s.onerror = () => reject(new Error('Failed to load maplibre-gl'));
-          document.head.appendChild(s);
-        });
+    const loadGoogleMaps = async () => {
+      try {
+        if (!googleMapsApiKeyRef.current) {
+          try {
+            const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '';
+            const res = await fetch(`${apiBase}/farm-map/google-maps-key`);
+            const data = await res.json();
+            if (data.key) googleMapsApiKeyRef.current = data.key;
+          } catch { /* ignore */ }
+        }
+        if (!googleMapsApiKeyRef.current || cancelled) {
+          if (!cancelled) setOffline(true);
+          return;
+        }
+        await import('../data').then(m => m.loadGoogleMapsScript(googleMapsApiKeyRef.current!));
+        if (!cancelled) {
+          setGoogleMapsLoaded(true);
+          setMapReady(true);
+          setGoogleMapsError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setOffline(true);
+          setGoogleMapsError(true);
+        }
       }
-      if (cancelled) return;
-      setMapReady(true);
     };
-    void loadMapLibre();
+    void loadGoogleMaps();
     return () => { cancelled = true; };
   }, [mapStyle]);
 
@@ -304,114 +318,156 @@ export function FarmMap() {
   }, [mapStyle]);
 
   useEffect(() => {
-    if (!mapReady || mapStyle === 'farm-layout' || !mapContainerRef.current) return;
-    const w = window as any;
-    if (!w.maplibregl) return;
-    const map = new w.maplibregl.Map({
-      container: mapContainerRef.current,
-      style: mapStyle === 'satellite' ? {
-        version: 8,
-        sources: { esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256 } },
-        layers: [{ id: 'esri', type: 'raster', source: 'esri' }],
-      } : mapStyle === 'terrain' ? {
-        version: 8,
-        sources: { otm: { type: 'raster', tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
-        layers: [{ id: 'otm', type: 'raster', source: 'otm' }],
-      } : mapStyle === 'ai-analysis' ? {
-        version: 8,
-        sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
-        layers: [
-          { id: 'background', type: 'background', paint: { 'background-color': 'transparent' } },
-          { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.6 } },
-        ],
-      } : {
-        version: 8,
-        sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
-        layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-      },
-      center: [farmLocation?.defaultCenterLng ?? 0, farmLocation?.defaultCenterLat ?? 0],
-      zoom: farmLocation?.defaultZoom ?? 2,
-    });
-    map.addControl(new w.maplibregl.NavigationControl(), 'top-right');
-    map.on('load', () => {
-      map.addSource('farm-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({ id: 'boundary-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'boundary'], paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.15 } });
-      map.addLayer({ id: 'boundary-line', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'boundary'], paint: { 'line-color': '#3b82f6', 'line-width': 2 } });
-      map.addLayer({ id: 'pasture-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'pasture'], paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 } });
-      map.addLayer({ id: 'pasture-line', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'pasture'], paint: { 'line-color': ['get', 'color'], 'line-width': 1.5 } });
-      map.addLayer({ id: 'node-circle', type: 'circle', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'node'], paint: { 'circle-radius': 6, 'circle-color': ['coalesce', ['get', 'tone'], '#3b82f6'] } });
-      map.addLayer({ id: 'measure-line', type: 'line', source: 'farm-overlay', filter: ['in', ['get', 'type'], 'distance', 'perimeter'], paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [2, 2] } });
-      map.addLayer({ id: 'measure-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'area'], paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.2 } });
-      map.addLayer({ id: 'highlight', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'highlight'], paint: { 'line-color': '#ef4444', 'line-width': 3 } });
-      if (boundaries.length > 0) {
-        const b = boundaries[0];
-        const coords = (b.geometry?.coordinates?.[0] || []).map((c: any) => c);
-        if (coords.length > 0) {
-          const lngs = coords.map((c: any) => c[0]);
-          const lats = coords.map((c: any) => c[1]);
-          map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40, maxZoom: 16 });
-        }
-      }
-    });
-    map.on('error', (e: any) => {
-      const msg = e?.error?.message || '';
-      if (msg.includes('tile') || msg.includes('network') || msg.includes('fetch')) {
-        setOffline(true);
-      }
-    });
-    mapInstanceRef.current = map;
-    return () => { map.remove(); mapInstanceRef.current = null; };
-  }, [mapReady, mapStyle, farmLocation, boundaries]);
+    if (googleMapsError && mapStyle !== 'farm-layout') {
+      setMapStyle('farm-layout');
+    }
+  }, [googleMapsError, mapStyle]);
 
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !map.getSource('farm-overlay')) return;
-    const features: any[] = [];
+    if (!mapReady || mapStyle === 'farm-layout' || !mapContainerRef.current) return;
+    const w = window as any;
+    if (!w.google?.maps) return;
+    if (mapInstanceRef.current && mapInstanceRef.current instanceof w.google.maps.Map) {
+      const newType = mapStyle === 'satellite' ? w.google.maps.MapTypeId.SATELLITE
+        : mapStyle === 'hybrid' ? w.google.maps.MapTypeId.HYBRID
+        : mapStyle === 'terrain' ? w.google.maps.MapTypeId.TERRAIN
+        : w.google.maps.MapTypeId.ROADMAP;
+      mapInstanceRef.current.setMapTypeId(newType);
+      return;
+    }
+    const centerLat = farmLocation?.defaultCenterLat ?? farmLocation?.latitude ?? 0;
+    const centerLng = farmLocation?.defaultCenterLng ?? farmLocation?.longitude ?? 0;
+    const zoom = farmLocation?.defaultZoom ?? 15;
+    const mapTypeId = mapStyle === 'satellite' ? w.google.maps.MapTypeId.SATELLITE
+      : mapStyle === 'hybrid' ? w.google.maps.MapTypeId.HYBRID
+      : mapStyle === 'terrain' ? w.google.maps.MapTypeId.TERRAIN
+      : w.google.maps.MapTypeId.ROADMAP;
+    const map = new w.google.maps.Map(mapContainerRef.current, {
+      center: { lat: centerLat, lng: centerLng },
+      zoom,
+      mapTypeId,
+      disableDefaultUI: false,
+      zoomControl: true,
+      mapTypeControl: true,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
+    googleMapRef.current = map;
+    mapInstanceRef.current = map;
+    return () => {
+      clearMapOverlays();
+      googleMapRef.current = null;
+      mapInstanceRef.current = null;
+    };
+  }, [mapReady, mapStyle, farmLocation]);
+
+  useEffect(() => {
+    const map = googleMapRef.current;
+    if (!map || mapStyle === 'farm-layout') return;
+    clearMapOverlays();
+    const w = window as any;
+    const addOverlay = (o: any) => { o.setMap(map); mapOverlaysRef.current.push(o); };
     if (activeLayers.boundary || activeLayers.buildings) {
-      for (const b of boundaries) features.push({ type: 'Feature', properties: { type: 'boundary', name: b.name }, geometry: b.geometry });
+      for (const b of boundaries) {
+        const coords = (b.geometry?.coordinates?.[0] || []).map((c: any) => ({ lat: c[1], lng: c[0] }));
+        if (coords.length > 1) addOverlay(new w.google.maps.Polygon({ paths: coords, fillColor: '#3b82f6', fillOpacity: 0.15, strokeColor: '#3b82f6', strokeWeight: 2 }));
+      }
     }
     if (activeLayers.buildings) {
-      for (const n of NODES) {
-        features.push({ type: 'Feature', properties: { type: 'node', id: n.id, label: n.label }, geometry: { type: 'Point', coordinates: [n.x, n.y] } });
+      for (const o of mapObjects.filter((o: any) => o.type === 'building' || o.type === 'barn' || o.type === 'milking_area' || o.type === 'feed_store' || o.type === 'vet_area')) {
+        const c = o.geometry.type === 'Point' ? { lat: o.geometry.coordinates[1], lng: o.geometry.coordinates[0] } : null;
+        if (c) addOverlay(new w.google.maps.Marker({ position: c, map, title: o.name }));
       }
     }
     if (activeLayers.pastures) {
-      for (const p of pastures) features.push({ type: 'Feature', properties: { type: 'pasture', name: p.name, color: p.color }, geometry: p.geometry });
+      for (const p of pastures) {
+        const coords = (p.geometry?.coordinates?.[0] || []).map((c: any) => ({ lat: c[1], lng: c[0] }));
+        if (coords.length > 1) addOverlay(new w.google.maps.Polygon({ paths: coords, fillColor: p.color || '#3b82f6', fillOpacity: 0.25, strokeColor: p.color || '#3b82f6', strokeWeight: 1.5 }));
+      }
     }
     if (activeLayers.water) {
-      for (const o of mapObjects.filter((o: any) => o.type === 'water_point')) features.push({ type: 'Feature', properties: { type: 'water_point', name: o.name }, geometry: o.geometry });
+      for (const o of mapObjects.filter((o: any) => o.type === 'water_point')) {
+        const c = o.geometry.type === 'Point' ? { lat: o.geometry.coordinates[1], lng: o.geometry.coordinates[0] } : null;
+        if (c) addOverlay(new w.google.maps.Marker({ position: c, map, title: o.name }));
+      }
     }
     if (activeLayers.roads) {
-      for (const o of mapObjects.filter((o: any) => o.type === 'road')) features.push({ type: 'Feature', properties: { type: 'road', name: o.name }, geometry: o.geometry });
+      for (const o of mapObjects.filter((o: any) => o.type === 'road')) {
+        const coords = (o.geometry.type === 'LineString' ? o.geometry.coordinates : []).map((c: any) => ({ lat: c[1], lng: c[0] }));
+        if (coords.length > 1) addOverlay(new w.google.maps.Polyline({ path: coords, strokeColor: '#9ca3af', strokeWeight: 3, map }));
+      }
     }
     if (activeLayers.fences) {
-      for (const o of mapObjects.filter((o: any) => o.type === 'fence')) features.push({ type: 'Feature', properties: { type: 'fence', name: o.name }, geometry: o.geometry });
+      for (const o of mapObjects.filter((o: any) => o.type === 'fence')) {
+        const coords = (o.geometry.type === 'LineString' ? o.geometry.coordinates : []).map((c: any) => ({ lat: c[1], lng: c[0] }));
+        if (coords.length > 1) addOverlay(new w.google.maps.Polyline({ path: coords, strokeColor: '#6b7280', strokeWeight: 2, strokeOpacity: 0.7, map }));
+      }
     }
     if (activeLayers.equipment) {
-      for (const o of mapObjects.filter((o: any) => o.type === 'equipment_area')) features.push({ type: 'Feature', properties: { type: 'equipment', name: o.name }, geometry: o.geometry });
+      for (const o of mapObjects.filter((o: any) => o.type === 'equipment_area')) {
+        const coords = ((o.geometry as any).type === 'Polygon' ? (o.geometry as any).coordinates[0] : []).map((c: any) => ({ lat: c[1], lng: c[0] }));
+        if (coords.length > 1) addOverlay(new w.google.maps.Polygon({ paths: coords, fillColor: '#f59e0b', fillOpacity: 0.2, strokeColor: '#f59e0b', strokeWeight: 1, map }));
+      }
     }
-    for (const h of aiHighlights.features) features.push(h);
-    (map.getSource('farm-overlay') as any).setData({ type: 'FeatureCollection', features });
-  }, [mapReady, mapStyle, boundaries, pastures, mapObjects, activeLayers, aiHighlights]);
+    for (const h of aiHighlights.features) {
+      const geom = h.geometry;
+      if (geom.type === 'Polygon') {
+        const coords = (geom.coordinates?.[0] || []).map((c: any) => ({ lat: c[1], lng: c[0] }));
+        if (coords.length > 1) addOverlay(new w.google.maps.Polygon({ paths: coords, fillColor: '#ef4444', fillOpacity: 0.2, strokeColor: '#ef4444', strokeWeight: 3, map }));
+      }
+    }
+    if (drawingPoints.length > 0) {
+      addOverlay(new w.google.maps.Polyline({ path: drawingPoints.map(p => ({ lat: p.lat, lng: p.lng })), strokeColor: '#3b82f6', strokeWeight: 2, strokeDasharray: '5,5', map }));
+      for (const p of drawingPoints) {
+        addOverlay(new w.google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, map, icon: { path: w.google.maps.SymbolPath.CIRCLE, scale: 4, fillColor: '#3b82f6', fillOpacity: 1 } }));
+      }
+    }
+  }, [mapReady, mapStyle, boundaries, pastures, mapObjects, activeLayers, aiHighlights, drawingPoints]);
 
   useEffect(() => {
-    if (!mapReady || mapStyle === 'farm-layout' || !mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
+    const map = googleMapRef.current;
+    if (!map || mapStyle === 'farm-layout') return;
     const handleMapClick = (e: any) => {
       if (measureTool === 'none') return;
-      const { lng, lat } = e.lngLat;
+      const lat = e.latLng?.lat?.();
+      const lng = e.latLng?.lng?.();
+      if (lat === undefined || lng === undefined) return;
       setDrawingPoints((prev) => [...prev, { lng, lat }]);
     };
-    const handleDblClick = () => {
-      if (drawingPoints.length >= 2) finishMapDrawing();
+    const handleDblClick = (e: any) => {
+      if (drawingPoints.length >= 2) {
+        e.stop();
+        finishMapDrawing();
+      }
     };
-    map.on('click', handleMapClick);
-    map.on('dblclick', handleDblClick);
+    map.addListener('click', handleMapClick);
+    map.addListener('dblclick', handleDblClick);
     return () => {
-      map.off('click', handleMapClick);
-      map.off('dblclick', handleDblClick);
+      (window as any).google?.maps?.event?.clearListeners(map, 'click');
+      (window as any).google?.maps?.event?.clearListeners(map, 'dblclick');
     };
   }, [mapReady, mapStyle, measureTool, drawingPoints]);
+
+  useEffect(() => {
+    const map = googleMapRef.current;
+    if (!map || mapStyle === 'farm-layout') return;
+    const features = aiHighlights.features || [];
+    if (features.length === 0) return;
+    const coords: { lat: number; lng: number }[] = [];
+    for (const f of features) {
+      const geom = f.geometry;
+      if (geom.type === 'Polygon' && geom.coordinates?.[0]) {
+        for (const c of geom.coordinates[0]) coords.push({ lat: c[1], lng: c[0] });
+      } else if (geom.type === 'Point' && geom.coordinates) {
+        coords.push({ lat: geom.coordinates[1], lng: geom.coordinates[0] });
+      }
+    }
+    if (coords.length > 0) {
+      const bounds = new (window as any).google.maps.LatLngBounds();
+      coords.forEach((c) => bounds.extend(c));
+      map.fitBounds(bounds, { padding: 40, maxZoom: 16 });
+    }
+  }, [aiHighlights, mapStyle]);
 
   const finishMapDrawing = async () => {
     if (drawingPoints.length < 2) { setDrawingPoints([]); return; }
@@ -582,6 +638,13 @@ export function FarmMap() {
       return { type: 'Polygon', coordinates: [closed.map((p) => [p.x, p.y])] };
     }
     return { type, coordinates: [] };
+  };
+
+  const clearMapOverlays = () => {
+    mapOverlaysRef.current.forEach((o: any) => {
+      if (o && typeof o.setMap === 'function') o.setMap(null);
+    });
+    mapOverlaysRef.current = [];
   };
 
   const handleMapClick = (e: React.MouseEvent) => {
@@ -1263,6 +1326,7 @@ export function FarmMap() {
           <button className={`btn sm ${mapStyle === 'farm-layout' ? '' : 'ghost'}`} onClick={() => setMapStyle('farm-layout')}><MapPin size={14} /> Farm Layout</button>
           <button className={`btn sm ${mapStyle === 'standard' ? '' : 'ghost'}`} onClick={() => setMapStyle('standard')}><MapPin size={14} /> Standard</button>
           <button className={`btn sm ${mapStyle === 'satellite' ? '' : 'ghost'}`} onClick={() => setMapStyle('satellite')}><MapPin size={14} /> Satellite</button>
+          <button className={`btn sm ${mapStyle === 'hybrid' ? '' : 'ghost'}`} onClick={() => setMapStyle('hybrid')}><MapPin size={14} /> Hybrid</button>
           <button className={`btn sm ${mapStyle === 'terrain' ? '' : 'ghost'}`} onClick={() => setMapStyle('terrain')}><MapPin size={14} /> Terrain</button>
           <button className={`btn sm ${mapStyle === 'ai-analysis' ? '' : 'ghost'}`} onClick={() => setMapStyle('ai-analysis')}><MapPin size={14} /> AI Analysis</button>
           <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />

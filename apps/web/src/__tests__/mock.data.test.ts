@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analytics, finance, farmSummary } from '../mock';
-import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, formatHectares, formatAcres, formatMeters, formatMeasurementValue } from '../data';
+import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue } from '../data';
 
 describe('mock data fixes', () => {
   it('finance includes incomeTotal and expenseTotal', async () => {
@@ -152,5 +152,27 @@ describe('mock data fixes', () => {
   it('formatMeasurementValue returns formatted string', () => {
     expect(formatMeasurementValue(100, 'distance')).toBe('100.0 m');
     expect(formatMeasurementValue(0.5, 'area')).toBe('0.50 ha');
+  });
+
+  it('getFarmLocation includes address fields in mock mode', async () => {
+    const loc = await getFarmLocation('f1');
+    expect(loc).toHaveProperty('address');
+    expect(loc).toHaveProperty('city');
+    expect(loc).toHaveProperty('district');
+    expect(loc).toHaveProperty('country');
+    expect(loc).toHaveProperty('plusCode');
+  });
+
+  it('updateFarmLocation accepts address fields in mock mode', async () => {
+    const loc = await updateFarmLocation('f1', { address: '123 Farm Rd', city: 'Dairytown', district: 'Central', country: 'Kenya', plusCode: 'ABC+123' });
+    expect(loc.address).toBe('123 Farm Rd');
+    expect(loc.city).toBe('Dairytown');
+  });
+
+  it('loadGoogleMapsScript resolves when google maps already present', async () => {
+    const w = window as any;
+    w.google = w.google || {};
+    w.google.maps = w.google.maps || { Map: class {} };
+    await expect(loadGoogleMapsScript('test-key')).resolves.toBeUndefined();
   });
 });

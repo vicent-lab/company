@@ -23,6 +23,7 @@ export const config = {
   refreshTokenExpiresInDays: Number(process.env.REFRESH_TOKEN_EXPIRES_IN_DAYS ?? 30),
   isLive: Boolean(process.env.DATABASE_URL),
   learningCycleIntervalHours: Number(process.env.LEARNING_CYCLE_INTERVAL_HOURS ?? 6),
+  googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY ?? '',
 };
 
 export type AppConfig = typeof config;

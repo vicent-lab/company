@@ -1216,7 +1216,34 @@ export interface FarmLocation {
   defaultCenterLat: number | null;
   defaultCenterLng: number | null;
   defaultZoom: number | null;
+  address: string | null;
+  city: string | null;
+  district: string | null;
+  country: string | null;
+  plusCode: string | null;
 }
+
+export const loadGoogleMapsScript = (apiKey: string): Promise<void> => {
+  if (typeof window === 'undefined') return Promise.resolve();
+  const w = window as any;
+  if (w.google?.maps?.Map) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const callbackName = '__initGoogleMaps__';
+    w[callbackName] = () => {
+      resolve();
+      try { delete w[callbackName]; } catch { /* noop */ }
+    };
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=${callbackName}`;
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => {
+      try { delete w[callbackName]; } catch { /* noop */ }
+      reject(new Error('Failed to load Google Maps'));
+    };
+    document.head.appendChild(script);
+  });
+};
 
 export interface FarmBoundary {
   id: string;
@@ -1288,6 +1315,11 @@ export const getFarmLocation = (farmId: string) =>
     defaultCenterLat: null,
     defaultCenterLng: null,
     defaultZoom: null,
+    address: null,
+    city: null,
+    district: null,
+    country: null,
+    plusCode: null,
   });
 
 export const updateFarmLocation = (farmId: string, body: Partial<FarmLocation>) =>
