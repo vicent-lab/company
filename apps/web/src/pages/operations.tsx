@@ -329,6 +329,8 @@ export function FarmMap() {
         sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 } },
         layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
       },
+      center: [farmLocation?.defaultCenterLng ?? 0, farmLocation?.defaultCenterLat ?? 0],
+      zoom: farmLocation?.defaultZoom ?? 2,
     });
     map.addControl(new w.maplibregl.NavigationControl(), 'top-right');
     map.on('load', () => {
@@ -341,11 +343,25 @@ export function FarmMap() {
       map.addLayer({ id: 'measure-line', type: 'line', source: 'farm-overlay', filter: ['in', ['get', 'type'], 'distance', 'perimeter'], paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [2, 2] } });
       map.addLayer({ id: 'measure-fill', type: 'fill', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'area'], paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.2 } });
       map.addLayer({ id: 'highlight', type: 'line', source: 'farm-overlay', filter: ['==', ['get', 'type'], 'highlight'], paint: { 'line-color': '#ef4444', 'line-width': 3 } });
+      if (boundaries.length > 0) {
+        const b = boundaries[0];
+        const coords = (b.geometry?.coordinates?.[0] || []).map((c: any) => c);
+        if (coords.length > 0) {
+          const lngs = coords.map((c: any) => c[0]);
+          const lats = coords.map((c: any) => c[1]);
+          map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40, maxZoom: 16 });
+        }
+      }
     });
-    map.on('error', () => { setMapStyle('farm-layout'); setOffline(true); });
+    map.on('error', (e: any) => {
+      const msg = e?.error?.message || '';
+      if (msg.includes('tile') || msg.includes('network') || msg.includes('fetch')) {
+        setOffline(true);
+      }
+    });
     mapInstanceRef.current = map;
     return () => { map.remove(); mapInstanceRef.current = null; };
-  }, [mapReady, mapStyle]);
+  }, [mapReady, mapStyle, farmLocation, boundaries]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
