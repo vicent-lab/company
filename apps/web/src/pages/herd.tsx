@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
-import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, chartColors, gridColor, tickColor, Modal, Progress, useToast, useAsync, Skeleton } from '../ui';
+import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, chartColors, gridColor, tickColor, Modal, Progress, useToast, useAsync, Skeleton, ResponsiveTable, Column } from '../ui';
 import { listCows, getCow, createCow, updateCow, createTreatment, getPedigree, getOffspring, getAncestors } from '../data';
 import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun, Stethoscope, ChevronRight, Camera, FolderOpen } from 'lucide-react';
 import { fmt } from '../format';
@@ -111,23 +111,20 @@ export function Herd() {
           <h3>{loading ? 'Loading…' : `${list.length} cows`}</h3>
           <input className="input" style={{ maxWidth: 280 }} placeholder="Search by code, name, breed" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
         </div>
-        <div className="table-wrap" style={{ border: 0, boxShadow: 'none' }}>
-          <table>
-            <thead><tr><th>Cow</th><th>Code</th><th>Ear tag</th><th>Breed</th><th>Health</th><th>Milking</th><th>Milk/day</th><th></th></tr></thead>
-            <tbody>
-              {list.map((c) => (
-                <tr key={c.id} onClick={() => navigate('/app/cow/' + c.id)} style={{ cursor: 'pointer' }}>
-                  <td><div className="row"><CowPhoto name={c.name} color={c.color} size={36} photoUrl={c.photoUrl} /><div><b>{c.name}</b><div className="muted" style={{ fontSize: 12 }}>{c.gender}</div></div></div></td>
-                  <td>{c.cowCode}</td><td>{c.earTag}</td><td>{c.breed}</td>
-                  <td><span className={`pill ${c.health}`}>{c.health.replace('_', ' ')}</span></td>
-                  <td>{c.isMilking ? 'Yes' : 'No'}</td>
-                  <td>{c.avgDailyMilk ? fmt.liters(c.avgDailyMilk) : '—'}</td>
-                  <td><ChevronRight size={16} className="muted" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveTable
+          rowKey="id"
+          onRowClick={(c) => navigate('/app/cow/' + c.id)}
+          columns={[
+            { key: 'name', header: 'Cow', render: (c: any) => <div className="row"><CowPhoto name={c.name} color={c.color} size={36} photoUrl={c.photoUrl} /><div><b>{c.name}</b><div className="muted" style={{ fontSize: 12 }}>{c.gender}</div></div></div> },
+            { key: 'cowCode', header: 'Code' },
+            { key: 'earTag', header: 'Ear tag' },
+            { key: 'breed', header: 'Breed' },
+            { key: 'health', header: 'Health', render: (c: any) => <span className={`pill ${c.health}`}>{c.health.replace('_', ' ')}</span> },
+            { key: 'isMilking', header: 'Milking', render: (c: any) => c.isMilking ? 'Yes' : 'No' },
+            { key: 'avgDailyMilk', header: 'Milk/day', render: (c: any) => c.avgDailyMilk ? fmt.liters(c.avgDailyMilk) : '—' },
+          ]}
+          data={list}
+        />
       </div>
       {open && <Modal title="Add new cow" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>

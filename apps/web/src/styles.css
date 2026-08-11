@@ -164,6 +164,8 @@ ul { margin: 0; padding: 0; list-style: none; }
 
 /* Tables */
 .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.table-wrap.mobile-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap.mobile-scroll table { min-width: 640px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 13px 16px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--border); }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-soft); background: var(--surface-2); }
@@ -460,6 +462,39 @@ tbody tr:hover { background: var(--surface-2); }
   .split { grid-template-columns: 1fr 1fr; }
   .three { grid-template-columns: repeat(2, 1fr); }
   .four { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Responsive table */
+.responsive-table { width: 100%; }
+.responsive-table table { width: 100%; border-collapse: collapse; }
+.responsive-table th, .responsive-table td { padding: 13px 16px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--border); }
+.responsive-table th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-soft); background: var(--surface-2); }
+.responsive-table tbody tr { transition: background 0.12s; }
+.responsive-table tbody tr:hover { background: var(--surface-2); }
+.responsive-cards { display: none; }
+.responsive-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+.responsive-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 10px;
+}
+.responsive-card-row:last-child { border-bottom: 0; }
+.responsive-card-label { font-size: 12px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+.responsive-card-value { font-size: 14px; font-weight: 600; text-align: right; }
+
+@media (max-width: 768px) {
+  .responsive-table table { display: none; }
+  .responsive-cards { display: block; }
 }
 
 @media (max-width: 640px) {

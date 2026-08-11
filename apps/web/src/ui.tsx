@@ -91,6 +91,62 @@ export const chartColors = (n = 6) => {
 export const gridColor = () => C.border;
 export const tickColor = () => C.soft;
 
+export interface Column<T> {
+  key: keyof T | string;
+  header: string;
+  render?: (row: T) => ReactNode;
+  className?: string;
+}
+
+export function ResponsiveTable<T>({ columns, data, rowKey, onRowClick }: { columns: Column<T>[]; data: T[]; rowKey: keyof T | ((row: T) => string); onRowClick?: (row: T) => void }) {
+  const getKey = (row: T, idx: number) => {
+    if (typeof rowKey === 'function') return rowKey(row);
+    return String(row[rowKey]);
+  };
+  return (
+    <div className="table-wrap" style={{ border: 0, boxShadow: 'none' }}>
+      <div className="responsive-table">
+        <table>
+          <thead>
+            <tr>
+              {columns.map((col) => (
+                <th key={String(col.key)} className={col.className}>{col.header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.length === 0 && (
+              <tr><td colSpan={columns.length} style={{ textAlign: 'center', padding: 24 }}><span className="muted">No records found.</span></td></tr>
+            )}
+            {data.map((row, idx) => (
+              <tr key={getKey(row, idx)} onClick={() => onRowClick?.(row)} style={{ cursor: onRowClick ? 'pointer' : 'default' }}>
+                {columns.map((col) => (
+                  <td key={String(col.key)} className={col.className}>
+                    {col.render ? col.render(row) : String((row as any)[col.key] ?? '')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="responsive-cards">
+          {data.length === 0 && <p className="muted" style={{ padding: 20, textAlign: 'center' }}>No records found.</p>}
+          {data.map((row, idx) => (
+            <div key={getKey(row, idx)} className="responsive-card" onClick={() => onRowClick?.(row)}>
+              {columns.map((col) => (
+                <div key={String(col.key)} className="responsive-card-row">
+                  <span className="responsive-card-label">{col.header}</span>
+                  <span className="responsive-card-value">{col.render ? col.render(row) : String((row as any)[col.key] ?? '')}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Modal ----------
 export function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   useEffect(() => {
