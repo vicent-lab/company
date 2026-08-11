@@ -42,17 +42,20 @@ export function Dashboard() {
         actions={<button className="btn sm" onClick={() => navigate('/app/predict')}>AI insights →</button>} />
 
       <div className="four">
-        <Kpi icon={<Beef size={20} />} label="Total cows" value={<AnimatedCounter value={s.totalCows ?? 0} />} delta={`${s.milkingCows ?? 0} milking`} loading={loading} spark={m.slice(-8) as any} />
-        <Kpi icon={<Milk size={20} />} label="Milk produced today" value={<AnimatedCounter value={s.milkToday ?? 0} suffix=" L" />} delta="+3.1% vs avg" loading={loading} spark={m.slice(-8) as any} />
-        <Kpi icon={<DollarSign size={20} />} label="Revenue this month" value={<AnimatedCounter value={s.revenue ?? 0} prefix="$" />} delta="+6.4% MoM" loading={loading} />
+        <Kpi icon={<Beef size={20} />} label="Total cows" value={<AnimatedCounter value={s.totalCows ?? 0} />} delta={`${s.milkingCows ?? 0} milking`} loading={loading} />
+        <Kpi icon={<Milk size={20} />} label="Milk today" value={<AnimatedCounter value={s.milkToday ?? 0} suffix=" L" />} delta="+3.1% vs avg" loading={loading} />
+        <Kpi icon={<DollarSign size={20} />} label="Revenue" value={<AnimatedCounter value={s.revenue ?? 0} prefix="$" />} delta="+6.4% MoM" loading={loading} />
         <Kpi icon={<Wallet size={20} />} label="Expenses" value={<AnimatedCounter value={s.expenses ?? 0} prefix="$" />} delta="on track" tone="down" loading={loading} />
-        <Kpi icon={<HeartPulse size={20} />} label="Pregnant cows" value={<AnimatedCounter value={s.pregnantCows ?? 0} />} delta="healthy cycle" loading={loading} />
-        <Kpi icon={<Stethoscope size={20} />} label="Sick cows" value={<AnimatedCounter value={s.sickCows ?? 0} />} delta={s.sickCows ? 'needs care' : 'none'} tone={s.sickCows ? 'down' : 'up'} loading={loading} />
-        <Kpi icon={<Wheat size={20} />} label="Feed stock" value={<AnimatedCounter value={s.feedStock ?? 0} suffix=" kg" />} delta="12 days left" loading={loading} />
-        <Kpi icon={<Syringe size={20} />} label="Upcoming vaccinations" value={<AnimatedCounter value={s.upcomingVacc ?? 0} />} delta="next 7 days" tone={s.upcomingVacc ? 'down' : 'up'} loading={loading} />
+      </div>
+
+      <div className="four mt">
+        <Kpi icon={<HeartPulse size={18} />} label="Pregnant" value={<AnimatedCounter value={s.pregnantCows ?? 0} />} delta="healthy cycle" loading={loading} />
+        <Kpi icon={<Stethoscope size={18} />} label="Sick" value={<AnimatedCounter value={s.sickCows ?? 0} />} delta={s.sickCows ? 'needs care' : 'none'} tone={s.sickCows ? 'down' : 'up'} loading={loading} />
+        <Kpi icon={<Wheat size={18} />} label="Feed stock" value={<AnimatedCounter value={s.feedStock ?? 0} suffix=" kg" />} delta="12 days left" loading={loading} />
         <div onClick={() => navigate('/app/farm-score')} style={{ cursor: 'pointer' }}>
-          <Kpi icon={<Gauge size={20} />} label="AI Farm Score" value={<AnimatedCounter value={score.data?.overall ?? 0} suffix="/100" />} delta="view breakdown →" tone={(score.data?.overall ?? 0) >= 60 ? 'up' : 'down'} loading={score.loading} />
+          <Kpi icon={<Gauge size={18} />} label="AI Score" value={<AnimatedCounter value={score.data?.overall ?? 0} suffix="/100" />} delta="view breakdown →" tone={(score.data?.overall ?? 0) >= 60 ? 'up' : 'down'} loading={score.loading} />
         </div>
+        <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={<AnimatedCounter value={s.upcomingVacc ?? 0} />} delta="next 7 days" tone={s.upcomingVacc ? 'down' : 'up'} loading={loading} />
       </div>
 
       <div className="split mt">
