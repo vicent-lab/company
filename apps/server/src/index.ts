@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { config } from './env.js';
 import { healthCheck } from './db/index.js';
 import { runContinuousLearningCycle } from './ai/outcome-verifier.js';
@@ -129,27 +130,42 @@ api.use('/payroll', payrollRoutes);
 app.use('/api/v1', api);
 
 const webDist = path.resolve(process.cwd(), 'apps/web/dist');
-if (require('fs').existsSync(webDist)) {
+const hasWebApp = fs.existsSync(webDist);
+if (hasWebApp) {
   app.use(express.static(webDist));
+}
+
+app.get('/', (_req, res) => {
+  if (hasWebApp) {
+    return res.sendFile(path.join(webDist, 'index.html'));
+  }
+  res.json({ name: 'Smart Dairy API', version: '0.1.0', docs: '/api/v1' });
+});
+
+if (hasWebApp) {
   app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
 }
 
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  console.log(`🐄 Dairy API listening on http://localhost:${config.port} (env=${config.env})`);
+const isVercel = process.env.VERCEL === '1';
 
-  // Continuous learning: periodically verify past predictions and check whether farmers
-  // who followed advice actually saw the predicted improvement, across every farm.
-  const runCycle = () => {
-    runContinuousLearningCycle()
-      .then((r) => console.log(`🧠 Continuous learning cycle: ${r.farms} farm(s), ${r.verified} predictions verified, ${r.followedUp} advice follow-ups checked`))
-      .catch((err) => console.error('Continuous learning cycle failed:', err));
-    snapshotAllFarmScores()
-      .then((r) => console.log(`📊 Farm score snapshot: ${r.farms} farm(s) scored`))
-      .catch((err) => console.error('Farm score snapshot failed:', err));
-  };
-  runCycle();
-  setInterval(runCycle, config.learningCycleIntervalHours * 60 * 60 * 1000);
-});
+if (!isVercel) {
+  app.listen(config.port, () => {
+    console.log(`🐄 Dairy API listening on http://localhost:${config.port} (env=${config.env})`);
+
+    const runCycle = () => {
+      runContinuousLearningCycle()
+        .then((r) => console.log(`🧠 Continuous learning cycle: ${r.farms} farm(s), ${r.verified} predictions verified, ${r.followedUp} advice follow-ups checked`))
+        .catch((err) => console.error('Continuous learning cycle failed:', err));
+      snapshotAllFarmScores()
+        .then((r) => console.log(`📊 Farm score snapshot: ${r.farms} farm(s) scored`))
+        .catch((err) => console.error('Farm score snapshot failed:', err));
+    };
+    runCycle();
+    setInterval(runCycle, config.learningCycleIntervalHours * 60 * 60 * 1000);
+  });
+}
+
+export default app;
