@@ -5,6 +5,8 @@ import { asyncHandler } from '../lib/errors.js';
 import {
   answerMilkDecline, answerCowsNeedingAttention, answerTomorrowPlan, answerCowProfitability,
   answerIncreaseProfit, answerPregnancyCandidates, answerFinancialReport, answerFeedCostIncrease,
+  answerPedigree, answerOffspringCount, answerExpectedCalving, answerBreedingCount,
+  answerNonConceivers, answerTopSires, answerCowsDueThisMonth, answerReproductiveHistory, answerAreRelated,
 } from '../ai/qa-answers.js';
 
 const router = Router();
@@ -32,6 +34,12 @@ function classifyIntent(q: string): { intent: string; confidence: number; entiti
   if (/\b(feed|fodder|silage|hay|concentrate|stock|inventory|ration|tdn|dnf|protein|energy)\b/.test(lower)) return { intent: 'feed_nutrition', confidence: 0.95, entities };
   if (/\b(sick|health|disease|ill|treatment|vet|veterinarian|medicine|antibiotic|lameness|foot|hoof|metritis|retained placenta|ketosis|acidosis)\b/.test(lower)) return { intent: 'health', confidence: 0.95, entities };
   if (/\b(pregnan|calving|breeding|ai|insemination|serviced|open|heat|estrus|bull|sire|dam|calf|heifer)\b/.test(lower)) return { intent: 'breeding', confidence: 0.95, entities };
+  if (/\bcow(s)?\b/.test(lower) && /\bfamily|pedigree|ancestor|mother|father|dam|sire|offspring|calves\b/.test(lower)) return { intent: 'pedigree', confidence: 0.95, entities };
+  if (/\bhow many\b/.test(lower) && /\bcalves|offspring|bred|services|times\b/.test(lower)) return { intent: 'pedigree', confidence: 0.9, entities };
+  if (/\bwhen\b/.test(lower) && /\bcalve|due|expected\b/.test(lower)) return { intent: 'pedigree', confidence: 0.9, entities };
+  if (/\bwhich\b/.test(lower) && /\bcows.*related|related.*cows|bulls.*conception|conception.*bulls|cows.*due|due.*calve|non.*conceiv|conceiv.*fail\b/.test(lower)) return { intent: 'pedigree', confidence: 0.9, entities };
+  if (/\bcomplete.*reproductive|reproductive.*history\b/.test(lower)) return { intent: 'pedigree', confidence: 0.95, entities };
+  if (/\bare\b/.test(lower) && /\brelated\b/.test(lower)) return { intent: 'pedigree', confidence: 0.95, entities };
   if (/\b(weather|rain|temperature|humidity|wind|grazing|pasture|heat stress|cold|frost)\b/.test(lower)) return { intent: 'weather', confidence: 0.9, entities };
   if (/\b(finance|money|income|expense|profit|cost|revenue|cash|budget|roi|return|investment|break even)\b/.test(lower)) return { intent: 'finance', confidence: 0.95, entities };
   if (/\b(analytics|report|trend|breed|performance|statistics|data|insight|kpi|metric)\b/.test(lower)) return { intent: 'analytics', confidence: 0.9, entities };
@@ -322,6 +330,37 @@ router.post('/ask', asyncHandler(async (req, res) => {
       break;
     }
 
+    case 'pedigree': {
+      const cowMatch = question.match(/(?:cow|cattle)\s+([A-Za-z0-9\-]+)/i) || question.match(/#?([A-Za-z0-9]{3,8})/i);
+      const cowId = cowMatch ? cowMatch[1] : null;
+      if (!cowId) {
+        answer = 'Please specify which cow you want pedigree info for, e.g. "Tell me about Cow 104\'s family".';
+        break;
+      }
+      const cowQuery = await query(`SELECT id FROM cows WHERE farm_id=$1 AND (cow_code ILIKE $2 OR name ILIKE $2 OR id=$2)`, [farmId, cowId]);
+      if (!cowQuery.rows.length) {
+        answer = `Cow ${cowId} not found on this farm.`;
+        break;
+      }
+      const resolvedId = cowQuery.rows[0].id;
+      const relationMatch = question.match(/(mother|father|dam|sire)/i);
+      const relation = relationMatch ? relationMatch[1].toLowerCase() : undefined;
+      answer = await answerPedigree(farmId, resolvedId, relation);
+      if (/\bhow many\b.*\bcalves|offspring\b/i.test(question)) answer = await answerOffspringCount(farmId, resolvedId);
+      if (/\bwhen\b.*\bcalve|due|expected\b/i.test(question)) answer = await answerExpectedCalving(farmId, resolvedId);
+      if (/\bhow many times\b.*\bbred\b/i.test(question)) answer = await answerBreedingCount(farmId, resolvedId);
+      if (/\bcomplete.*reproductive|reproductive.*history\b/i.test(question)) answer = await answerReproductiveHistory(farmId, resolvedId);
+      if (/\bare\b.*\brelated\b/i.test(question)) {
+        const otherMatch = question.match(/(?:cow|cattle)\s+([A-Za-z0-9\-]+)/i);
+        const otherId = otherMatch ? otherMatch[1] : null;
+        if (otherId) {
+          const otherQuery = await query(`SELECT id FROM cows WHERE farm_id=$1 AND (cow_code ILIKE $2 OR name ILIKE $2 OR id=$2)`, [farmId, otherId]);
+          if (otherQuery.rows.length) answer = await answerAreRelated(farmId, resolvedId, otherQuery.rows[0].id);
+        }
+      }
+      break;
+    }
+
     case 'weather':
       answer = 'Open the Weather tab for live conditions and grazing recommendations. ';
       answer += `General guidance: ${stock > 0 ? 'Feed stock is adequate.' : 'Consider supplementary feeding during poor grazing conditions.'} `;
@@ -549,6 +588,93 @@ router.post('/ask', asyncHandler(async (req, res) => {
   }
 
   res.json({ answer });
+}));
+
+router.post('/breeding-assistant', asyncHandler(async (req, res) => {
+  const farmId = resolveFarmId(req);
+  const { cowId, sireId } = req.body || {};
+
+  if (!cowId || !sireId) {
+    return res.status(400).json({ error: 'cowId and sireId are required' });
+  }
+
+  const [cowRes, sireRes, relationshipRes, offspringRes, breedingRes, healthRes, milkRes] = await Promise.all([
+    query(`SELECT id, cow_code, name, breed, gender, date_of_birth, status, health, mother_id, father_id FROM cows WHERE id=$1`, [cowId]),
+    query(`SELECT id, cow_code, name, breed, gender FROM cows WHERE id=$1`, [sireId]),
+    query(`
+      WITH RECURSIVE ancestors AS (
+        SELECT id, mother_id, father_id, ARRAY[id] AS path FROM cows WHERE id=$1
+        UNION ALL
+        SELECT c.id, c.mother_id, c.father_id, a.path || c.id
+        FROM cows c JOIN ancestors a ON c.id = a.mother_id OR c.id = a.father_id
+        WHERE NOT c.id = ANY(a.path)
+      )
+      SELECT 1 FROM ancestors WHERE id=$2 LIMIT 1
+    `, [cowId, sireId]),
+    query(`
+      SELECT o.*, c.cow_code, c.name, c.health
+      FROM offspring o
+      JOIN cows c ON c.id = o.animal_id
+      WHERE o.mother_id=$1 AND o.father_id=$2
+    `, [cowId, sireId]),
+    query(`
+      SELECT br.*, c.cow_code, c.name AS cow_name
+      FROM breeding_records br
+      JOIN cows c ON c.id = br.cow_id
+      WHERE br.cow_id=$1 AND br.sire_id=$2
+      ORDER BY br.breeding_date DESC LIMIT 5
+    `, [cowId, sireId]),
+    query(`SELECT health, status FROM cows WHERE id=$1`, [cowId]),
+    query(`
+      SELECT COALESCE(AVG(morning_liters+afternoon_liters+evening_liters),0) AS avg_milk
+      FROM milk_records WHERE cow_id=$1 AND recorded_on >= CURRENT_DATE - INTERVAL '90 days'
+    `, [cowId]),
+  ]);
+
+  const cow = cowRes.rows[0];
+  const sire = sireRes.rows[0];
+  if (!cow || !sire) return res.status(404).json({ error: 'Cow or sire not found' });
+
+  const related = !!relationshipRes.rows.length;
+  const previousOffspring = offspringRes.rows;
+  const breedingHistory = breedingRes.rows;
+  const health = healthRes.rows[0];
+  const avgMilk = Number(milkRes.rows[0]?.avg_milk || 0);
+
+  let recommendation = '';
+  let risk = 'low';
+
+  if (related) {
+    risk = 'high';
+    recommendation = 'High risk: these animals share ancestry. Inbreeding can reduce calf viability and increase genetic defects. Consider a different sire.';
+  } else if (previousOffspring.length > 0) {
+    const healthyCount = previousOffspring.filter((o: any) => o.health === 'healthy').length;
+    const healthPct = (healthyCount / previousOffspring.length) * 100;
+    if (healthPct >= 80) {
+      recommendation = `Good match: ${previousOffspring.length} previous offspring, ${healthPct.toFixed(0)}% healthy. Previous performance is positive.`;
+    } else {
+      risk = 'medium';
+      recommendation = `Moderate risk: ${previousOffspring.length} previous offspring, only ${healthPct.toFixed(0)}% healthy. Monitor closely if bred.`;
+    }
+  } else {
+    recommendation = 'No previous breeding history between these animals. Proceed with standard care.';
+  }
+
+  if (cow.health !== 'healthy') {
+    risk = risk === 'low' ? 'medium' : risk;
+    recommendation += ` Note: cow health is ${cow.health}. Delay breeding until healthy.`;
+  }
+
+  res.json({
+    cowId, sireId, related, risk,
+    cow: { id: cow.id, cowCode: cow.cow_code, name: cow.name, breed: cow.breed, gender: cow.gender },
+    sire: { id: sire.id, cowCode: sire.cow_code, name: sire.name, breed: sire.breed, gender: sire.gender },
+    previousOffspring,
+    breedingHistory,
+    healthInfo: { health: health?.health, status: health?.status },
+    milkProduction: { avgDailyLiters90d: avgMilk },
+    recommendation,
+  });
 }));
 
 export default router;

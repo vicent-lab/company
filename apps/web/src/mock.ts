@@ -763,6 +763,87 @@ export const DAILY_ACTIVITIES = Array.from({ length: 20 }, (_, i) => ({
 const mockPregnancies: any[] = [];
 const mockOffspring: any[] = [];
 
+function findCow(cows: Cow[], id: string): Cow | undefined {
+  return cows.find((c) => c.id === id);
+}
+
+export function mockPedigreeNode(cowId: string): any {
+  const cow = findCow(ALL_COWS, cowId);
+  if (!cow) return null;
+  const build = (cid: string, depth: number): any => {
+    if (depth <= 0) return null;
+    const c = findCow(ALL_COWS, cid);
+    if (!c) return null;
+    return {
+      cow: {
+        id: c.id, cowCode: c.cowCode, name: c.name, breed: c.breed, gender: c.gender,
+        dateOfBirth: c.dob, status: c.status, health: c.health, photoUrl: null,
+        motherId: c.motherId, fatherId: c.fatherId,
+      },
+      mother: build(c.motherId || '', depth - 1),
+      father: build(c.fatherId || '', depth - 1),
+      offspring: [],
+    };
+  };
+  const offspring = mockOffspring.filter((o) => o.motherId === cowId || o.fatherId === cowId).map((o) => {
+    const c = findCow(ALL_COWS, o.animalId);
+    return c ? { id: c.id, cowCode: c.cowCode, name: c.name, breed: c.breed, gender: c.gender, dateOfBirth: c.dob, status: c.status, health: c.health, motherId: c.motherId, fatherId: c.fatherId } : null;
+  }).filter(Boolean);
+  return {
+    cow: {
+      id: cow.id, cowCode: cow.cowCode, name: cow.name, breed: cow.breed, gender: cow.gender,
+      dateOfBirth: cow.dob, status: cow.status, health: cow.health, photoUrl: null,
+      motherId: cow.motherId, fatherId: cow.fatherId,
+    },
+    mother: build(cow.motherId || '', 2),
+    father: build(cow.fatherId || '', 2),
+    offspring,
+  };
+}
+
+export function mockOffspringFor(cowId: string): any[] {
+  return mockOffspring.filter((o) => o.motherId === cowId || o.fatherId === cowId).map((o) => {
+    const c = findCow(ALL_COWS, o.animalId);
+    return c ? { id: c.id, cowCode: c.cowCode, name: c.name, breed: c.breed, gender: c.gender, dateOfBirth: c.dob, status: c.status, health: c.health, motherId: c.motherId, fatherId: c.fatherId } : null;
+  }).filter(Boolean);
+}
+
+export function mockBreedingAnalytics(farmId: string): any {
+  return {
+    conceptionRate: +between(55, 82).toFixed(1),
+    pregnancyRate: +between(60, 88).toFixed(1),
+    calvingInterval: +between(380, 430).toFixed(1),
+    servicesPerConception: +between(1.5, 2.8).toFixed(1),
+    daysOpen: +between(60, 140).toFixed(1),
+    ageAtFirstCalving: +between(24, 36).toFixed(1),
+    calvingSuccessRate: +between(75, 95).toFixed(1),
+    totalBreeding: ALL_COWS.filter((c) => c.farmId === farmId).length,
+    totalCalvings: Math.floor(ALL_COWS.filter((c) => c.farmId === farmId).length * 0.6),
+  };
+}
+
+export function mockBreedingAssistant(cowId: string, sireId: string): any {
+  const cow = findCow(ALL_COWS, cowId);
+  const sire = findCow(ALL_COWS, sireId);
+  const related = !!(cow && sire && (cow.motherId === sire.motherId || cow.fatherId === sire.fatherId || cow.motherId === sire.id || cow.fatherId === sire.id || cow.id === sire.motherId || cow.id === sire.fatherId));
+  const previousOffspring = mockOffspring.filter((o) => o.motherId === cowId && o.fatherId === sireId);
+  return {
+    cowId, sireId, related,
+    risk: related ? 'high' : 'low',
+    cow: cow ? { id: cow.id, cowCode: cow.cowCode, name: cow.name, breed: cow.breed, gender: cow.gender } : { id: cowId, cowCode: '?', name: 'Unknown', breed: 'Unknown', gender: 'female' },
+    sire: sire ? { id: sire.id, cowCode: sire.cowCode, name: sire.name, breed: sire.breed, gender: sire.gender } : { id: sireId, cowCode: '?', name: 'Unknown', breed: 'Unknown', gender: 'male' },
+    previousOffspring,
+    breedingHistory: [],
+    healthInfo: { health: cow?.health || 'healthy', status: cow?.status || 'active' },
+    milkProduction: { avgDailyLiters90d: cow?.avgDailyMilk || 0 },
+    recommendation: related
+      ? 'High risk: these animals share ancestry. Inbreeding can reduce calf viability and increase genetic defects. Consider a different sire.'
+      : previousOffspring.length > 0
+        ? 'No previous breeding history between these animals. Proceed with standard care.'
+        : 'Good match based on available data. Proceed with standard care.',
+  };
+}
+
 export { mockPregnancies, mockOffspring };
 
 // ---- Gamification ----

@@ -12,12 +12,13 @@ import {
   geneticAnalysis, createGeneticAnalysis,
   breedingRecommendations, createBreedingRecommendation, updateBreedingRecommendation,
   pregnancies, createPregnancy, updatePregnancy, deletePregnancy,
-  offspring, createOffspring, deleteOffspring
+  offspring, createOffspring, deleteOffspring,
+  getBreedingAnalytics, getBreedingAssistant, BreedingAnalytics
 } from '../data';
-import { Plus, Trash2, Edit3, Save, X, Thermometer, Activity, Brain, FlaskConical, TrendingUp, Baby, GitBranch, HeartPulse, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Edit3, Save, X, Thermometer, Activity, Brain, FlaskConical, TrendingUp, Baby, GitBranch, HeartPulse, CheckCircle, AlertTriangle, BarChart3, Beef } from 'lucide-react';
 import { fmt } from '../format';
 
-type Tab = 'heat' | 'recommendations' | 'genetics' | 'semen' | 'fertility' | 'calving' | 'twins' | 'pregnancies' | 'offspring' | 'dashboard';
+type Tab = 'heat' | 'recommendations' | 'genetics' | 'semen' | 'fertility' | 'calving' | 'twins' | 'pregnancies' | 'offspring' | 'dashboard' | 'analytics' | 'assistant';
 
 export function Breeding() {
   const { farmId } = useFarm();
@@ -51,6 +52,8 @@ export function Breeding() {
           { key: 'twins', label: 'Twin births', icon: <Activity size={14} /> },
           { key: 'pregnancies', label: 'Pregnancies', icon: <CheckCircle size={14} /> },
           { key: 'offspring', label: 'Offspring', icon: <HeartPulse size={14} /> },
+          { key: 'analytics', label: 'Analytics', icon: <BarChart3 size={14} /> },
+          { key: 'assistant', label: 'Breeding assistant', icon: <Brain size={14} /> },
           { key: 'dashboard', label: 'Dashboard', icon: <HeartPulse size={14} /> },
         ] as const).map((t) => (
           <button key={t.key} className={`btn ghost ${tab === t.key ? 'active-tab' : ''}`} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 14px', whiteSpace: 'nowrap' }} onClick={() => setTab(t.key)}>
@@ -70,6 +73,8 @@ export function Breeding() {
         {tab === 'pregnancies' && <PregnanciesTab farmId={farmId} pregnancyList={pregnancyList || []} loading={pregnancyLoading} refresh={refresh} />}
         {tab === 'offspring' && <OffspringTab farmId={farmId} offspringList={offspringList || []} loading={offspringLoading} refresh={refresh} />}
         {tab === 'dashboard' && <ReproDashboard farmId={farmId} heatList={heatList || []} recList={recList || []} calvingList={calvingList || []} fertilityList={fertilityList || []} twinList={twinList || []} />}
+        {tab === 'analytics' && <AnalyticsTab farmId={farmId} />}
+        {tab === 'assistant' && <AssistantTab farmId={farmId} />}
       </div>
     </div>
   );
@@ -695,6 +700,105 @@ function ReproDashboard({ farmId, heatList, recList, calvingList, fertilityList,
           <div className="between mt"><span>Avg services/conception</span><b>{fertilityList.length ? fertilityList[0].avg_services_per_conception.toFixed(1) : '—'}</b></div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AnalyticsTab({ farmId }: { farmId: string }) {
+  const { data, loading } = useAsync(() => getBreedingAnalytics(farmId), [farmId]);
+  const a: BreedingAnalytics | undefined = data;
+  if (loading) return <div className="card"><Skeleton h={200} /></div>;
+  if (!a) return <div className="card">No analytics data available.</div>;
+  return (
+    <div>
+      <div className="four mb">
+        <Kpi icon={<TrendingUp size={18} />} label="Conception rate" value={`${a.conceptionRate}%`} />
+        <Kpi icon={<CheckCircle size={18} />} label="Pregnancy rate" value={`${a.pregnancyRate}%`} />
+        <Kpi icon={<Baby size={18} />} label="Calving interval" value={`${a.calvingInterval} days`} />
+        <Kpi icon={<Activity size={18} />} label="Services/conception" value={a.servicesPerConception.toFixed(1)} />
+      </div>
+      <div className="four mb">
+        <Kpi icon={<Thermometer size={18} />} label="Days open" value={`${a.daysOpen} days`} />
+        <Kpi icon={<Beef size={18} />} label="Age at 1st calving" value={`${a.ageAtFirstCalving} months`} />
+        <Kpi icon={<HeartPulse size={18} />} label="Calving success" value={`${a.calvingSuccessRate}%`} />
+        <Kpi icon={<BarChart3 size={18} />} label="Total calvings" value={a.totalCalvings} />
+      </div>
+      <div className="card">
+        <h3>Breeding KPIs</h3>
+        <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
+          <table><thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Conception rate</td><td>{a.conceptionRate}%</td></tr>
+              <tr><td>Pregnancy rate</td><td>{a.pregnancyRate}%</td></tr>
+              <tr><td>Calving interval</td><td>{a.calvingInterval} days</td></tr>
+              <tr><td>Services per conception</td><td>{a.servicesPerConception}</td></tr>
+              <tr><td>Days open</td><td>{a.daysOpen} days</td></tr>
+              <tr><td>Age at first calving</td><td>{a.ageAtFirstCalving} months</td></tr>
+              <tr><td>Calving success rate</td><td>{a.calvingSuccessRate}%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssistantTab({ farmId }: { farmId: string }) {
+  const { push } = useToast();
+  const [cowId, setCowId] = useState('');
+  const [sireId, setSireId] = useState('');
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const r = await getBreedingAssistant(cowId, sireId);
+      setResult(r);
+    } catch (err: any) { push(err.message || 'Failed'); }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="card reveal">
+        <h3>Breeding decision support</h3>
+        <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>Select a female cow and potential sire to evaluate compatibility.</p>
+        <form onSubmit={run} className="mt">
+          <div className="row" style={{ gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}><label>Cow ID</label><input className="input" value={cowId} onChange={(e) => setCowId(e.target.value)} required /></div>
+            <div className="field" style={{ flex: 1 }}><label>Sire ID</label><input className="input" value={sireId} onChange={(e) => setSireId(e.target.value)} required /></div>
+          </div>
+          <button className="btn mt" type="submit" disabled={loading}>{loading ? 'Analyzing…' : 'Run analysis'}</button>
+        </form>
+      </div>
+      {result && (
+        <div className="card mt reveal">
+          <h3>Analysis result</h3>
+          <div className="between mt"><span>Relationship risk</span><span className={`pill ${result.risk === 'high' ? 'danger' : result.risk === 'medium' ? 'warn' : 'healthy'}`}>{result.risk}</span></div>
+          <div className="between mt"><span>Related</span><b>{result.related ? 'Yes' : 'No'}</b></div>
+          <div className="between mt"><span>Previous offspring</span><b>{result.previousOffspring.length}</b></div>
+          <div className="between mt"><span>Cow health</span><b>{result.healthInfo.health}</b></div>
+          <div className="between mt"><span>Avg milk (90d)</span><b>{result.milkProduction.avgDailyLiters90d.toFixed(1)} L</b></div>
+          <div className="mt">
+            <h4>Recommendation</h4>
+            <p className="muted" style={{ fontSize: 13 }}>{result.recommendation}</p>
+          </div>
+          {result.breedingHistory.length > 0 && (
+            <div className="mt">
+              <h4>Previous breeding history</h4>
+              <div className="table-wrap" style={{ border: 0, boxShadow: 'none' }}>
+                <table><thead><tr><th>Date</th><th>Method</th><th>Result</th></tr></thead>
+                  <tbody>{result.breedingHistory.map((b: any) => (
+                    <tr key={b.id}><td>{fmt.date(b.breeding_date)}</td><td>{b.method}</td><td>{b.result || '—'}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

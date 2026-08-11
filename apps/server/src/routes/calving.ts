@@ -29,6 +29,10 @@ const schema = z.object({
   assistanceType: z.string().optional(),
   veterinarianName: z.string().optional(),
   calfId: z.string().optional(),
+  calfName: z.string().optional(),
+  calfSex: z.enum(['male', 'female']).optional(),
+  calfBreed: z.string().optional(),
+  birthWeightKg: z.number().optional(),
   notes: z.string().optional(),
 });
 
@@ -38,12 +42,45 @@ router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) 
   const cow = await query('SELECT id, farm_id FROM cows WHERE id=$1', [b.cowId]);
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
   if (cow.rows[0].farm_id !== farmId) throw new HttpError(403, 'Access denied');
+
+  let calfId = b.calfId || null;
+
+  if (!calfId && b.calfName && b.calfSex) {
+    const sireId = await query(
+      `SELECT sire_id FROM breeding_records WHERE id = (SELECT breeding_id FROM pregnancies WHERE id=$1)`,
+      [b.pregnancyId]
+    );
+    const sire = sireId.rows[0]?.sire_id || null;
+
+    const calfRes = await query(
+      `INSERT INTO cows (farm_id, cow_code, name, breed, gender, date_of_birth, status, health, mother_id, father_id, weight_kg)
+       VALUES ($1,$2,$3,$4,$5,$6,'active','healthy',$7,$8,$9) RETURNING id`,
+      [
+        farmId,
+        `${farmId.toUpperCase().slice(0,2)}-${String(Date.now()).slice(-3)}`,
+        b.calfName.trim(),
+        b.calfBreed || 'Holstein',
+        b.calfSex,
+        b.calvingDate,
+        b.cowId,
+        sire,
+        b.birthWeightKg || null,
+      ]
+    );
+    calfId = calfRes.rows[0].id;
+
+    await query(
+      `INSERT INTO offspring (animal_id, mother_id, father_id) VALUES ($1,$2,$3)`,
+      [calfId, b.cowId, sire]
+    );
+  }
+
   const { rows } = await query(
     `INSERT INTO calving_records (farm_id, cow_id, pregnancy_id, calving_date, difficulty_score, assistance_required, assistance_type, veterinarian_name, calf_id, notes)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-     [farmId, b.cowId, b.pregnancyId || null, b.calvingDate, b.difficultyScore ?? null, b.assistanceRequired, b.assistanceType || null, b.veterinarianName || null, b.calfId || null, b.notes || null]
+     [farmId, b.cowId, b.pregnancyId || null, b.calvingDate, b.difficultyScore ?? null, b.assistanceRequired, b.assistanceType || null, b.veterinarianName || null, calfId, b.notes || null]
   );
-  await audit(req.user, 'create', 'calving_record', rows[0].id);
+  await audit(req.user, 'create', 'calving_record', rows[0].id, { calfId });
   res.status(201).json(rows[0]);
 }));
 

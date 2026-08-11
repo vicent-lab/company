@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, chartColors, gridColor, tickColor, Modal, Progress, useToast, useAsync, Skeleton } from '../ui';
-import { listCows, getCow, createCow, updateCow, createTreatment } from '../data';
+import { listCows, getCow, createCow, updateCow, createTreatment, getPedigree, getOffspring, getAncestors } from '../data';
 import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun, Stethoscope, ChevronRight, Camera, FolderOpen } from 'lucide-react';
 import { fmt } from '../format';
 import { BREEDS } from '../mock';
@@ -10,6 +10,51 @@ import { BREEDS } from '../mock';
 const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false };
 
 const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '', photoUrl: '' };
+
+function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (path: string) => void; depth?: number }) {
+  const [expanded, setExpanded] = useState(depth < 1);
+  const c = node.cow;
+  const genderColor = c.gender === 'male' ? '#3b82f6' : c.gender === 'female' ? '#ec4899' : '#9ca3af';
+  const initials = (c.name || c.cowCode || '?').split(' ').map((s: string) => s[0]).slice(0, 2).join('').toUpperCase();
+
+  return (
+    <div style={{ marginLeft: depth * 24, marginTop: 6, borderLeft: '2px solid var(--border)', paddingLeft: 10 }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <div
+          onClick={() => navigate('/app/cow/' + c.id)}
+          style={{
+            width: 28, height: 28, borderRadius: '50%', background: genderColor, color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+          }}
+          title={`${c.name || c.cowCode} (${c.breed})`}
+        >
+          {initials}
+        </div>
+        <div style={{ fontSize: 12 }}>
+          <span style={{ fontWeight: 600 }}>{c.name || c.cowCode}</span>
+          <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>{c.breed}</span>
+          <span className="muted" style={{ marginLeft: 6, fontSize: 10, textTransform: 'uppercase' }}>{c.gender}</span>
+        </div>
+      </div>
+      {node.mother && expanded && <PedigreeNode node={node.mother} navigate={navigate} depth={depth + 1} />}
+      {node.father && expanded && <PedigreeNode node={node.father} navigate={navigate} depth={depth + 1} />}
+      {node.offspring?.length > 0 && expanded && (
+        <div style={{ marginLeft: depth * 24, marginTop: 4 }}>
+          {node.offspring.map((o: any) => (
+            <div key={o.id} className="row" style={{ gap: 8, alignItems: 'center', marginTop: 4, fontSize: 12 }}
+              onClick={() => navigate('/app/cow/' + o.id)}>
+              <div style={{ width: 20, height: 20, borderRadius: '50%', background: o.gender === 'male' ? '#3b82f6' : o.gender === 'female' ? '#ec4899' : '#9ca3af', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
+                {(o.name || o.cowCode || '?').split(' ').map((s: string) => s[0]).slice(0, 2).join('').toUpperCase()}
+              </div>
+              <span>{o.name || o.cowCode}</span>
+              <span className="muted" style={{ fontSize: 10 }}>{o.breed}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Herd() {
   const { farmId } = useFarm();
@@ -115,8 +160,20 @@ export function CowProfile({ id }: { id: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pedigree, setPedigree] = useState<any>(null);
+  const [offspringList, setOffspringList] = useState<any[]>([]);
+  const [pedigreeLoading, setPedigreeLoading] = useState(false);
   if (loading) return <div className="card"><Skeleton h={200} /></div>;
   if (!cow) return <div className="card">Cow not found.</div>;
+
+  useEffect(() => {
+    let cancelled = false;
+    setPedigreeLoading(true);
+    getPedigree(id, 2).then((t) => { if (!cancelled) setPedigree(t); });
+    getOffspring(id).then((o) => { if (!cancelled) setOffspringList(o); });
+    setPedigreeLoading(false);
+    return () => { cancelled = true; };
+  }, [id]);
 
   const milkTotal = cow.milk.reduce((s, m) => s + m.morning + m.afternoon + m.evening, 0);
   const lastMilk = cow.milk[0];
@@ -242,11 +299,28 @@ export function CowProfile({ id }: { id: string }) {
             </div>
           )) : <p className="muted mt">No breeding records.</p>}
           <h3 className="mt">Family tree</h3>
-          <div className="row mt">
-            <div className="card" style={{ flex: 1, textAlign: 'center', padding: 12 }}><div className="muted" style={{ fontSize: 12 }}>Mother</div>{cow.motherId ? cow.motherId : 'Unknown'}</div>
-            <div className="card" style={{ flex: 1, textAlign: 'center', padding: 12 }}><div className="muted" style={{ fontSize: 12 }}>Father</div>{cow.fatherId ? cow.fatherId : 'Unknown'}</div>
-          </div>
-          <div className="card mt" style={{ textAlign: 'center', padding: 12 }}><div className="muted" style={{ fontSize: 12 }}>Offspring</div>None yet</div>
+          {pedigreeLoading ? <p className="muted mt">Loading pedigree…</p> : pedigree ? (
+            <div style={{ fontSize: 13 }}>
+              <PedigreeNode node={pedigree} navigate={navigate} />
+            </div>
+          ) : (
+            <div className="row mt">
+              <div className="card" style={{ flex: 1, textAlign: 'center', padding: 12 }}><div className="muted" style={{ fontSize: 12 }}>Mother</div>{cow.motherId || 'Unknown'}</div>
+              <div className="card" style={{ flex: 1, textAlign: 'center', padding: 12 }}><div className="muted" style={{ fontSize: 12 }}>Father</div>{cow.fatherId || 'Unknown'}</div>
+            </div>
+          )}
+          <h3 className="mt">Offspring ({offspringList.length})</h3>
+          {offspringList.length === 0 ? <p className="muted mt">None yet</p> : (
+            <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
+              <table><thead><tr><th>Code</th><th>Name</th><th>Sex</th><th>Breed</th><th>Status</th></tr></thead>
+                <tbody>{offspringList.slice(0, 10).map((o: any) => (
+                  <tr key={o.id} onClick={() => navigate('/app/cow/' + o.id)} style={{ cursor: 'pointer' }}>
+                    <td>{o.cowCode}</td><td>{o.name}</td><td>{o.gender}</td><td>{o.breed}</td><td>{o.status}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 

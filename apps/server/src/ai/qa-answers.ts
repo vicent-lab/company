@@ -350,3 +350,181 @@ export async function answerFeedCostIncrease(farmId: string): Promise<string> {
   }
   return answer;
 }
+
+// ---------- Pedigree / family questions ----------
+export async function answerPedigree(farmId: string, cowId: string, relation?: string): Promise<string> {
+  const cowRes = await query(`SELECT id, cow_code, name, breed, gender, date_of_birth, status, health, mother_id, father_id FROM cows WHERE id=$1`, [cowId]);
+  if (!cowRes.rows.length) return 'Cow not found.';
+  const cow = cowRes.rows[0];
+
+  const parts: string[] = [];
+  parts.push(`${cow.name || cow.cow_code} (${cow.breed}, ${cow.gender})`);
+
+  if (relation === 'mother' || relation === 'dam') {
+    if (!cow.mother_id) return parts[0] + ' has no mother recorded.';
+    const m = await query(`SELECT cow_code, name, breed FROM cows WHERE id=$1`, [cow.mother_id]);
+    return parts[0] + ` mother is ${m.rows[0]?.name || m.rows[0]?.cow_code || 'unknown'} (${m.rows[0]?.breed || 'unknown breed'}).`;
+  }
+  if (relation === 'father' || relation === 'sire') {
+    if (!cow.father_id) return parts[0] + ' has no father recorded.';
+    const f = await query(`SELECT cow_code, name, breed FROM cows WHERE id=$1`, [cow.father_id]);
+    return parts[0] + ` father is ${f.rows[0]?.name || f.rows[0]?.cow_code || 'unknown'} (${f.rows[0]?.breed || 'unknown breed'}).`;
+  }
+
+  const [mother, father, offspringCount, breedingsCount] = await Promise.all([
+    cow.mother_id ? query(`SELECT cow_code, name, breed FROM cows WHERE id=$1`, [cow.mother_id]) : Promise.resolve({ rows: [] }),
+    cow.father_id ? query(`SELECT cow_code, name, breed FROM cows WHERE id=$1`, [cow.father_id]) : Promise.resolve({ rows: [] }),
+    query(`SELECT count(*)::int AS n FROM offspring WHERE mother_id=$1 OR father_id=$1`, [cowId]),
+    query(`SELECT count(*)::int AS n FROM breeding_records WHERE cow_id=$1`, [cowId]),
+  ]);
+
+  parts.push(`Mother: ${mother.rows[0] ? `${mother.rows[0].name || mother.rows[0].cow_code} (${mother.rows[0].breed})` : 'Unknown'}`);
+  parts.push(`Father: ${father.rows[0] ? `${father.rows[0].name || father.rows[0].cow_code} (${father.rows[0].breed})` : 'Unknown'}`);
+  parts.push(`Offspring: ${offspringCount.rows[0]?.n || 0}`);
+  parts.push(`Breeding records: ${breedingsCount.rows[0]?.n || 0}`);
+
+  return parts.join('. ') + '.';
+}
+
+export async function answerOffspringCount(farmId: string, cowId: string): Promise<string> {
+  const [cowRes, countRes] = await Promise.all([
+    query(`SELECT cow_code, name FROM cows WHERE id=$1`, [cowId]),
+    query(`SELECT count(*)::int AS n FROM offspring WHERE mother_id=$1 OR father_id=$1`, [cowId]),
+  ]);
+  const cow = cowRes.rows[0];
+  if (!cow) return 'Cow not found.';
+  const n = countRes.rows[0]?.n || 0;
+  return `${cow.name || cow.cow_code} has ${n} offspring on record.`;
+}
+
+export async function answerExpectedCalving(farmId: string, cowId: string): Promise<string> {
+  const [cowRes, pregRes] = await Promise.all([
+    query(`SELECT cow_code, name FROM cows WHERE id=$1`, [cowId]),
+    query(`SELECT expected_calving_date, status FROM pregnancies WHERE cow_id=$1 AND status NOT IN ('failed','completed') ORDER BY expected_calving_date ASC LIMIT 1`, [cowId]),
+  ]);
+  const cow = cowRes.rows[0];
+  if (!cow) return 'Cow not found.';
+  if (!pregRes.rows.length) return `${cow.name || cow.cow_code} has no active pregnancy on record.`;
+  const p = pregRes.rows[0];
+  const days = Math.max(0, Math.round((new Date(p.expected_calving_date).getTime() - Date.now()) / 86400000));
+  return `${cow.name || cow.cow_code} is expected to calve in ${days} day(s) (${p.expected_calving_date}). Status: ${p.status}.`;
+}
+
+export async function answerBreedingCount(farmId: string, cowId: string): Promise<string> {
+  const [cowRes, countRes] = await Promise.all([
+    query(`SELECT cow_code, name FROM cows WHERE id=$1`, [cowId]),
+    query(`SELECT count(*)::int AS n FROM breeding_records WHERE cow_id=$1`, [cowId]),
+  ]);
+  const cow = cowRes.rows[0];
+  if (!cow) return 'Cow not found.';
+  const n = countRes.rows[0]?.n || 0;
+  return `${cow.name || cow.cow_code} has ${n} breeding record(s).`;
+}
+
+export async function answerNonConceivers(farmId: string): Promise<string> {
+  const { rows } = await query(`
+    SELECT c.cow_code, c.name, COUNT(br.id) AS failed_services
+    FROM cows c
+    JOIN breeding_records br ON br.cow_id = c.id
+    WHERE c.farm_id=$1 AND lower(coalesce(br.result, '')) <> 'pregnant'
+      AND br.breeding_date >= CURRENT_DATE - INTERVAL '180 days'
+    GROUP BY c.id, c.cow_code, c.name
+    HAVING COUNT(br.id) >= 2
+    ORDER BY failed_services DESC
+  `, [farmId]);
+  if (!rows.length) return 'No cows found with 2+ non-conception services in the last 180 days.';
+  return `Cows with multiple non-conception services:\n${rows.map((r: any) => `• ${r.name || r.cow_code}: ${r.failed_services} failed services`).join('\n')}`;
+}
+
+export async function answerTopSires(farmId: string): Promise<string> {
+  const { rows } = await query(`
+    SELECT s.cow_code, s.name, COUNT(p.id) AS pregnancies, COUNT(p.id)::float / NULLIF(COUNT(br.id), 0) AS rate
+    FROM breeding_records br
+    JOIN cows s ON s.id = br.sire_id
+    LEFT JOIN pregnancies p ON p.breeding_id = br.id
+    WHERE br.cow_id IN (SELECT id FROM cows WHERE farm_id=$1)
+      AND br.sire_id IS NOT NULL
+      AND br.breeding_date >= CURRENT_DATE - INTERVAL '365 days'
+    GROUP BY s.id, s.cow_code, s.name
+    ORDER BY pregnancies DESC
+    LIMIT 5
+  `, [farmId]);
+  if (!rows.length) return 'No sire conception data available yet.';
+  return `Top bulls by conception count (last 12 months):\n${rows.map((r: any) => `• ${r.name || r.cow_code}: ${r.pregnancies} pregnancies (rate ${r.rate ? (r.rate * 100).toFixed(0) : 'N/A'}%)`).join('\n')}`;
+}
+
+export async function answerCowsDueThisMonth(farmId: string): Promise<string> {
+  const { rows } = await query(`
+    SELECT c.cow_code, c.name, p.expected_calving_date
+    FROM pregnancies p
+    JOIN cows c ON c.id = p.cow_id
+    WHERE p.farm_id=$1 AND date_trunc('month', p.expected_calving_date) = date_trunc('month', CURRENT_DATE)
+      AND p.status NOT IN ('failed', 'completed')
+  `, [farmId]);
+  if (!rows.length) return 'No cows are due to calve this month.';
+  return `Cows due to calve this month:\n${rows.map((r: any) => `• ${r.name || r.cow_code}: ${r.expected_calving_date}`).join('\n')}`;
+}
+
+export async function answerReproductiveHistory(farmId: string, cowId: string): Promise<string> {
+  const cowRes = await query(`SELECT cow_code, name, breed, gender FROM cows WHERE id=$1`, [cowId]);
+  if (!cowRes.rows.length) return 'Cow not found.';
+  const cow = cowRes.rows[0];
+  const [breedings, pregnancies, calvings] = await Promise.all([
+    query(`SELECT method, breeding_date, result FROM breeding_records WHERE cow_id=$1 ORDER BY breeding_date DESC LIMIT 10`, [cowId]),
+    query(`SELECT status, confirmation_date, expected_calving_date FROM pregnancies WHERE cow_id=$1 ORDER BY confirmation_date DESC LIMIT 5`, [cowId]),
+    query(`SELECT calving_date, difficulty_score, assistance_required FROM calving_records WHERE cow_id=$1 ORDER BY calving_date DESC LIMIT 5`, [cowId]),
+  ]);
+  const parts: string[] = [`Reproductive history for ${cow.name || cow.cow_code} (${cow.breed}, ${cow.gender}):`];
+  if (breedings.rows.length) {
+    parts.push(`Breedings (${breedings.rows.length}):`);
+    breedings.rows.forEach((b: any) => parts.push(`• ${b.breeding_date} — ${b.method} — ${b.result || 'no result'}`));
+  } else {
+    parts.push('No breeding records.');
+  }
+  if (pregnancies.rows.length) {
+    parts.push(`Pregnancies (${pregnancies.rows.length}):`);
+    pregnancies.rows.forEach((p: any) => parts.push(`• Confirmed ${p.confirmation_date} — expected ${p.expected_calving_date} — ${p.status}`));
+  }
+  if (calvings.rows.length) {
+    parts.push(`Calvings (${calvings.rows.length}):`);
+    calvings.rows.forEach((c: any) => parts.push(`• ${c.calving_date} — difficulty ${c.difficulty_score}/5 — assisted: ${c.assistance_required ? 'yes' : 'no'}`));
+  }
+  return parts.join('\n');
+}
+
+export async function answerAreRelated(farmId: string, cowIdA: string, cowIdB: string): Promise<string> {
+  const [aRes, bRes] = await Promise.all([
+    query(`SELECT cow_code, name, mother_id, father_id FROM cows WHERE id=$1`, [cowIdA]),
+    query(`SELECT cow_code, name, mother_id, father_id FROM cows WHERE id=$1`, [cowIdB]),
+  ]);
+  const a = aRes.rows[0];
+  const b = bRes.rows[0];
+  if (!a || !b) return 'One or both cows not found.';
+
+  const ancestorA = new Set<string>();
+  const ancestorB = new Set<string>();
+
+  async function collect(cid: string, set: Set<string>) {
+    if (!cid || set.has(cid)) return;
+    set.add(cid);
+    const r = await query(`SELECT mother_id, father_id FROM cows WHERE id=$1`, [cid]);
+    const row = r.rows[0];
+    if (row) {
+      await collect(row.mother_id, set);
+      await collect(row.father_id, set);
+    }
+  }
+
+  await collect(a.mother_id, ancestorA);
+  await collect(a.father_id, ancestorA);
+  await collect(b.mother_id, ancestorB);
+  await collect(b.father_id, ancestorB);
+
+  const shared = [...ancestorA].filter((id) => ancestorB.has(id));
+  if (shared.length) {
+    const names = await query(`SELECT cow_code, name FROM cows WHERE id = ANY($1::uuid[])`, [shared]);
+    const nameList = names.rows.map((r: any) => r.name || r.cow_code).join(', ');
+    return `Yes, ${a.name || a.cow_code} and ${b.name || b.cow_code} are related. Shared ancestors: ${nameList}.`;
+  }
+  return `No, ${a.name || a.cow_code} and ${b.name || b.cow_code} do not appear to share ancestors within the available pedigree depth.`;
+}

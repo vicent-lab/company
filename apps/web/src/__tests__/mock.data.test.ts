@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { analytics, finance, farmSummary } from '../mock';
-import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring } from '../data';
+import { analytics, finance, farmSummary, mockPedigreeNode, mockOffspringFor, mockBreedingAnalytics, mockBreedingAssistant } from '../mock';
+import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring, getPedigree, getOffspring, getBreedingAnalytics, getBreedingAssistant } from '../data';
 
 describe('mock data fixes', () => {
   it('finance includes incomeTotal and expenseTotal', async () => {
@@ -228,5 +228,32 @@ describe('mock data fixes', () => {
       const after = await offspring('f1');
       expect(after.find((o: any) => o.id === target.id)).toBeUndefined();
     }
+  });
+
+  it('getPedigree returns tree in mock mode', async () => {
+    const cow = (await listCows('f1'))[0];
+    const tree = await getPedigree(cow.id);
+    expect(tree).toHaveProperty('cow');
+    expect(tree.cow.id).toBe(cow.id);
+  });
+
+  it('getOffspring returns offspring in mock mode', async () => {
+    const cow = (await listCows('f1'))[0];
+    const os = await getOffspring(cow.id);
+    expect(Array.isArray(os)).toBe(true);
+  });
+
+  it('getBreedingAnalytics returns analytics in mock mode', async () => {
+    const a = await getBreedingAnalytics('f1');
+    expect(typeof a.conceptionRate).toBe('number');
+    expect(typeof a.pregnancyRate).toBe('number');
+    expect(typeof a.calvingInterval).toBe('number');
+  });
+
+  it('getBreedingAssistant returns recommendation in mock mode', async () => {
+    const cows = await listCows('f1');
+    const result = await getBreedingAssistant(cows[0].id, cows[1]?.id || cows[0].id);
+    expect(result).toHaveProperty('recommendation');
+    expect(typeof result.recommendation).toBe('string');
   });
 });

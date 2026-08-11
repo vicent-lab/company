@@ -819,6 +819,55 @@ export const deleteOffspring = (id: string) => {
   return isLive ? apiSend(`/offspring/${id}`, 'DELETE') : Promise.resolve();
 }
 
+// ---------- Pedigree ----------
+export interface PedigreeCow {
+  id: string; cowCode: string; name: string; breed: string; gender: string;
+  dateOfBirth: string; status: string; health: string; photoUrl?: string; motherId?: string; fatherId?: string;
+}
+export interface PedigreeNode {
+  cow: PedigreeCow;
+  mother?: PedigreeNode;
+  father?: PedigreeNode;
+  offspring: PedigreeCow[];
+}
+export const getPedigree = (cowId: string, generations = 3) =>
+  isLive ? apiGet<PedigreeNode>(`/pedigree/${cowId}?generations=${generations}`) : Promise.resolve(mock.mockPedigreeNode(cowId));
+
+export const getOffspring = (cowId: string) =>
+  isLive ? apiGet<PedigreeCow[]>(`/pedigree/offspring/${cowId}`) : Promise.resolve(mock.mockOffspringFor(cowId));
+
+export const getAncestors = (cowId: string, generations = 3) =>
+  isLive ? apiGet<PedigreeCow[]>(`/pedigree/ancestors/${cowId}?generations=${generations}`) : Promise.resolve([]);
+
+// ---------- Breeding Analytics ----------
+export interface BreedingAnalytics {
+  conceptionRate: number;
+  pregnancyRate: number;
+  calvingInterval: number;
+  servicesPerConception: number;
+  daysOpen: number;
+  ageAtFirstCalving: number;
+  calvingSuccessRate: number;
+  totalBreeding: number;
+  totalCalvings: number;
+}
+export const getBreedingAnalytics = (farmId: string, filters?: Record<string, any>) =>
+  isLive ? apiGet<BreedingAnalytics>(`/breeding/analytics?farmId=${farmId}${filters ? '&' + new URLSearchParams(filters as any).toString() : ''}`) : Promise.resolve(mock.mockBreedingAnalytics(farmId));
+
+// ---------- AI Breeding Assistant ----------
+export interface BreedingAssistantResult {
+  cowId: string; sireId: string; related: boolean; risk: string;
+  cow: { id: string; cowCode: string; name: string; breed: string; gender: string };
+  sire: { id: string; cowCode: string; name: string; breed: string; gender: string };
+  previousOffspring: any[];
+  breedingHistory: any[];
+  healthInfo: { health: string; status: string };
+  milkProduction: { avgDailyLiters90d: number };
+  recommendation: string;
+}
+export const getBreedingAssistant = (cowId: string, sireId: string) =>
+  isLive ? apiSend<BreedingAssistantResult>(`/ai/breeding-assistant`, 'POST', { cowId, sireId }) : Promise.resolve(mock.mockBreedingAssistant(cowId, sireId));
+
 // ---------- Twin Births ----------
 export const twinBirths = (farmId: string) =>
   isLive ? apiGet<any[]>(`/twin-births${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]);
