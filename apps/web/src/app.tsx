@@ -12,7 +12,7 @@ import {
   CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Sun, Moon, Contrast,
   ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical, Sparkles, Calendar, Gauge, Settings as SettingsIcon, Crown,
   Phone, KeyRound, ShieldAlert, Brain, Menu, X, Home, Milk, HeartPulse, Package, Wrench,
-  ChevronRight,
+  ChevronRight, Plus,
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import { useToast } from './ui';
@@ -335,6 +335,7 @@ export function AppShell() {
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const { data: farms } = useAsync(loadFarms, [user?.id, user?.farmId]);
   const farmList = farms && farms.length ? farms : FARMS;
   const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
@@ -497,11 +498,60 @@ export function AppShell() {
             <button className="btn ghost sm" onClick={() => setMobileMenuOpen((v) => !v)}>
               <Menu size={20} />
             </button>
-            <div className="brand" style={{ padding: 0 }}>
+            <div className="brand" style={{ padding: 0, flex: 1, justifyContent: 'center' }}>
               <img className="logo" src={logoImg} alt="DairyOS" />
               <div><b>DairyOS</b><small>SMART DAIRY</small></div>
             </div>
-            <div style={{ width: 32 }} />
+            <div className="row" style={{ gap: 4, position: 'relative' }}>
+              <button className="btn ghost sm" style={{ position: 'relative' }} onClick={() => setBell((v) => !v)}>
+                <Bell size={18} />
+                {notificationsList.filter((n: any) => !n.read_at).length > 0 && (
+                  <span className="badge-dot" style={{ position: 'absolute', top: -2, right: -2, fontSize: 9, padding: '1px 4px' }}>{notificationsList.filter((n: any) => !n.read_at).length}</span>
+                )}
+              </button>
+              <button className="btn ghost sm" onClick={() => setUserMenu((v) => !v)}>
+                <span className="photo" style={{ width: 24, height: 24, fontSize: 10, background: 'var(--primary)' }}>{user?.name?.charAt(0) || 'M'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+        {(isMobile || isTablet) && bell && (
+          <div className="mobile-drawer-backdrop" onClick={() => setBell(false)}>
+            <div className="more-drawer" onClick={(e) => e.stopPropagation()}>
+              <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                <b>Notifications</b>
+                <button className="btn ghost sm" onClick={() => setBell(false)}><X size={18} /></button>
+              </div>
+              <div style={{ padding: 10, maxHeight: '60vh', overflow: 'auto' }}>
+                {notificationsList.length === 0 ? (
+                  <p className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 13 }}>No notifications</p>
+                ) : (
+                  notificationsList.slice(0, 6).map((n: any) => (
+                    <button key={n.id} onClick={() => { setBell(false); go('alerts'); }} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', width: '100%', padding: '10px 12px', borderRadius: 8, textAlign: 'left', border: 0, background: 'none', color: 'inherit', cursor: 'pointer' }}>
+                      <Bell size={15} color={n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{n.title}</div>
+                        <div className="muted" style={{ fontSize: 12 }}>{n.body}</div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {(isMobile || isTablet) && userMenu && (
+          <div className="mobile-drawer-backdrop" onClick={() => setUserMenu(false)}>
+            <div className="more-drawer" onClick={(e) => e.stopPropagation()}>
+              <div style={{ padding: 16, borderBottom: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{user?.name}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{user?.email}</div>
+              </div>
+              <div style={{ padding: 10 }}>
+                <button className="nav-item" onClick={() => { navigate('/app/settings'); setUserMenu(false); }}><ShieldCheck size={18} /> Security & 2FA</button>
+                <button className="nav-item" onClick={() => { logout(); navigate('/'); setUserMenu(false); }}><LogOut size={18} /> Sign out</button>
+              </div>
+            </div>
           </div>
         )}
         {(isMobile || isTablet) && mobileMenuOpen && (
@@ -623,7 +673,28 @@ export function AppShell() {
         </div>
         {(isMobile || isTablet) && (
           <>
-            <button className="fab" onClick={() => setMoreDrawerOpen((v) => !v)}>
+            <button className="fab fab-quick" onClick={() => setQuickActionsOpen((v) => !v)}>
+              <Plus size={22} />
+            </button>
+            {quickActionsOpen && (
+              <div className="more-drawer-backdrop" onClick={() => setQuickActionsOpen(false)}>
+                <div className="more-drawer" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '50vh' }}>
+                  <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <b>Quick Actions</b>
+                    <button className="btn ghost sm" onClick={() => setQuickActionsOpen(false)}><X size={18} /></button>
+                  </div>
+                  <div style={{ padding: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <button className="btn sm" onClick={() => { go('cows'); setQuickActionsOpen(false); }}><Beef size={16} /> Add Animal</button>
+                    <button className="btn sm" onClick={() => { go('management'); setQuickActionsOpen(false); }}><Milk size={16} /> Record Milk</button>
+                    <button className="btn sm" onClick={() => { go('health'); setQuickActionsOpen(false); }}><HeartPulse size={16} /> Record Health</button>
+                    <button className="btn sm" onClick={() => { go('breeding'); setQuickActionsOpen(false); }}><FlaskConical size={16} /> Record Breeding</button>
+                    <button className="btn sm" onClick={() => { go('tasks'); setQuickActionsOpen(false); }}><ClipboardList size={16} /> Add Task</button>
+                    <button className="btn sm ghost" onClick={() => { go('team'); setQuickActionsOpen(false); }}><Users size={16} /> Add Employee</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <button className="fab fab-menu" onClick={() => setMoreDrawerOpen((v) => !v)}>
               <Menu size={22} />
             </button>
             <nav className="bottom-nav">

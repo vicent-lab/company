@@ -181,7 +181,7 @@ export function CommandCenter() {
 
   return (
     <div>
-      <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName} 👋`} desc={farmName ? `Welcome to ${farmName}` : 'Your AI operating system. Everything you need to do, prioritized by impact, time, and consequence.'}
+      <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName} 👋`} desc={farmName ? farmName : 'Your AI operating system. Everything you need to do, prioritized by impact, time, and consequence.'}
         actions={
           <div className="row" style={{ gap: 8 }}>
             <button className="btn ghost sm" onClick={refresh} disabled={refreshing}>
@@ -201,6 +201,7 @@ export function CommandCenter() {
 
       {!loading && data && (
         <>
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>TODAY'S STATUS</div>
           <div className="four mt">
             <Kpi icon={<Gauge size={18} />} label="Farm Score" value={<AnimatedCounter value={data.farmScore} suffix="/100" />} delta={`${data.farmScoreDelta >= 0 ? '+' : ''}${data.farmScoreDelta} vs yesterday`} tone={data.farmScore >= 75 ? 'up' : data.farmScore >= 50 ? undefined : 'down'} />
             <Kpi icon={<Zap size={18} />} label="Critical pending" value={<AnimatedCounter value={criticalPending} />} tone={criticalPending > 0 ? 'down' : 'up'} delta={criticalPending > 0 ? 'immediate' : 'clear'} />
@@ -222,6 +223,7 @@ export function CommandCenter() {
             </div>
           </div>
 
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>NEEDS ATTENTION</div>
           {data.blocks.map((block) => {
             const meta = BLOCK_META[block.label.toLowerCase().includes('urgent') ? 'urgent' : block.label.toLowerCase().includes('morning') ? 'morning' : block.label.toLowerCase().includes('midday') ? 'midday' : 'evening'];
             const Icon = meta.icon;
