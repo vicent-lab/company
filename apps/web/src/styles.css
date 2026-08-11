@@ -549,6 +549,7 @@ tbody tr:hover { background: var(--surface-2); }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 @media (max-width: 1100px) {
+  .shell { flex-direction: column; }
   .sidebar { display: none; }
   .sidebar.hidden { display: none; }
   .mobile-topbar { display: flex; }

@@ -15,9 +15,6 @@ function FarmSetupChecklist({ farmId }: { farmId: string }) {
   const [status, setStatus] = useState<{ steps: FarmSetupStep[]; completionPct: number } | null>(null);
 
   useEffect(() => {
-    // farmId starts as the 'f1' placeholder until the real farm list loads and AppShell
-    // corrects it — skip the fetch until it looks like a real farm id, since the backend
-    // route takes a UUID param and a non-UUID string here would fail server-side.
     if (!isLive || !/^[0-9a-f]{8}-/i.test(farmId)) return;
     let alive = true;
     getFarmSetupStatus(farmId).then((res) => { if (alive) setStatus(res); }).catch(() => {});
@@ -132,9 +129,6 @@ export function CommandCenter() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [farmId]);
 
-  // Keeps the day's priorities current without the user having to think about it: a
-  // silent refetch whenever the tab regains focus, on a 60s heartbeat while it's open,
-  // and immediately after the offline queue syncs anything.
   useEffect(() => {
     const silentRefetch = () => { if (document.visibilityState === 'visible') load(true); };
     window.addEventListener('focus', silentRefetch);
@@ -143,7 +137,7 @@ export function CommandCenter() {
     const interval = setInterval(() => load(true), 60_000);
     return () => {
       window.removeEventListener('focus', silentRefetch);
-      document.removeEventListener('visibilitychange', silentRefetch);
+      window.removeEventListener('visibilitychange', silentRefetch);
       window.removeEventListener('dairyos:refresh', silentRefetch);
       clearInterval(interval);
     };
@@ -181,7 +175,7 @@ export function CommandCenter() {
 
   return (
     <div>
-      <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName} 👋`} desc={farmName ? farmName : 'Your AI operating system. Everything you need to do, prioritized by impact, time, and consequence.'}
+      <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName} 👋`} desc={farmName || 'Your AI operating system.'}
         actions={
           <div className="row" style={{ gap: 8 }}>
             <button className="btn ghost sm" onClick={refresh} disabled={refreshing}>
@@ -201,7 +195,7 @@ export function CommandCenter() {
 
       {!loading && data && (
         <>
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>TODAY'S STATUS</div>
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>FARM STATUS</div>
           <div className="four mt">
             <Kpi icon={<Gauge size={18} />} label="Farm Score" value={<AnimatedCounter value={data.farmScore} suffix="/100" />} delta={`${data.farmScoreDelta >= 0 ? '+' : ''}${data.farmScoreDelta} vs yesterday`} tone={data.farmScore >= 75 ? 'up' : data.farmScore >= 50 ? undefined : 'down'} />
             <Kpi icon={<Zap size={18} />} label="Critical pending" value={<AnimatedCounter value={criticalPending} />} tone={criticalPending > 0 ? 'down' : 'up'} delta={criticalPending > 0 ? 'immediate' : 'clear'} />
@@ -209,7 +203,7 @@ export function CommandCenter() {
             <Kpi icon={<DollarSign size={18} />} label="At-risk value" value={fmtMoney(data.meta.highestRiskAction ? data.meta.highestRiskAction.estimatedCostIfSkippedUGX : 0)} delta="if top action skipped" tone="down" />
           </div>
 
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>NEEDS ATTENTION</div>
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>CRITICAL ALERTS</div>
           {data.blocks.map((block) => {
             const meta = BLOCK_META[block.label.toLowerCase().includes('urgent') ? 'urgent' : block.label.toLowerCase().includes('morning') ? 'morning' : block.label.toLowerCase().includes('midday') ? 'midday' : 'evening'];
             const Icon = meta.icon;
@@ -218,43 +212,44 @@ export function CommandCenter() {
               <div key={block.label} className="mt">
                 <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center' }}>
                   <Icon size={16} style={{ color: meta.color }} />
-                  <h3 style={{ margin: 0 }}>{block.label}</h3>
-                  <span className="muted" style={{ fontSize: 12 }}>{block.window}</span>
-                  <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)', marginLeft: 'auto' }}>{block.actions.length}</span>
+                  <h3 style={{ margin: 0, fontSize: 15 }}>{block.label}</h3>
+                  <span className="muted" style={{ fontSize: 11 }}>{block.window}</span>
+                  <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)', marginLeft: 'auto', fontSize: 10 }}>{block.actions.length}</span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {block.actions.map((action) => {
                     const isDone = completedIds.has(action.id);
                     const SIcon = CATEGORY_ICONS[action.category.toLowerCase()] || ClipboardList;
                     const tone = severityTone[action.severity] || 'info';
                     return (
-                       <div key={action.id} className={`card ${isDone ? 'reveal' : ''}`} style={{ padding: 14, borderLeft: `4px solid ${meta.border}`, opacity: isDone ? 0.6: 1 }}>
-                         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                           <div style={{ marginTop: 1, color: meta.color }}><SIcon size={16} /></div>
-                           <div style={{ flex: 1, minWidth: 0 }}>
-                             <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
-                               <b style={{ fontSize: 14, textDecoration: isDone ? 'line-through' : 'none' }}>{action.title}</b>
-                               <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
-                               {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
-                             </div>
-                             <div className="row mt" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
-                               <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
-                               <span className="muted" style={{ fontSize: 11 }}><DollarSign size={11} style={{ marginRight: 3 }} />Risk: {fmtMoney(action.estimatedCostIfSkippedUGX)}</span>
-                               {action.shortcut && <span className="pill info" style={{ fontSize: 10 }}>{action.shortcut}</span>}
-                               <span className="muted" style={{ fontSize: 10, marginLeft: 'auto' }}>{action.source.replace(/_/g, ' ')}</span>
-                             </div>
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-                             {!isDone ? (
-                               <button className="btn sm" onClick={() => completeAction(action)}>
-                                 <CheckCircle2 size={13} /> Done
-                               </button>
-                             ) : (
-                               <span className="pill ok" style={{ fontSize: 10 }}><CheckCircle2 size={11} /> Done</span>
-                             )}
-                           </div>
-                         </div>
-                       </div>
+                      <div key={action.id} className={`card ${isDone ? 'reveal' : ''}`} style={{ padding: 14, borderLeft: `4px solid ${meta.border}`, opacity: isDone ? 0.6: 1 }}>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          <div style={{ marginTop: 1, color: meta.color }}><SIcon size={16} /></div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2, alignItems: 'center' }}>
+                              <b style={{ fontSize: 14, textDecoration: isDone ? 'line-through' : 'none' }}>{action.title}</b>
+                              <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
+                              {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
+                            </div>
+                            <p className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{action.reason}</p>
+                            <div className="row mt" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+                              <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
+                              <span className="muted" style={{ fontSize: 11 }}><DollarSign size={11} style={{ marginRight: 3 }} />Risk: {fmtMoney(action.estimatedCostIfSkippedUGX)}</span>
+                              {action.shortcut && <span className="pill info" style={{ fontSize: 10 }}>{action.shortcut}</span>}
+                              <span className="muted" style={{ fontSize: 10, marginLeft: 'auto' }}>{action.source.replace(/_/g, ' ')}</span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                            {!isDone ? (
+                              <button className="btn sm" onClick={() => completeAction(action)}>
+                                <CheckCircle2 size={13} /> Done
+                              </button>
+                            ) : (
+                              <span className="pill ok" style={{ fontSize: 10 }}><CheckCircle2 size={11} /> Done</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -270,11 +265,24 @@ export function CommandCenter() {
             </div>
           )}
 
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>PRODUCTION</div>
           <div className="card mt" style={{ padding: '12px 16px' }}>
             <div className="row" style={{ gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div className="row" style={{ gap: 6 }}><ClipboardList size={14} /><b style={{ fontSize: 13 }}>Evening review</b></div>
-              <span className="muted" style={{ fontSize: 12 }}>{data.eveningReview.tasksChecked} checked · {data.eveningReview.pendingCount} pending</span>
+              <div className="row" style={{ gap: 6 }}><Activity size={14} /><b style={{ fontSize: 13 }}>Herd pulse</b></div>
+              <span className="pill info" style={{ fontSize: 10 }}>{data.herdPulse.total} total</span>
+              <span className="pill ok" style={{ fontSize: 10 }}>{data.herdPulse.milking} milking</span>
+              {data.herdPulse.calvingToday > 0 && <span className="pill warn" style={{ fontSize: 10 }}>{data.herdPulse.calvingToday} calving today</span>}
+              {data.herdPulse.calvingThisWeek > 0 && <span className="pill info" style={{ fontSize: 10 }}>{data.herdPulse.calvingThisWeek} this week</span>}
+              {data.herdPulse.sick > 0 && <span className="pill danger" style={{ fontSize: 10 }}>{data.herdPulse.sick} sick</span>}
+              {data.herdPulse.inTreatment > 0 && <span className="pill warn" style={{ fontSize: 10 }}>{data.herdPulse.inTreatment} in treatment</span>}
+            </div>
+          </div>
+
+          <div className="card mt" style={{ padding: '12px 16px' }}>
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="muted" style={{ fontSize: 12 }}>Evening review</span>
               <span className="pill ok" style={{ fontSize: 10 }}>{data.eveningReview.completionPct}%</span>
+              <span className="muted" style={{ fontSize: 11 }}>{data.eveningReview.tasksChecked} checked · {data.eveningReview.pendingCount} pending</span>
               <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>Score <b>{data.farmScore}</b> <span className={`pill ${data.farmScoreDelta >= 0 ? 'ok' : 'danger'}`} style={{ fontSize: 10 }}>{data.farmScoreDelta >= 0 ? '+' : ''}{data.farmScoreDelta}</span></span>
               <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)', fontSize: 10 }}>{pendingCount} pending · {criticalPending} critical</span>
             </div>
