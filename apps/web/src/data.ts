@@ -1,6 +1,7 @@
 import * as mock from './mock';
 import { isLive, apiGet, apiSend, getRefreshToken } from './api';
 import { sendOrQueue } from './lib/offline-queue';
+import { mockPregnancies, mockOffspring } from './mock';
 
 function q(params: Record<string, any>): string {
   const p = Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null)
@@ -191,7 +192,7 @@ export async function getCow(id: string): Promise<CowDetail | null> {
       milk: c.milk.map((m: any) => ({ date: m.recorded_on, morning: Number(m.morning_liters), afternoon: Number(m.afternoon_liters), evening: Number(m.evening_liters) })),
       vaccinations: (c.vaccinations || []).map((v: any) => ({ id: v.id, name: v.vaccine_name, due: v.due_on, done: !!v.administered_on })),
       treatments: (c.treatments || []).map((t: any) => ({ id: t.id, disease: t.disease_name || 'Condition', diagnosis: t.diagnosis, date: t.diagnosed_on, status: t.status || 'Active', vetName: t.veterinarian_name || t.vetName || '' })),
-      breedings: (c.breedings || []).map((b: any) => ({ id: b.id, method: b.method, date: b.serviced_on, expectedCalving: b.expected_calving_on, result: b.result })),
+      breedings: (c.breedings || []).map((b: any) => ({ id: b.id, method: b.method, date: b.breeding_date, sireId: b.sire_id, technician: b.technician, expectedCalving: b.expected_calving_on, result: b.result })),
       feed: (c.feed || []).map((f: any) => ({ id: f.id, feed: f.feed_type_id, date: f.consumed_on, kg: Number(f.quantity) })),
       weights: [], productivityScore: Math.min(99, Math.round(40 + avg * 1.5)),
       deathDate: c.death_date, deathCause: c.death_cause, deathNotes: c.death_notes,
@@ -773,6 +774,50 @@ export const updateCalvingRecord = (id: string, body: any) =>
 
 export const deleteCalvingRecord = (id: string) =>
   isLive ? apiSend(`/calving/${id}`, 'DELETE') : Promise.resolve();
+
+// ---------- Pregnancies ----------
+export const pregnancies = (farmId: string) =>
+  isLive ? apiGet<any[]>(`/pregnancies${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(mockPregnancies);
+
+export const createPregnancy = (farmId: string, body: any) => {
+  const data = { ...body, id: 'mock-preg-' + Date.now() };
+  if (!isLive) mockPregnancies.push(data);
+  return isLive ? apiSend(`/pregnancies${q({ farmId })}`, 'POST', body) : Promise.resolve(data);
+}
+
+export const updatePregnancy = (id: string, body: any) => {
+  if (!isLive) {
+    const idx = mockPregnancies.findIndex((p: any) => p.id === id);
+    if (idx >= 0) mockPregnancies[idx] = { ...mockPregnancies[idx], ...body };
+  }
+  return isLive ? apiSend(`/pregnancies/${id}`, 'PATCH', body) : Promise.resolve({ ...body, id });
+}
+
+export const deletePregnancy = (id: string) => {
+  if (!isLive) {
+    const idx = mockPregnancies.findIndex((p: any) => p.id === id);
+    if (idx >= 0) mockPregnancies.splice(idx, 1);
+  }
+  return isLive ? apiSend(`/pregnancies/${id}`, 'DELETE') : Promise.resolve();
+}
+
+// ---------- Offspring ----------
+export const offspring = (farmId: string) =>
+  isLive ? apiGet<any[]>(`/offspring${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(mockOffspring);
+
+export const createOffspring = (farmId: string, body: any) => {
+  const data = { ...body, id: 'mock-offspring-' + Date.now() };
+  if (!isLive) mockOffspring.push(data);
+  return isLive ? apiSend(`/offspring${q({ farmId })}`, 'POST', body) : Promise.resolve(data);
+}
+
+export const deleteOffspring = (id: string) => {
+  if (!isLive) {
+    const idx = mockOffspring.findIndex((o: any) => o.id === id);
+    if (idx >= 0) mockOffspring.splice(idx, 1);
+  }
+  return isLive ? apiSend(`/offspring/${id}`, 'DELETE') : Promise.resolve();
+}
 
 // ---------- Twin Births ----------
 export const twinBirths = (farmId: string) =>

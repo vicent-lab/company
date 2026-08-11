@@ -10,12 +10,14 @@ import {
   twinBirths, createTwinBirth, deleteTwinBirth,
   fertilityStats, createFertilityStat, updateFertilityStat,
   geneticAnalysis, createGeneticAnalysis,
-  breedingRecommendations, createBreedingRecommendation, updateBreedingRecommendation
+  breedingRecommendations, createBreedingRecommendation, updateBreedingRecommendation,
+  pregnancies, createPregnancy, updatePregnancy, deletePregnancy,
+  offspring, createOffspring, deleteOffspring
 } from '../data';
 import { Plus, Trash2, Edit3, Save, X, Thermometer, Activity, Brain, FlaskConical, TrendingUp, Baby, GitBranch, HeartPulse, CheckCircle, AlertTriangle } from 'lucide-react';
 import { fmt } from '../format';
 
-type Tab = 'heat' | 'recommendations' | 'genetics' | 'semen' | 'fertility' | 'calving' | 'twins' | 'dashboard';
+type Tab = 'heat' | 'recommendations' | 'genetics' | 'semen' | 'fertility' | 'calving' | 'twins' | 'pregnancies' | 'offspring' | 'dashboard';
 
 export function Breeding() {
   const { farmId } = useFarm();
@@ -32,6 +34,8 @@ export function Breeding() {
   const { data: fertilityList, loading: fertilityLoading } = useAsync(() => fertilityStats(farmId), [farmId, key]);
   const { data: calvingList, loading: calvingLoading } = useAsync(() => calvingRecords(farmId), [farmId, key]);
   const { data: twinList, loading: twinLoading } = useAsync(() => twinBirths(farmId), [farmId, key]);
+  const { data: pregnancyList, loading: pregnancyLoading } = useAsync(() => pregnancies(farmId), [farmId, key]);
+  const { data: offspringList, loading: offspringLoading } = useAsync(() => offspring(farmId), [farmId, key]);
 
   return (
     <div>
@@ -45,6 +49,8 @@ export function Breeding() {
           { key: 'fertility', label: 'Fertility', icon: <TrendingUp size={14} /> },
           { key: 'calving', label: 'Calving', icon: <Baby size={14} /> },
           { key: 'twins', label: 'Twin births', icon: <Activity size={14} /> },
+          { key: 'pregnancies', label: 'Pregnancies', icon: <CheckCircle size={14} /> },
+          { key: 'offspring', label: 'Offspring', icon: <HeartPulse size={14} /> },
           { key: 'dashboard', label: 'Dashboard', icon: <HeartPulse size={14} /> },
         ] as const).map((t) => (
           <button key={t.key} className={`btn ghost ${tab === t.key ? 'active-tab' : ''}`} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 14px', whiteSpace: 'nowrap' }} onClick={() => setTab(t.key)}>
@@ -61,6 +67,8 @@ export function Breeding() {
         {tab === 'fertility' && <FertilityTab farmId={farmId} fertilityList={fertilityList || []} loading={fertilityLoading} refresh={refresh} />}
         {tab === 'calving' && <CalvingTab farmId={farmId} calvingList={calvingList || []} loading={calvingLoading} refresh={refresh} />}
         {tab === 'twins' && <TwinsTab farmId={farmId} twinList={twinList || []} loading={twinLoading} refresh={refresh} />}
+        {tab === 'pregnancies' && <PregnanciesTab farmId={farmId} pregnancyList={pregnancyList || []} loading={pregnancyLoading} refresh={refresh} />}
+        {tab === 'offspring' && <OffspringTab farmId={farmId} offspringList={offspringList || []} loading={offspringLoading} refresh={refresh} />}
         {tab === 'dashboard' && <ReproDashboard farmId={farmId} heatList={heatList || []} recList={recList || []} calvingList={calvingList || []} fertilityList={fertilityList || []} twinList={twinList || []} />}
       </div>
     </div>
@@ -410,7 +418,7 @@ function FertilityTab({ farmId, fertilityList, loading, refresh }: any) {
 function CalvingTab({ farmId, calvingList, loading, refresh }: any) {
   const { push } = useToast();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ cowId: '', calvingDate: '', difficultyScore: 3, assistanceRequired: false, assistanceType: '', veterinarianName: '', calfId: '', notes: '' });
+  const [form, setForm] = useState({ cowId: '', pregnancyId: '', calvingDate: '', difficultyScore: 3, assistanceRequired: false, assistanceType: '', veterinarianName: '', calfId: '', notes: '' });
   const [saving, setSaving] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -418,7 +426,7 @@ function CalvingTab({ farmId, calvingList, loading, refresh }: any) {
     setSaving(true);
     await createCalvingRecord(farmId, form);
     push('Calving record added');
-    setForm({ cowId: '', calvingDate: '', difficultyScore: 3, assistanceRequired: false, assistanceType: '', veterinarianName: '', calfId: '', notes: '' });
+    setForm({ cowId: '', pregnancyId: '', calvingDate: '', difficultyScore: 3, assistanceRequired: false, assistanceType: '', veterinarianName: '', calfId: '', notes: '' });
     setOpen(false);
     refresh();
     setSaving(false);
@@ -456,6 +464,7 @@ function CalvingTab({ farmId, calvingList, loading, refresh }: any) {
       {open && <Modal title="Record calving" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
           <div className="field"><label>Cow ID</label><input className="input" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required /></div>
+          <div className="field"><label>Pregnancy ID</label><input className="input" value={form.pregnancyId} onChange={(e) => setForm({ ...form, pregnancyId: e.target.value })} /></div>
           <div className="field"><label>Calving date</label><input className="input" type="date" value={form.calvingDate} onChange={(e) => setForm({ ...form, calvingDate: e.target.value })} required /></div>
           <div className="row" style={{ gap: 10 }}>
             <div className="field" style={{ flex: 1 }}><label>Difficulty (1-5)</label><input className="input" type="number" min="1" max="5" value={form.difficultyScore} onChange={(e) => setForm({ ...form, difficultyScore: Number(e.target.value) })} /></div>
@@ -525,6 +534,130 @@ function TwinsTab({ farmId, twinList, loading, refresh }: any) {
           <div className="row" style={{ gap: 10 }}>
             <div className="field" style={{ flex: 1 }}><label>Calf 1 ID</label><input className="input" value={form.calf1Id} onChange={(e) => setForm({ ...form, calf1Id: e.target.value })} required /></div>
             <div className="field" style={{ flex: 1 }}><label>Calf 2 ID</label><input className="input" value={form.calf2Id} onChange={(e) => setForm({ ...form, calf2Id: e.target.value })} required /></div>
+          </div>
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="btn" type="submit" disabled={saving}>Save</button>
+          </div>
+        </form>
+      </Modal>}
+    </div>
+  );
+}
+
+function PregnanciesTab({ farmId, pregnancyList, loading, refresh }: any) {
+  const { push } = useToast();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ cowId: '', breedingId: '', confirmationDate: '', status: 'confirmed', expectedCalvingDate: '' });
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    await createPregnancy(farmId, form);
+    push('Pregnancy recorded');
+    setForm({ cowId: '', breedingId: '', confirmationDate: '', status: 'confirmed', expectedCalvingDate: '' });
+    setOpen(false);
+    refresh();
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="three mb">
+        <Kpi icon={<CheckCircle size={18} />} label="Pregnancies" value={pregnancyList.length} loading={loading} />
+      </div>
+      <div className="card reveal">
+        <div className="between mb">
+          <h3>Pregnancy records</h3>
+          <button className="btn sm" onClick={() => setOpen(true)}><Plus size={14} /> Add pregnancy</button>
+        </div>
+        <div className="table-wrap">
+          <table><thead><tr><th>Cow</th><th>Breeding</th><th>Confirmed</th><th>Status</th><th>Expected calving</th></tr></thead>
+            <tbody>{pregnancyList.slice(0, 20).map((p: any) => (
+              <tr key={p.id}>
+                <td>{p.cow_name || p.cow_id} {p.cow_code && <span className="muted" style={{ fontSize: 11 }}>({p.cow_code})</span>}</td>
+                <td>{p.breeding_id}</td>
+                <td>{fmt.date(p.confirmation_date)}</td>
+                <td><span className={`pill ${p.status === 'confirmed' ? 'healthy' : p.status === 'failed' ? 'danger' : 'warn'}`}>{p.status}</span></td>
+                <td>{fmt.date(p.expected_calving_date)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+
+      {open && <Modal title="Add pregnancy" onClose={() => setOpen(false)}>
+        <form onSubmit={submit}>
+          <div className="field"><label>Cow ID</label><input className="input" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required /></div>
+          <div className="field"><label>Breeding ID</label><input className="input" value={form.breedingId} onChange={(e) => setForm({ ...form, breedingId: e.target.value })} required /></div>
+          <div className="row" style={{ gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}><label>Confirmation date</label><input className="input" type="date" value={form.confirmationDate} onChange={(e) => setForm({ ...form, confirmationDate: e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1 }}><label>Expected calving</label><input className="input" type="date" value={form.expectedCalvingDate} onChange={(e) => setForm({ ...form, expectedCalvingDate: e.target.value })} required /></div>
+          </div>
+          <div className="field"><label>Status</label>
+            <select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="confirmed">Confirmed</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="btn" type="submit" disabled={saving}>Save</button>
+          </div>
+        </form>
+      </Modal>}
+    </div>
+  );
+}
+
+function OffspringTab({ farmId, offspringList, loading, refresh }: any) {
+  const { push } = useToast();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ animalId: '', motherId: '', fatherId: '' });
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    await createOffspring(farmId, form);
+    push('Offspring recorded');
+    setForm({ animalId: '', motherId: '', fatherId: '' });
+    setOpen(false);
+    refresh();
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="three mb">
+        <Kpi icon={<HeartPulse size={18} />} label="Offspring" value={offspringList.length} loading={loading} />
+      </div>
+      <div className="card reveal">
+        <div className="between mb">
+          <h3>Offspring records</h3>
+          <button className="btn sm" onClick={() => setOpen(true)}><Plus size={14} /> Add offspring</button>
+        </div>
+        <div className="table-wrap">
+          <table><thead><tr><th>Animal</th><th>Mother</th><th>Father</th></tr></thead>
+            <tbody>{offspringList.slice(0, 20).map((o: any) => (
+              <tr key={o.id}>
+                <td>{o.animal_code || o.animal_id}</td>
+                <td>{o.mother_code || o.mother_id}</td>
+                <td>{o.father_code || o.father_id}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+
+      {open && <Modal title="Add offspring" onClose={() => setOpen(false)}>
+        <form onSubmit={submit}>
+          <div className="field"><label>Animal ID</label><input className="input" value={form.animalId} onChange={(e) => setForm({ ...form, animalId: e.target.value })} required /></div>
+          <div className="row" style={{ gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}><label>Mother ID</label><input className="input" value={form.motherId} onChange={(e) => setForm({ ...form, motherId: e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1 }}><label>Father ID</label><input className="input" value={form.fatherId} onChange={(e) => setForm({ ...form, fatherId: e.target.value })} required /></div>
           </div>
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
             <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>

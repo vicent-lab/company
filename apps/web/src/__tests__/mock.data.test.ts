@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analytics, finance, farmSummary } from '../mock';
-import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue } from '../data';
+import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring } from '../data';
 
 describe('mock data fixes', () => {
   it('finance includes incomeTotal and expenseTotal', async () => {
@@ -174,5 +174,59 @@ describe('mock data fixes', () => {
     w.google = w.google || {};
     w.google.maps = w.google.maps || { Map: class {} };
     await expect(loadGoogleMapsScript('test-key')).resolves.toBeUndefined();
+  });
+
+  it('pregnancies returns array in mock mode', async () => {
+    const ps = await pregnancies('f1');
+    expect(Array.isArray(ps)).toBe(true);
+  });
+
+  it('createPregnancy adds a pregnancy in mock mode', async () => {
+    const before = (await pregnancies('f1')).length;
+    await createPregnancy('f1', { cowId: 'f1-c0', breedingId: 'f1-c0-br', confirmationDate: '2024-01-01', status: 'confirmed', expectedCalvingDate: '2024-09-01' });
+    const after = (await pregnancies('f1')).length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('updatePregnancy updates a pregnancy in mock mode', async () => {
+    const ps = await pregnancies('f1');
+    const target = ps[0];
+    if (target) {
+      await updatePregnancy(target.id, { status: 'failed' });
+      const updated = (await pregnancies('f1')).find((p: any) => p.id === target.id);
+      expect(updated?.status).toBe('failed');
+    }
+  });
+
+  it('deletePregnancy removes a pregnancy in mock mode', async () => {
+    const ps = await pregnancies('f1');
+    const target = ps[0];
+    if (target) {
+      await deletePregnancy(target.id);
+      const after = await pregnancies('f1');
+      expect(after.find((p: any) => p.id === target.id)).toBeUndefined();
+    }
+  });
+
+  it('offspring returns array in mock mode', async () => {
+    const os = await offspring('f1');
+    expect(Array.isArray(os)).toBe(true);
+  });
+
+  it('createOffspring adds an offspring in mock mode', async () => {
+    const before = (await offspring('f1')).length;
+    await createOffspring('f1', { animalId: 'f1-c0', motherId: 'f1-c1', fatherId: 'f1-c2' });
+    const after = (await offspring('f1')).length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('deleteOffspring removes an offspring in mock mode', async () => {
+    const os = await offspring('f1');
+    const target = os[0];
+    if (target) {
+      await deleteOffspring(target.id);
+      const after = await offspring('f1');
+      expect(after.find((o: any) => o.id === target.id)).toBeUndefined();
+    }
   });
 });

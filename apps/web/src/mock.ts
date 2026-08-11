@@ -760,6 +760,11 @@ export const DAILY_ACTIVITIES = Array.from({ length: 20 }, (_, i) => ({
   activity_date: new Date(Date.now() - intBetween(0, 7) * 86400000).toISOString().slice(0, 10),
 }));
 
+const mockPregnancies: any[] = [];
+const mockOffspring: any[] = [];
+
+export { mockPregnancies, mockOffspring };
+
 // ---- Gamification ----
 export const BADGES = [
   { id: 'b1', name: 'Early Riser', desc: 'Logged 30 morning milkings', icon: 'Sunrise', earned: true },

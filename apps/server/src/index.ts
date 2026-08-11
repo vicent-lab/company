@@ -54,6 +54,8 @@ import faceRoutes from './routes/face.js';
 import gpsRoutes from './routes/gps.js';
 import attendanceRoutes from './routes/attendance.js';
 import payrollRoutes from './routes/payroll.js';
+import pregnanciesRoutes from './routes/pregnancies.js';
+import offspringRoutes from './routes/offspring.js';
 
 
 const app = express();
@@ -104,6 +106,8 @@ api.use('/heat-detection', heatDetectionRoutes);
 api.use('/breeding', breedingRoutes);
 api.use('/semen', semenRoutes);
 api.use('/calving', calvingRoutes);
+api.use('/pregnancies', pregnanciesRoutes);
+api.use('/offspring', offspringRoutes);
 api.use('/twin-births', twinBirthRoutes);
 api.use('/fertility', fertilityRoutes);
 api.use('/genetics', geneticsRoutes);

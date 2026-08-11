@@ -23,6 +23,7 @@ router.get('/', asyncHandler(async (req, res) => {
 const schema = z.object({
   cowId: z.string().min(1),
   calvingDate: z.string(),
+  pregnancyId: z.string().uuid().optional(),
   difficultyScore: z.number().min(1).max(5).optional(),
   assistanceRequired: z.boolean().default(false),
   assistanceType: z.string().optional(),
@@ -38,9 +39,9 @@ router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) 
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
   if (cow.rows[0].farm_id !== farmId) throw new HttpError(403, 'Access denied');
   const { rows } = await query(
-    `INSERT INTO calving_records (farm_id, cow_id, calving_date, difficulty_score, assistance_required, assistance_type, veterinarian_name, calf_id, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [farmId, b.cowId, b.calvingDate, b.difficultyScore ?? null, b.assistanceRequired, b.assistanceType || null, b.veterinarianName || null, b.calfId || null, b.notes || null]
+    `INSERT INTO calving_records (farm_id, cow_id, pregnancy_id, calving_date, difficulty_score, assistance_required, assistance_type, veterinarian_name, calf_id, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+     [farmId, b.cowId, b.pregnancyId || null, b.calvingDate, b.difficultyScore ?? null, b.assistanceRequired, b.assistanceType || null, b.veterinarianName || null, b.calfId || null, b.notes || null]
   );
   await audit(req.user, 'create', 'calving_record', rows[0].id);
   res.status(201).json(rows[0]);
@@ -54,7 +55,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   const sets: string[] = [];
   const params: any[] = [];
   let i = 1;
-  const map: Record<string, string> = { cowId: 'cow_id', calvingDate: 'calving_date', difficultyScore: 'difficulty_score', assistanceRequired: 'assistance_required', assistanceType: 'assistance_type', veterinarianName: 'veterinarian_name', calfId: 'calf_id', notes: 'notes' };
+  const map: Record<string, string> = { cowId: 'cow_id', calvingDate: 'calving_date', pregnancyId: 'pregnancy_id', difficultyScore: 'difficulty_score', assistanceRequired: 'assistance_required', assistanceType: 'assistance_type', veterinarianName: 'veterinarian_name', calfId: 'calf_id', notes: 'notes' };
   for (const [k, col] of Object.entries(map)) {
     if ((b as any)[k] !== undefined) { sets.push(`${col}=$${i}`); params.push((b as any)[k]); i++; }
   }

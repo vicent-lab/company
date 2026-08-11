@@ -11,10 +11,10 @@ router.get('/', asyncHandler(async (req, res) => {
   const farmId = resolveFarmId(req);
   const { rows } = await query(
     `SELECT br.*, c.cow_code, c.name as cow_name
-     FROM breeding_records br
-     JOIN cows c ON c.id = br.cow_id
-     WHERE c.farm_id=$1 ORDER BY br.serviced_on DESC`,
-    [farmId]
+      FROM breeding_records br
+      JOIN cows c ON c.id = br.cow_id
+      WHERE c.farm_id=$1 ORDER BY br.breeding_date DESC`,
+     [farmId]
   );
   res.json({ data: rows, count: rows.length });
 }));
@@ -22,8 +22,9 @@ router.get('/', asyncHandler(async (req, res) => {
 const schema = z.object({
   cowId: z.string().min(1),
   method: z.string().min(1),
-  servicedOn: z.string(),
-  sireReference: z.string().optional(),
+  breedingDate: z.string(),
+  sireId: z.string().uuid().optional(),
+  technician: z.string().optional(),
   expectedCalvingOn: z.string().optional(),
   result: z.string().optional(),
 });
@@ -35,9 +36,9 @@ router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) 
   if (!cow.rows[0]) throw new HttpError(404, 'Cow not found');
   if (cow.rows[0].farm_id !== farmId) throw new HttpError(403, 'Access denied');
   const { rows } = await query(
-    `INSERT INTO breeding_records (cow_id, method, serviced_on, sire_reference, expected_calving_on, result)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [b.cowId, b.method, b.servicedOn, b.sireReference || null, b.expectedCalvingOn || null, b.result || null]
+    `INSERT INTO breeding_records (cow_id, method, breeding_date, sire_id, technician, expected_calving_on, result)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+     [b.cowId, b.method, b.breedingDate, b.sireId || null, b.technician || null, b.expectedCalvingOn || null, b.result || null]
   );
   await audit(req.user, 'create', 'breeding_record', rows[0].id);
   res.status(201).json(rows[0]);
@@ -51,7 +52,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   const sets: string[] = [];
   const params: any[] = [];
   let i = 1;
-  const map: Record<string, string> = { cowId: 'cow_id', method: 'method', servicedOn: 'serviced_on', sireReference: 'sire_reference', expectedCalvingOn: 'expected_calving_on', result: 'result' };
+  const map: Record<string, string> = { cowId: 'cow_id', method: 'method', breedingDate: 'breeding_date', sireId: 'sire_id', technician: 'technician', expectedCalvingOn: 'expected_calving_on', result: 'result' };
   for (const [k, col] of Object.entries(map)) {
     if ((b as any)[k] !== undefined) { sets.push(`${col}=$${i}`); params.push((b as any)[k]); i++; }
   }
