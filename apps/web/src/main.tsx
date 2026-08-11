@@ -10,6 +10,12 @@ import { ResetPasswordPage } from './pages/auth-flows';
 import { GetStarted, SignUp } from './pages/signup';
 import './styles.css';
 
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 function Root() {
   const [route] = useHashRoute();
   // router.ts only parses path segments, so a query string (?token=...) rides along on
