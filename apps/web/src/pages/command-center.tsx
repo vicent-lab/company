@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useFarm } from '../app';
 import { useAuth } from '../auth';
 import { isLive } from '../api';
-import { PageHeader, Kpi, AnimatedCounter, Modal, useToast, Skeleton, Progress } from '../ui';
-import { commandCenter, getFarmSetupStatus, FarmSetupStep } from '../data';
+import { PageHeader, Kpi, AnimatedCounter, Modal, useToast, Skeleton, Progress, useAsync } from '../ui';
+import { commandCenter, getFarmSetupStatus, FarmSetupStep, tasks, emergencyAlerts, dashboardSummary } from '../data';
 import {
   Clock, AlertTriangle, TrendingUp, Activity, Zap, CheckCircle2, X, ChevronDown,
   RefreshCw, ClipboardList, ArrowRight, Flame, Sunrise, Sun, Moon, ShieldCheck,
   Milestone, Timer, DollarSign, Pill, Wheat, FlaskConical, Wind, Users, Gauge, Boxes, Square, ListChecks,
+  Bell, Milk, Heart, Syringe,
 } from 'lucide-react';
 import { fmt } from '../format';
 
@@ -108,6 +109,15 @@ function fmtMoney(n: number): string {
   return `UGX ${n}`;
 }
 
+function blockLabel(raw: string): BlockId | null {
+  const lower = raw.toLowerCase();
+  if (lower.includes('urgent')) return 'urgent';
+  if (lower.includes('morning')) return 'morning';
+  if (lower.includes('midday')) return 'midday';
+  if (lower.includes('evening')) return 'evening';
+  return null;
+}
+
 export function CommandCenter() {
   const { farmId, farmName } = useFarm();
   const { user } = useAuth();
@@ -116,6 +126,10 @@ export function CommandCenter() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+
+  const { data: taskList } = useAsync(() => tasks({ status: 'pending' }), [farmId]);
+  const { data: alertList } = useAsync(() => emergencyAlerts(farmId), [farmId]);
+  const { data: summary } = useAsync(() => dashboardSummary(farmId), [farmId]);
 
   const load = async (background = false) => {
     if (!background) setLoading(true);
@@ -173,6 +187,27 @@ export function CommandCenter() {
   const greeting = hour < 5 ? 'Early bird' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = user?.name?.split(' ')[0] || 'farmer';
 
+  const urgentActions = useMemo(() => {
+    if (!data) return [];
+    const block = data.blocks.find((b) => blockLabel(b.label) === 'urgent');
+    return block ? block.actions : [];
+  }, [data]);
+
+  const todayActions = useMemo(() => {
+    if (!data) return [];
+    return data.blocks
+      .filter((b) => blockLabel(b.label) === 'morning' || blockLabel(b.label) === 'midday')
+      .flatMap((b) => b.actions);
+  }, [data]);
+
+  const overdueTasks = useMemo(() => {
+    if (!taskList) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    return (taskList as any[]).filter((t: any) => t.status !== 'completed' && t.due_date && t.due_date < today);
+  }, [taskList]);
+
+  const hasCritical = criticalPending > 0 || urgentActions.length > 0 || (alertList || []).length > 0 || (data?.herdPulse.sick || 0) > 0 || overdueTasks.length > 0;
+
   return (
     <div>
       <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName} 👋`} desc={farmName || 'Your AI operating system.'}
@@ -195,79 +230,124 @@ export function CommandCenter() {
 
       {!loading && data && (
         <>
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>FARM STATUS</div>
-          <div className="four mt">
-            <Kpi icon={<Gauge size={18} />} label="Farm Score" value={<AnimatedCounter value={data.farmScore} suffix="/100" />} delta={`${data.farmScoreDelta >= 0 ? '+' : ''}${data.farmScoreDelta} vs yesterday`} tone={data.farmScore >= 75 ? 'up' : data.farmScore >= 50 ? undefined : 'down'} />
-            <Kpi icon={<Zap size={18} />} label="Critical pending" value={<AnimatedCounter value={criticalPending} />} tone={criticalPending > 0 ? 'down' : 'up'} delta={criticalPending > 0 ? 'immediate' : 'clear'} />
-            <Kpi icon={<Timer size={18} />} label="Time needed" value={`${totalMinutes}m`} delta={`${pendingCount} actions`} />
-            <Kpi icon={<DollarSign size={18} />} label="At-risk value" value={fmtMoney(data.meta.highestRiskAction ? data.meta.highestRiskAction.estimatedCostIfSkippedUGX : 0)} delta="if top action skipped" tone="down" />
-          </div>
-
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>CRITICAL ALERTS</div>
-          {data.blocks.map((block) => {
-            const meta = BLOCK_META[block.label.toLowerCase().includes('urgent') ? 'urgent' : block.label.toLowerCase().includes('morning') ? 'morning' : block.label.toLowerCase().includes('midday') ? 'midday' : 'evening'];
-            const Icon = meta.icon;
-            if (!block.actions.length) return null;
-            return (
-              <div key={block.label} className="mt">
-                <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                  <Icon size={16} style={{ color: meta.color }} />
-                  <h3 style={{ margin: 0, fontSize: 15 }}>{block.label}</h3>
-                  <span className="muted" style={{ fontSize: 11 }}>{block.window}</span>
-                  <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)', marginLeft: 'auto', fontSize: 10 }}>{block.actions.length}</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {block.actions.map((action) => {
-                    const isDone = completedIds.has(action.id);
-                    const SIcon = CATEGORY_ICONS[action.category.toLowerCase()] || ClipboardList;
-                    const tone = severityTone[action.severity] || 'info';
-                    return (
-                      <div key={action.id} className={`card ${isDone ? 'reveal' : ''}`} style={{ padding: 14, borderLeft: `4px solid ${meta.border}`, opacity: isDone ? 0.6: 1 }}>
-                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                          <div style={{ marginTop: 1, color: meta.color }}><SIcon size={16} /></div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2, alignItems: 'center' }}>
-                              <b style={{ fontSize: 14, textDecoration: isDone ? 'line-through' : 'none' }}>{action.title}</b>
-                              <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
-                              {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
-                            </div>
-                            <p className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{action.reason}</p>
-                            <div className="row mt" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
-                              <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
-                              <span className="muted" style={{ fontSize: 11 }}><DollarSign size={11} style={{ marginRight: 3 }} />Risk: {fmtMoney(action.estimatedCostIfSkippedUGX)}</span>
-                              {action.shortcut && <span className="pill info" style={{ fontSize: 10 }}>{action.shortcut}</span>}
-                              <span className="muted" style={{ fontSize: 10, marginLeft: 'auto' }}>{action.source.replace(/_/g, ' ')}</span>
-                            </div>
+          {hasCritical && (
+            <>
+              <div className="eyebrow mt" style={{ marginBottom: 8, color: 'var(--danger)' }}>CRITICAL — NEEDS ATTENTION</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {urgentActions.map((action) => {
+                  const SIcon = CATEGORY_ICONS[action.category.toLowerCase()] || ClipboardList;
+                  const tone = severityTone[action.severity] || 'danger';
+                  return (
+                    <div key={action.id} className="card" style={{ padding: 14, borderLeft: `4px solid ${tone === 'danger' ? 'var(--danger)' : tone === 'warn' ? 'var(--warn)' : 'var(--info)'}` }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <div style={{ marginTop: 1, color: tone === 'danger' ? 'var(--danger)' : tone === 'warn' ? 'var(--warn)' : 'var(--info)' }}><Zap size={16} /></div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2, alignItems: 'center' }}>
+                            <b style={{ fontSize: 14 }}>{action.title}</b>
+                            <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
+                            {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-                            {!isDone ? (
-                              <button className="btn sm" onClick={() => completeAction(action)}>
-                                <CheckCircle2 size={13} /> Done
-                              </button>
-                            ) : (
-                              <span className="pill ok" style={{ fontSize: 10 }}><CheckCircle2 size={11} /> Done</span>
-                            )}
+                          <p className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{action.reason}</p>
+                          <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
+                            <span className="muted" style={{ fontSize: 11 }}><DollarSign size={11} style={{ marginRight: 3 }} />Risk: {fmtMoney(action.estimatedCostIfSkippedUGX)}</span>
                           </div>
                         </div>
+                        <div style={{ flexShrink: 0 }}>
+                          <button className="btn sm" onClick={() => completeAction(action)}><CheckCircle2 size={13} /> Done</button>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
+                {(alertList || []).slice(0, 5).map((alert: any) => (
+                  <div key={alert.id} className="card" style={{ padding: 14, borderLeft: `4px solid ${alert.tone === 'danger' ? 'var(--danger)' : alert.tone === 'warn' ? 'var(--warn)' : 'var(--info)'}` }}>
+                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <Bell size={16} color={alert.tone === 'danger' ? 'var(--danger)' : alert.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <b style={{ fontSize: 14 }}>{alert.title}</b>
+                        <p className="muted" style={{ fontSize: 12, margin: 0 }}>{alert.body}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {overdueTasks.map((task: any) => (
+                  <div key={task.id} className="card" style={{ padding: 14, borderLeft: '4px solid var(--warn)' }}>
+                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <Clock size={16} color="var(--warn)" />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <b style={{ fontSize: 14 }}>{task.title}</b>
+                        <p className="muted" style={{ fontSize: 12, margin: 0 }}>Due {task.due_date} · {task.priority}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {data.herdPulse.sick > 0 && (
+                  <div className="card" style={{ padding: 14, borderLeft: '4px solid var(--danger)' }}>
+                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <Activity size={16} color="var(--danger)" />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <b style={{ fontSize: 14 }}>{data.herdPulse.sick} animal{data.herdPulse.sick === 1 ? '' : 's'} sick</b>
+                        <p className="muted" style={{ fontSize: 12, margin: 0 }}>{data.herdPulse.sickCodes.join(', ')}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            );
-          })}
+            </>
+          )}
 
-          {!pendingCount && !loading && (
-            <div className="card mt" style={{ padding: 40, textAlign: 'center' }}>
-              <CheckCircle2 size={36} style={{ color: 'var(--ok)', marginBottom: 10 }} />
-              <h3 style={{ marginBottom: 6 }}>All clear</h3>
-              <p className="muted" style={{ maxWidth: 400, margin: '0 auto' }}>No critical pending actions right now. The AI will alert you when something needs attention.</p>
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>IMPORTANT — TODAY'S PRIORITIES</div>
+          <div className="four mt">
+            <Kpi icon={<Milk size={18} />} label="Milk today" value={<AnimatedCounter value={summary?.milkToday ?? 0} suffix=" L" />} delta="Production" />
+            <Kpi icon={<Heart size={18} />} label="Pregnant" value={<AnimatedCounter value={summary?.pregnantCows ?? 0} />} delta={data.herdPulse.calvingToday > 0 ? `${data.herdPulse.calvingToday} calving today` : 'healthy cycle'} />
+            <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={<AnimatedCounter value={summary?.upcomingVacc ?? 0} />} delta="next 7 days" tone={(summary?.upcomingVacc ?? 0) > 0 ? 'down' : 'up'} />
+            <Kpi icon={<Wheat size={18} />} label="Feed stock" value={<AnimatedCounter value={summary?.feedStock ?? 0} suffix=" kg" />} delta="12 days left" />
+          </div>
+
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>TODAY'S TASKS</div>
+          {todayActions.length === 0 ? (
+            <div className="card mt" style={{ padding: 16, textAlign: 'center' }}>
+              <CheckCircle2 size={24} color="var(--primary)" style={{ marginBottom: 6 }} />
+              <p className="muted" style={{ fontSize: 13, margin: 0 }}>All caught up. No actions scheduled for right now.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {todayActions.slice(0, 6).map((action) => {
+                const isDone = completedIds.has(action.id);
+                const SIcon = CATEGORY_ICONS[action.category.toLowerCase()] || ClipboardList;
+                return (
+                  <div key={action.id} className={`card ${isDone ? 'reveal' : ''}`} style={{ padding: 14, borderLeft: `4px solid var(--warn)`, opacity: isDone ? 0.6 : 1 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      <div style={{ marginTop: 1, color: 'var(--warn)' }}><SIcon size={16} /></div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2, alignItems: 'center' }}>
+                          <b style={{ fontSize: 14, textDecoration: isDone ? 'line-through' : 'none' }}>{action.title}</b>
+                          <span className={`pill ${severityTone[action.severity] || 'info'}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
+                          {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
+                        </div>
+                        <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+                          <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
+                          <span className="muted" style={{ fontSize: 11 }}><DollarSign size={11} style={{ marginRight: 3 }} />Risk: {fmtMoney(action.estimatedCostIfSkippedUGX)}</span>
+                        </div>
+                      </div>
+                      <div style={{ flexShrink: 0 }}>
+                        {!isDone ? (
+                          <button className="btn sm" onClick={() => completeAction(action)}><CheckCircle2 size={13} /> Done</button>
+                        ) : (
+                          <span className="pill ok" style={{ fontSize: 10 }}><CheckCircle2 size={11} /> Done</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>PRODUCTION</div>
+          <div className="eyebrow mt" style={{ marginBottom: 8 }}>INFORMATION</div>
           <div className="card mt" style={{ padding: '12px 16px' }}>
-            <div className="row" style={{ gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <div className="row" style={{ gap: 6 }}><Activity size={14} /><b style={{ fontSize: 13 }}>Herd pulse</b></div>
               <span className="pill info" style={{ fontSize: 10 }}>{data.herdPulse.total} total</span>
               <span className="pill ok" style={{ fontSize: 10 }}>{data.herdPulse.milking} milking</span>
@@ -287,6 +367,8 @@ export function CommandCenter() {
               <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)', fontSize: 10 }}>{pendingCount} pending · {criticalPending} critical</span>
             </div>
           </div>
+
+          <FarmSetupChecklist farmId={farmId} />
         </>
       )}
     </div>
