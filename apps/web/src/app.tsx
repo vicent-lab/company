@@ -7,12 +7,13 @@ import { useAsync } from './ui';
 import { isLive, ApiError } from './api';
 import { loadFarms, forgotPassword, getCaptcha, requestPhoneOtp, notifications } from './data';
 import { useAuth, LoginResult } from './auth';
+import { QuickActions, QuickAction } from './components/QuickActions';
 import {
   LayoutDashboard, Beef, MapPin, Activity, Bot, Bell, TrendingUp, BarChart3, DollarSign,
   CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Sun, Moon, Contrast,
   ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical, Sparkles, Calendar, Gauge, Settings as SettingsIcon, Crown,
   Phone, KeyRound, ShieldAlert, Brain, Menu, X, Home, Milk, HeartPulse, Package, Wrench,
-  ChevronRight, Plus,
+  ChevronRight, Plus, Baby, Heart, Pill, Wheat,
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import { useToast } from './ui';
@@ -342,7 +343,6 @@ export function AppShell() {
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
-  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const { data: farms } = useAsync(loadFarms, [user?.id, user?.farmId]);
   const farmList = farms && farms.length ? farms : FARMS;
   const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
@@ -406,6 +406,19 @@ export function AppShell() {
     { key: 'map', route: 'map', icon: MapPin, label: 'Map', routes: ['map', 'gallery'] },
     { key: 'ai', route: 'ai-advisor', icon: Sparkles, label: 'AI', routes: ['ai-advisor', 'ai', 'predict', 'farm-score', 'alerts'] },
     { key: 'more', route: null, icon: Menu, label: 'More', routes: [] },
+  ];
+
+  const quickActions: QuickAction[] = [
+    { key: 'cows', label: 'Add Animal', icon: Beef, route: '/app/cows', description: 'Register a new cow' },
+    { key: 'milk', label: 'Record Milk', icon: Milk, route: '/app/management', description: 'Log milk production' },
+    { key: 'health', label: 'Record Health', icon: Activity, route: '/app/health', description: 'Add health record' },
+    { key: 'breeding', label: 'Record Breeding', icon: FlaskConical, route: '/app/breeding', description: 'Log heat detection' },
+    { key: 'pregnancy', label: 'Record Pregnancy', icon: Heart, route: '/app/breeding', description: 'Record pregnancy check' },
+    { key: 'calving', label: 'Record Calving', icon: Baby, route: '/app/breeding', description: 'Log calving event' },
+    { key: 'feed', label: 'Add Feed', icon: Wheat, route: '/app/management', description: 'Record feed intake' },
+    { key: 'inventory', label: 'Add Inventory', icon: Pill, route: '/app/health', description: 'Add medicine inventory' },
+    { key: 'finance', label: 'Finances', icon: DollarSign, route: '/app/finance', description: 'View finances' },
+    { key: 'tasks', label: 'Add Task', icon: ClipboardList, route: '/app/tasks', description: 'Create new task' },
   ];
 
   const moreNavGroups = [
@@ -712,6 +725,8 @@ export function AppShell() {
 
             <ThemeToggle theme={theme} setTheme={setTheme} />
 
+            <QuickActions actions={quickActions} onSelect={(route) => navigate(route)} triggerLabel="Quick Actions" isMobile={false} />
+
             <div className="menu">
               <button className="btn ghost sm" style={{ position: 'relative' }} onClick={() => setBell((v) => !v)}>
                 <Bell size={16} /> <span className="badge-dot" style={{ position: 'absolute', top: -4, right: -4 }}>{notificationsList.filter((n: any) => !n.read_at).length}</span>
@@ -746,27 +761,7 @@ export function AppShell() {
         </div>
         {(isMobile || isTablet) && (
           <>
-            <button className="fab fab-quick" onClick={() => setQuickActionsOpen((v) => !v)}>
-              <Plus size={22} />
-            </button>
-            {quickActionsOpen && (
-              <div className="more-drawer-backdrop" onClick={() => setQuickActionsOpen(false)}>
-                <div className="more-drawer" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '50vh' }}>
-                  <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-                    <b>Quick Actions</b>
-                    <button className="btn ghost sm" onClick={() => setQuickActionsOpen(false)}><X size={18} /></button>
-                  </div>
-                  <div style={{ padding: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <button className="btn sm" onClick={() => { go('cows'); setQuickActionsOpen(false); }}><Beef size={16} /> Add Animal</button>
-                    <button className="btn sm" onClick={() => { go('management'); setQuickActionsOpen(false); }}><Milk size={16} /> Record Milk</button>
-                    <button className="btn sm" onClick={() => { go('health'); setQuickActionsOpen(false); }}><HeartPulse size={16} /> Record Health</button>
-                    <button className="btn sm" onClick={() => { go('breeding'); setQuickActionsOpen(false); }}><FlaskConical size={16} /> Record Breeding</button>
-                    <button className="btn sm" onClick={() => { go('tasks'); setQuickActionsOpen(false); }}><ClipboardList size={16} /> Add Task</button>
-                    <button className="btn sm ghost" onClick={() => { go('team'); setQuickActionsOpen(false); }}><Users size={16} /> Add Employee</button>
-                  </div>
-                </div>
-              </div>
-            )}
+            <QuickActions actions={quickActions} onSelect={(route) => navigate(route)} triggerLabel="Quick Actions" isMobile={true} onClose={() => {}} />
             <button className="fab fab-menu" onClick={() => setMoreDrawerOpen((v) => !v)}>
               <Menu size={22} />
             </button>
