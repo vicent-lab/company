@@ -77,3 +77,41 @@ All protected routes require `Authorization: Bearer <token>`. List endpoints sup
 The schema includes normalized foundations for feeding, breeding, veterinary, calves, finance,
 employees, inventory, sales, notifications, and audit logs. Build their controllers and screens
 in the order set out in the supplied brief after validating the authentication/cow/milk workflow.
+
+## Deployment
+
+This project is designed to deploy as a single full-stack application.
+
+### Vercel
+
+A root `vercel.json` is included. Recommended Vercel project settings:
+
+- **Root Directory**: `/` (repo root)
+- **Build Command**: `npm run build`
+- **Output Directory**: `apps/web/dist`
+- **Install Command**: `npm install`
+
+The server (`apps/server/src/index.ts`) serves the built web app from `apps/web/dist` when
+available, and falls back to the JSON API when running without the frontend build.
+
+### Docker Compose (local)
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open `http://localhost:5173`. The API runs at `http://localhost:4000/api/v1`.
+
+## Responsive design
+
+The frontend supports desktop, tablet, and mobile:
+
+- Desktop: left sidebar navigation
+- Tablet/Mobile: bottom navigation, hamburger drawer, responsive tables, full-screen modals,
+  touch-optimized controls, and PWA install support.
+
+## Seeded accounts
+
+`admin@greenfield.test`, `manager@greenfield.test`, `admin@sunrise.test`, `manager@highland.test`
+(password: `ChangeMe123!`). Change these immediately outside development.
