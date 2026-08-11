@@ -12,6 +12,7 @@ import {
   CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Sun, Moon, Contrast,
   ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical, Sparkles, Calendar, Gauge, Settings as SettingsIcon, Crown,
   Phone, KeyRound, ShieldAlert, Brain, Menu, X, Home, Milk, HeartPulse, Package, Wrench,
+  ChevronRight,
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import { useToast } from './ui';
@@ -42,32 +43,89 @@ interface FarmCtx { farmId: string; farmName: string; setFarmId: (id: string) =>
 const FCtx = createContext<FarmCtx>({ farmId: 'f1', farmName: '', setFarmId: () => {} });
 export const useFarm = () => useContext(FCtx);
 
-const NAV = [
-  { key: 'command-center', icon: Gauge, label: 'Command Center' },
-  { key: 'dashboard', icon: LayoutDashboard, label: 'Overview' },
-  { key: 'ai-advisor', icon: Sparkles, label: 'AI Advisor' },
-  { key: 'farm-score', icon: Gauge, label: 'Farm Score' },
-  { key: 'cows', icon: Beef, label: 'Herd' },
-  { key: 'map', icon: MapPin, label: 'Farm map' },
-  { key: 'ai', icon: Bot, label: 'AI assistant' },
-  { key: 'alerts', icon: Bell, label: 'Alerts', badge: NOTIFICATIONS.length },
-  { key: 'predict', icon: TrendingUp, label: 'Predictions' },
-  { key: 'analytics', icon: BarChart3, label: 'Analytics' },
-  { key: 'finance', icon: DollarSign, label: 'Finance' },
-  { key: 'weather', icon: CloudSun, label: 'Weather' },
-  { key: 'sustainability', icon: Leaf, label: 'Sustainability' },
-  { key: 'gallery', icon: Images, label: 'Gallery' },
-  { key: 'customers', icon: Users, label: 'Customers' },
-  { key: 'team', icon: Users, label: 'Team' },
-  { key: 'tasks', icon: ClipboardList, label: 'Tasks' },
-  { key: 'schedule', icon: Calendar, label: 'Schedule' },
-  { key: 'management', icon: ClipboardList, label: 'Management' },
-  { key: 'search', icon: Search, label: 'Search' },
-  { key: 'gamification', icon: Trophy, label: 'Goals' },
-  { key: 'breeding', icon: FlaskConical, label: 'Breeding' },
-  { key: 'health', icon: Activity, label: 'Health' },
-  { key: 'settings', icon: SettingsIcon, label: 'Settings' },
+interface NavItem {
+  key: string;
+  icon: any;
+  label: string;
+  badge?: number;
+}
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Main',
+    items: [
+      { key: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { key: 'command-center', icon: Gauge, label: 'Command Center' },
+    ],
+  },
+  {
+    label: 'Farm',
+    items: [
+      { key: 'map', icon: MapPin, label: 'Farm Map' },
+      { key: 'weather', icon: CloudSun, label: 'Weather' },
+    ],
+  },
+  {
+    label: 'Animals',
+    items: [
+      { key: 'cows', icon: Beef, label: 'Herd' },
+    ],
+  },
+  {
+    label: 'Breeding',
+    items: [
+      { key: 'breeding', icon: FlaskConical, label: 'Breeding' },
+    ],
+  },
+  {
+    label: 'Production',
+    items: [
+      { key: 'management', icon: ClipboardList, label: 'Milk & Feed' },
+      { key: 'analytics', icon: BarChart3, label: 'Analytics' },
+    ],
+  },
+  {
+    label: 'Health',
+    items: [
+      { key: 'health', icon: Activity, label: 'Health' },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { key: 'team', icon: Users, label: 'Team' },
+      { key: 'tasks', icon: ClipboardList, label: 'Tasks' },
+      { key: 'schedule', icon: Calendar, label: 'Schedule' },
+    ],
+  },
+  {
+    label: 'Business',
+    items: [
+      { key: 'finance', icon: DollarSign, label: 'Finance' },
+      { key: 'customers', icon: Users, label: 'Customers' },
+    ],
+  },
+  {
+    label: 'AI',
+    items: [
+      { key: 'ai-advisor', icon: Sparkles, label: 'AI Advisor' },
+      { key: 'predict', icon: TrendingUp, label: 'Predictions' },
+      { key: 'farm-score', icon: Gauge, label: 'Farm Score' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { key: 'settings', icon: SettingsIcon, label: 'Settings' },
+    ],
+  },
 ];
+
+const NAV = NAV_GROUPS.flatMap((g) => g.items);
 
 import { usePlan } from './planGuard';
 import { PlanProvider, PLAN_FEATURES } from './plans';
@@ -329,29 +387,35 @@ export function AppShell() {
     }
   };
 
-  const sub = route.segments[1] || 'command-center';
+  const sub = route.segments[1] || 'dashboard';
 
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
   const isTablet = typeof window !== 'undefined' && window.matchMedia('(max-width: 1440px) and (min-width: 720px)').matches;
 
   const mobileNavItems = [
-    { key: 'command-center', icon: Home, label: 'Home' },
+    { key: 'dashboard', icon: Home, label: 'Home' },
     { key: 'cows', icon: Beef, label: 'Animals' },
     { key: 'map', icon: MapPin, label: 'Map' },
     { key: 'ai-advisor', icon: Bot, label: 'AI' },
   ];
 
   const moreNavGroups = [
-    { label: 'Farm', items: NAV },
-    { label: 'System', items: [{ key: 'settings', icon: SettingsIcon, label: 'Settings' }, ...(user?.isSuperAdmin ? [{ key: 'platform-admin', icon: Crown, label: 'Platform Admin' }] : [])] },
+    { label: 'Farm', items: NAV_GROUPS.find(g => g.label === 'Farm')?.items || [] },
+    { label: 'Animals & Breeding', items: [...(NAV_GROUPS.find(g => g.label === 'Animals')?.items || []), ...(NAV_GROUPS.find(g => g.label === 'Breeding')?.items || [])] },
+    { label: 'Production', items: [...(NAV_GROUPS.find(g => g.label === 'Production')?.items || []), ...(NAV_GROUPS.find(g => g.label === 'Health')?.items || [])] },
+    { label: 'Operations', items: NAV_GROUPS.find(g => g.label === 'Operations')?.items || [] },
+    { label: 'Business', items: [...(NAV_GROUPS.find(g => g.label === 'Business')?.items || []), ...(NAV_GROUPS.find(g => g.label === 'AI')?.items || [])] },
+    { label: 'System', items: [...(NAV_GROUPS.find(g => g.label === 'System')?.items || []), ...(user?.isSuperAdmin ? [{ key: 'platform-admin', icon: Crown, label: 'Platform Admin' }] : [])] },
   ];
 
   const go = (k: string) => {
     const featureMap: Record<string, string> = {
-      'command-center': 'command-center', dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai', 'ai-advisor': 'ai-advisor',
-      alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
-      weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
-      customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
+      'dashboard': 'dashboard', 'command-center': 'command-center', cows: 'cows', cow: 'cow', map: 'map',
+      'ai': 'ai', 'ai-advisor': 'ai-advisor', alerts: 'alerts', predict: 'predict', analytics: 'analytics',
+      'finance': 'finance', weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
+      'customers': 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search',
+      'gamification': 'gamification', management: 'management', breeding: 'breeding', health: 'health',
+      settings: 'settings', 'farm-score': 'farm-score',
     };
     const feature = featureMap[k];
     if (feature && !canAccess(feature)) {
@@ -448,15 +512,23 @@ export function AppShell() {
                 <button className="btn ghost sm" onClick={() => setMobileMenuOpen(false)}><X size={18} /></button>
               </div>
               <nav style={{ padding: 10 }}>
-                {NAV.map((n) => (
-                  <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
-                    <n.icon size={18} /> {n.label}
-                  </button>
+                {NAV_GROUPS.map((group) => (
+                  <div key={group.label} style={{ marginBottom: 8 }}>
+                    <div style={{ padding: '4px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, color: 'var(--text-soft)', fontWeight: 700 }}>{group.label}</div>
+                    {group.items.map((n) => (
+                      <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
+                        <n.icon size={18} /> {n.label}
+                      </button>
+                    ))}
+                  </div>
                 ))}
                 {user?.isSuperAdmin && (
-                  <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => { navigate('/app/platform-admin'); setMobileMenuOpen(false); }}>
-                    <Crown size={18} /> Platform Admin
-                  </button>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ padding: '4px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, color: 'var(--text-soft)', fontWeight: 700 }}>System</div>
+                    <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => { navigate('/app/platform-admin'); setMobileMenuOpen(false); }}>
+                      <Crown size={18} /> Platform Admin
+                    </button>
+                  </div>
                 )}
                 <button className="nav-item" onClick={() => { navigate('/'); setMobileMenuOpen(false); }}>
                   <LogOut size={18} /> View website
@@ -470,11 +542,16 @@ export function AppShell() {
             <img className="logo" src={logoImg} alt="DairyOS" />
             <div><b>DairyOS</b><small>SMART DAIRY</small></div>
           </div>
-          {NAV.map((n) => (
-            <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
-              <n.icon size={18} /> {n.label}
-              {n.badge && <span className="badge-dot">{n.badge}</span>}
-            </button>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} style={{ marginBottom: 6 }}>
+              <div style={{ padding: '6px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, color: 'var(--text-soft)', fontWeight: 700 }}>{group.label}</div>
+              {group.items.map((n) => (
+                <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
+                  <n.icon size={18} /> {n.label}
+                  {n.badge && <span className="badge-dot">{n.badge}</span>}
+                </button>
+              ))}
+            </div>
           ))}
           {user?.isSuperAdmin && (
             <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => navigate('/app/platform-admin')}>
