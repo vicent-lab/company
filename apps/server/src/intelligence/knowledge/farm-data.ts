@@ -71,7 +71,7 @@ export interface BreedingRecord {
   id: string;
   cow_id: string;
   method: string;
-  serviced_on: string;
+  breeding_date: string;
   expected_calving_on: string | null;
   result: string | null;
   cow_code?: string;
@@ -220,7 +220,7 @@ export class FarmKnowledgeEngine {
       query(`SELECT recorded_on, health_status, body_condition_score, lameness_score, ai_detected_disease, notes FROM health_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY recorded_on DESC LIMIT 20`, [this.farmId, cowId]),
       query(`SELECT t.diagnosed_on, t.disease, t.treatment_type, t.medicine_name, t.dosage, t.veterinarian_name, t.notes FROM treatments t WHERE t.farm_id=$1 AND t.cow_id=$2 ORDER BY t.diagnosed_on DESC LIMIT 20`, [this.farmId, cowId]),
       query(`SELECT vaccine_name, administered_on, due_on, status FROM vaccinations WHERE farm_id=$1 AND cow_id=$2 ORDER BY due_on DESC LIMIT 20`, [this.farmId, cowId]),
-      query(`SELECT method, serviced_on, expected_calving_on, result FROM breeding_records WHERE cow_id=$1 ORDER BY serviced_on DESC LIMIT 10`, [this.farmId, cowId]),
+      query(`SELECT method, breeding_date, expected_calving_on, result FROM breeding_records WHERE cow_id=$1 ORDER BY breeding_date DESC LIMIT 10`, [this.farmId, cowId]),
       query(`SELECT calved_on, calf_id, complications, notes FROM calving_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY calved_on DESC LIMIT 10`, [this.farmId, cowId]),
     ]);
     return { milk: milk.rows, health: health.rows, treatments: treatments.rows, vaccinations: vaccinations.rows, breeding: breeding.rows, calving: calving.rows };

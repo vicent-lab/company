@@ -117,7 +117,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
      FROM treatments t LEFT JOIN diseases d ON d.id = t.disease_id
      WHERE t.cow_id=$1 ORDER BY t.diagnosed_on DESC`, [req.params.id]
   );
-  const breed = await query(`SELECT id, method, serviced_on, expected_calving_on, result FROM breeding_records WHERE cow_id=$1 ORDER BY serviced_on DESC`, [req.params.id]);
+  const breed = await query(`SELECT id, method, breeding_date, expected_calving_on, result, sire_id, technician FROM breeding_records WHERE cow_id=$1 ORDER BY breeding_date DESC`, [req.params.id]);
   const feed = await query(`SELECT id, feed_type_id, consumed_on, quantity FROM feed_consumption WHERE cow_id=$1 ORDER BY consumed_on DESC LIMIT 10`, [req.params.id]);
   res.json({ ...rows[0], milk: milk.rows, vaccinations: vacc.rows, treatments: treat.rows, breedings: breed.rows, feed: feed.rows });
 }));
