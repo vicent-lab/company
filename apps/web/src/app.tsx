@@ -49,6 +49,13 @@ interface NavItem {
   label: string;
   badge?: number;
 }
+interface MobileNavItem {
+  key: string;
+  route: string | null;
+  icon: any;
+  label: string;
+  routes: string[];
+}
 interface NavGroup {
   label: string;
   items: NavItem[];
@@ -393,20 +400,86 @@ export function AppShell() {
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
   const isTablet = typeof window !== 'undefined' && window.matchMedia('(max-width: 1440px) and (min-width: 720px)').matches;
 
-  const mobileNavItems = [
-    { key: 'dashboard', icon: Home, label: 'Home' },
-    { key: 'cows', icon: Beef, label: 'Animals' },
-    { key: 'map', icon: MapPin, label: 'Map' },
-    { key: 'ai-advisor', icon: Bot, label: 'AI' },
+  const mobileNavItems: MobileNavItem[] = [
+    { key: 'home', route: 'dashboard', icon: Home, label: 'Home', routes: ['dashboard', 'command-center'] },
+    { key: 'animals', route: 'cows', icon: Beef, label: 'Animals', routes: ['cows', 'cow'] },
+    { key: 'map', route: 'map', icon: MapPin, label: 'Map', routes: ['map', 'gallery'] },
+    { key: 'ai', route: 'ai-advisor', icon: Sparkles, label: 'AI', routes: ['ai-advisor', 'ai', 'predict', 'farm-score', 'alerts'] },
+    { key: 'more', route: null, icon: Menu, label: 'More', routes: [] },
   ];
 
   const moreNavGroups = [
-    { label: 'Farm', items: NAV_GROUPS.find(g => g.label === 'Farm')?.items || [] },
-    { label: 'Animals & Breeding', items: [...(NAV_GROUPS.find(g => g.label === 'Animals')?.items || []), ...(NAV_GROUPS.find(g => g.label === 'Breeding')?.items || [])] },
-    { label: 'Production', items: [...(NAV_GROUPS.find(g => g.label === 'Production')?.items || []), ...(NAV_GROUPS.find(g => g.label === 'Health')?.items || [])] },
-    { label: 'Operations', items: NAV_GROUPS.find(g => g.label === 'Operations')?.items || [] },
-    { label: 'Business', items: [...(NAV_GROUPS.find(g => g.label === 'Business')?.items || []), ...(NAV_GROUPS.find(g => g.label === 'AI')?.items || [])] },
-    { label: 'System', items: [...(NAV_GROUPS.find(g => g.label === 'System')?.items || []), ...(user?.isSuperAdmin ? [{ key: 'platform-admin', icon: Crown, label: 'Platform Admin' }] : [])] },
+    {
+      label: 'Farm',
+      items: [
+        { key: 'map', icon: MapPin, label: 'Farm Map' },
+        { key: 'weather', icon: CloudSun, label: 'Weather' },
+        { key: 'gallery', icon: Images, label: 'Gallery' },
+      ],
+    },
+    {
+      label: 'Animals',
+      items: [
+        { key: 'cows', icon: Beef, label: 'Herd' },
+      ],
+    },
+    {
+      label: 'Breeding',
+      items: [
+        { key: 'breeding', icon: FlaskConical, label: 'Breeding' },
+      ],
+    },
+    {
+      label: 'Health',
+      items: [
+        { key: 'health', icon: Activity, label: 'Health' },
+      ],
+    },
+    {
+      label: 'Production',
+      items: [
+        { key: 'management', icon: Milk, label: 'Milk & Feed' },
+        { key: 'analytics', icon: BarChart3, label: 'Analytics' },
+      ],
+    },
+    {
+      label: 'Team & Tasks',
+      items: [
+        { key: 'team', icon: Users, label: 'Team' },
+        { key: 'tasks', icon: ClipboardList, label: 'Tasks' },
+        { key: 'schedule', icon: Calendar, label: 'Schedule' },
+      ],
+    },
+    {
+      label: 'Business',
+      items: [
+        { key: 'finance', icon: DollarSign, label: 'Finance' },
+        { key: 'customers', icon: Users, label: 'Customers' },
+      ],
+    },
+    {
+      label: 'Intelligence',
+      items: [
+        { key: 'ai-advisor', icon: Sparkles, label: 'AI Advisor' },
+        { key: 'predict', icon: TrendingUp, label: 'Predictions' },
+        { key: 'farm-score', icon: Gauge, label: 'Farm Score' },
+        { key: 'sustainability', icon: Leaf, label: 'Sustainability' },
+      ],
+    },
+    {
+      label: 'Tools',
+      items: [
+        { key: 'search', icon: Search, label: 'Advanced Search' },
+        { key: 'gamification', icon: Trophy, label: 'Gamification' },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { key: 'settings', icon: SettingsIcon, label: 'Settings' },
+        ...(user?.isSuperAdmin ? [{ key: 'platform-admin', icon: Crown, label: 'Platform Admin' }] : []),
+      ],
+    },
   ];
 
   const go = (k: string) => {
@@ -697,38 +770,50 @@ export function AppShell() {
             <button className="fab fab-menu" onClick={() => setMoreDrawerOpen((v) => !v)}>
               <Menu size={22} />
             </button>
-            <nav className="bottom-nav">
+            <nav className="bottom-nav" role="navigation" aria-label="Main">
               {mobileNavItems.map((item) => {
                 const Icon = item.icon;
-                const active = sub === item.key;
+                const active = item.routes.includes(sub);
                 return (
-                  <button key={item.key} className={`bottom-nav-item ${active ? 'active' : ''}`} onClick={() => go(item.key)}>
-                    <Icon size={20} />
+                  <button
+                    key={item.key}
+                    className={`bottom-nav-item ${active ? 'active' : ''}`}
+                    onClick={() => item.route ? go(item.route) : setMoreDrawerOpen((v) => !v)}
+                    aria-label={item.label}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    <Icon size={22} />
                     <span>{item.label}</span>
                   </button>
                 );
               })}
-              <button className={`bottom-nav-item ${moreDrawerOpen ? 'active' : ''}`} onClick={() => setMoreDrawerOpen((v) => !v)}>
-                <Menu size={20} />
-                <span>More</span>
-              </button>
             </nav>
             {moreDrawerOpen && (
               <div className="more-drawer-backdrop" onClick={() => setMoreDrawerOpen(false)}>
                 <div className="more-drawer" onClick={(e) => e.stopPropagation()}>
-                  <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                  <div className="more-drawer-header">
                     <b>More</b>
-                    <button className="btn ghost sm" onClick={() => setMoreDrawerOpen(false)}><X size={18} /></button>
+                    <button className="btn ghost sm" onClick={() => setMoreDrawerOpen(false)} aria-label="Close menu"><X size={18} /></button>
                   </div>
-                  <div style={{ padding: 10, maxHeight: '60vh', overflow: 'auto' }}>
+                  <div className="more-drawer-body">
                     {moreNavGroups.map((group) => (
-                      <div key={group.label} style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-soft)', fontWeight: 700, padding: '4px 12px' }}>{group.label}</div>
-                        {group.items.map((n) => (
-                          <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
-                            <n.icon size={18} /> {n.label}
-                          </button>
-                        ))}
+                      <div key={group.label} className="more-drawer-group">
+                        <div className="more-drawer-group-label">{group.label}</div>
+                        {group.items.map((n) => {
+                          const Icon = n.icon;
+                          const active = sub === n.key;
+                          return (
+                            <button
+                              key={n.key}
+                              className={`more-drawer-item ${active ? 'active' : ''}`}
+                              onClick={() => go(n.key)}
+                              aria-current={active ? 'page' : undefined}
+                            >
+                              <span className="nav-item-icon"><Icon size={18} /></span>
+                              {n.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     ))}
                   </div>
