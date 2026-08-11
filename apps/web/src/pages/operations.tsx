@@ -879,8 +879,8 @@ export function FarmMap() {
         } />
 
       {editMode && (
-        <div className="card mb" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <div className="card mb map-toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <div className="row map-toolbar" style={{ gap: 6, flexWrap: 'nowrap' }}>
             <button className={`btn sm ${editTool === 'select' ? '' : 'ghost'}`} onClick={() => setEditTool('select')}><MousePointer2 size={14} /> Select</button>
             <button className={`btn sm ${editTool === 'move' ? '' : 'ghost'}`} onClick={() => setEditTool('move')}><MoveIcon size={14} /> Move</button>
             <button className={`btn sm ${editTool === 'draw-area' ? '' : 'ghost'}`} onClick={() => { setEditTool('draw-area'); setDrawPoints([]); }}><Square size={14} /> Draw Area</button>
@@ -897,14 +897,14 @@ export function FarmMap() {
             <button className={`btn sm ${editTool === 'add-equipment-area' ? '' : 'ghost'}`} onClick={() => setEditTool('add-equipment-area')}><Wrench size={14} /> Add Equipment Area</button>
             <button className={`btn sm ${editTool === 'add-custom' ? '' : 'ghost'}`} onClick={() => setEditTool('add-custom')}><Plus size={14} /> Add Custom</button>
             <button className={`btn sm ${editTool === 'delete' ? '' : 'ghost'}`} onClick={() => setEditTool('delete')}><Trash2 size={14} /> Delete</button>
-            <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+            <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px', flex: '0 0 auto' }} />
             <button className={`btn sm ghost`} onClick={handleUndo} disabled={!undoLog.length}><Undo2 size={14} /> Undo</button>
             <button className={`btn sm ghost`} onClick={handleRedo}><Redo2 size={14} /> Redo</button>
             <button className={`btn sm ghost`} onClick={() => setShowSaveConfirm(true)}><Save size={14} /> Save</button>
             <button className={`btn sm`} onClick={() => setShowPublishConfirm(true)}>Publish</button>
           </div>
           {drawPoints.length > 0 && (
-            <div className="row" style={{ gap: 6 }}>
+            <div className="row" style={{ gap: 6, flex: '0 0 auto' }}>
               <span className="muted" style={{ fontSize: 12 }}>{drawPoints.length} points drawn</span>
               <button className="btn sm ghost" onClick={finishDrawing}>Finish</button>
               <button className="btn sm ghost" onClick={() => setDrawPoints([])}>Cancel</button>
@@ -1329,16 +1329,16 @@ export function FarmMap() {
          )}
        </Modal>}
 
-      <div className="card mb" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-          <span className="muted" style={{ fontSize: 12, marginRight: 4 }}>Map style</span>
+      <div className="card mb map-toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <div className="row map-toolbar" style={{ gap: 6, flexWrap: 'nowrap' }}>
+          <span className="muted" style={{ fontSize: 12, marginRight: 4, flex: '0 0 auto' }}>Map style</span>
           <button className={`btn sm ${mapStyle === 'farm-layout' ? '' : 'ghost'}`} onClick={() => setMapStyle('farm-layout')}><MapPin size={14} /> Farm Layout</button>
           <button className={`btn sm ${mapStyle === 'standard' ? '' : 'ghost'}`} onClick={() => setMapStyle('standard')}><MapPin size={14} /> Standard</button>
           <button className={`btn sm ${mapStyle === 'satellite' ? '' : 'ghost'}`} onClick={() => setMapStyle('satellite')}><MapPin size={14} /> Satellite</button>
           <button className={`btn sm ${mapStyle === 'hybrid' ? '' : 'ghost'}`} onClick={() => setMapStyle('hybrid')}><MapPin size={14} /> Hybrid</button>
           <button className={`btn sm ${mapStyle === 'terrain' ? '' : 'ghost'}`} onClick={() => setMapStyle('terrain')}><MapPin size={14} /> Terrain</button>
           <button className={`btn sm ${mapStyle === 'ai-analysis' ? '' : 'ghost'}`} onClick={() => setMapStyle('ai-analysis')}><MapPin size={14} /> AI Analysis</button>
-          <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+          <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px', flex: '0 0 auto' }} />
           {mapStyle !== 'farm-layout' && canEdit && (
             <>
               <button className={`btn sm ${measureTool === 'boundary' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'boundary' ? 'none' : 'boundary'); setDrawingPoints([]); }}><Fence size={14} /> Draw Boundary</button>
@@ -1347,7 +1347,7 @@ export function FarmMap() {
               <button className={`btn sm ${measureTool === 'area' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'area' ? 'none' : 'area'); setDrawingPoints([]); }}><Square size={14} /> Area</button>
               <button className={`btn sm ${measureTool === 'perimeter' ? '' : 'ghost'}`} onClick={() => { setMeasureTool(measureTool === 'perimeter' ? 'none' : 'perimeter'); setDrawingPoints([]); }}><Fence size={14} /> Perimeter</button>
               {drawingPoints.length > 0 && (
-                <div className="row" style={{ gap: 6 }}>
+                <div className="row" style={{ gap: 6, flex: '0 0 auto' }}>
                   <span className="muted" style={{ fontSize: 12 }}>{drawingPoints.length} points</span>
                   <button className="btn sm ghost" onClick={finishMapDrawing}>Finish</button>
                   <button className="btn sm ghost" onClick={() => setDrawingPoints([])}>Cancel</button>
@@ -1355,7 +1355,7 @@ export function FarmMap() {
               )}
             </>
           )}
-          <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+          <span style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px', flex: '0 0 auto' }} />
           <button className={`btn sm ${showLayerPanel ? '' : 'ghost'}`} onClick={() => setShowLayerPanel((p) => !p)}><Filter size={14} /> Layers</button>
           <button className={`btn sm ghost`} onClick={() => { setAiQuery((q) => q ? '' : 'Ask about your farm map...'); setAiResult(null); }}><Search size={14} /> AI Map</button>
         </div>
