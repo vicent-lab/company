@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Beef, MapPin, Activity, Bot, Bell, TrendingUp, BarChart3, DollarSign,
   CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Sun, Moon, Contrast,
   ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical, Sparkles, Calendar, Gauge, Settings as SettingsIcon, Crown,
-  Phone, KeyRound, ShieldAlert, Brain,
+  Phone, KeyRound, ShieldAlert, Brain, Menu, X, Home, Milk, HeartPulse, Package, Wrench,
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import { useToast } from './ui';
@@ -275,6 +275,8 @@ export function AppShell() {
   const [search, setSearch] = useState('');
   const [verifySkipped, setVerifySkipped] = useState(false);
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
   const { data: farms } = useAsync(loadFarms, [user?.id, user?.farmId]);
   const farmList = farms && farms.length ? farms : FARMS;
   const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
@@ -329,6 +331,21 @@ export function AppShell() {
 
   const sub = route.segments[1] || 'command-center';
 
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
+  const isTablet = typeof window !== 'undefined' && window.matchMedia('(max-width: 1440px) and (min-width: 720px)').matches;
+
+  const mobileNavItems = [
+    { key: 'command-center', icon: Home, label: 'Home' },
+    { key: 'cows', icon: Beef, label: 'Animals' },
+    { key: 'map', icon: MapPin, label: 'Map' },
+    { key: 'ai-advisor', icon: Bot, label: 'AI' },
+  ];
+
+  const moreNavGroups = [
+    { label: 'Farm', items: NAV },
+    { label: 'System', items: [{ key: 'settings', icon: SettingsIcon, label: 'Settings' }, ...(user?.isSuperAdmin ? [{ key: 'platform-admin', icon: Crown, label: 'Platform Admin' }] : [])] },
+  ];
+
   const go = (k: string) => {
     const featureMap: Record<string, string> = {
       'command-center': 'command-center', dashboard: 'dashboard', cows: 'cows', cow: 'cow', map: 'map', ai: 'ai', 'ai-advisor': 'ai-advisor',
@@ -342,6 +359,8 @@ export function AppShell() {
     } else {
       navigate('/app/' + k);
     }
+    setMobileMenuOpen(false);
+    setMoreDrawerOpen(false);
   };
 
   const farm = farmList.find((f) => f.id === farmId) || farmList[0];
@@ -409,7 +428,44 @@ export function AppShell() {
     <PlanProvider>
       <FCtx.Provider value={{ farmId, farmName: farm?.name || '', setFarmId }}>
         <div className="shell">
-        <aside className="sidebar">
+        {(isMobile || isTablet) && (
+          <div className="mobile-topbar">
+            <button className="btn ghost sm" onClick={() => setMobileMenuOpen((v) => !v)}>
+              <Menu size={20} />
+            </button>
+            <div className="brand" style={{ padding: 0 }}>
+              <img className="logo" src={logoImg} alt="DairyOS" />
+              <div><b>DairyOS</b><small>SMART DAIRY</small></div>
+            </div>
+            <div style={{ width: 32 }} />
+          </div>
+        )}
+        {(isMobile || isTablet) && mobileMenuOpen && (
+          <div className="mobile-drawer-backdrop" onClick={() => setMobileMenuOpen(false)}>
+            <div className="mobile-drawer" onClick={(e) => e.stopPropagation()}>
+              <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                <div className="brand" style={{ padding: 0 }}><img className="logo" src={logoImg} alt="DairyOS" /><div><b>DairyOS</b><small>SMART DAIRY</small></div></div>
+                <button className="btn ghost sm" onClick={() => setMobileMenuOpen(false)}><X size={18} /></button>
+              </div>
+              <nav style={{ padding: 10 }}>
+                {NAV.map((n) => (
+                  <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
+                    <n.icon size={18} /> {n.label}
+                  </button>
+                ))}
+                {user?.isSuperAdmin && (
+                  <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => { navigate('/app/platform-admin'); setMobileMenuOpen(false); }}>
+                    <Crown size={18} /> Platform Admin
+                  </button>
+                )}
+                <button className="nav-item" onClick={() => { navigate('/'); setMobileMenuOpen(false); }}>
+                  <LogOut size={18} /> View website
+                </button>
+              </nav>
+            </div>
+          </div>
+        )}
+        <aside className={`sidebar${(isMobile || isTablet) ? ' hidden' : ''}`}>
           <div className="brand">
             <img className="logo" src={logoImg} alt="DairyOS" />
             <div><b>DairyOS</b><small>SMART DAIRY</small></div>
@@ -488,6 +544,51 @@ export function AppShell() {
 
           <main className="content">{page()}</main>
         </div>
+        {(isMobile || isTablet) && (
+          <>
+            <button className="fab" onClick={() => setMoreDrawerOpen((v) => !v)}>
+              <Menu size={22} />
+            </button>
+            <nav className="bottom-nav">
+              {mobileNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = sub === item.key;
+                return (
+                  <button key={item.key} className={`bottom-nav-item ${active ? 'active' : ''}`} onClick={() => go(item.key)}>
+                    <Icon size={20} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+              <button className={`bottom-nav-item ${moreDrawerOpen ? 'active' : ''}`} onClick={() => setMoreDrawerOpen((v) => !v)}>
+                <Menu size={20} />
+                <span>More</span>
+              </button>
+            </nav>
+            {moreDrawerOpen && (
+              <div className="more-drawer-backdrop" onClick={() => setMoreDrawerOpen(false)}>
+                <div className="more-drawer" onClick={(e) => e.stopPropagation()}>
+                  <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <b>More</b>
+                    <button className="btn ghost sm" onClick={() => setMoreDrawerOpen(false)}><X size={18} /></button>
+                  </div>
+                  <div style={{ padding: 10, maxHeight: '60vh', overflow: 'auto' }}>
+                    {moreNavGroups.map((group) => (
+                      <div key={group.label} style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-soft)', fontWeight: 700, padding: '4px 12px' }}>{group.label}</div>
+                        {group.items.map((n) => (
+                          <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
+                            <n.icon size={18} /> {n.label}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
         {isLive && <OfflineBanner />}
       </div>
     </FCtx.Provider>
