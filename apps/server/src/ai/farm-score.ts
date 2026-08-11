@@ -108,8 +108,8 @@ async function scoreNutrition(farmId: string): Promise<CategoryScore> {
 
 async function scoreBreeding(farmId: string): Promise<CategoryScore> {
   const [unconfirmedRes, conceptionRes, calvingRes] = await Promise.all([
-    query(`SELECT count(*)::int AS unconfirmed FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.result IS NULL AND br.serviced_on < CURRENT_DATE - INTERVAL '45 days'`, [farmId]),
-    query(`SELECT count(*) FILTER (WHERE lower(result)='pregnant') AS pregnant, count(*) AS total FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.serviced_on >= CURRENT_DATE - INTERVAL '180 days'`, [farmId]),
+    query(`SELECT count(*)::int AS unconfirmed FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.result IS NULL AND br.breeding_date < CURRENT_DATE - INTERVAL '45 days'`, [farmId]),
+    query(`SELECT count(*) FILTER (WHERE lower(result)='pregnant') AS pregnant, count(*) AS total FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.breeding_date >= CURRENT_DATE - INTERVAL '180 days'`, [farmId]),
     query(`SELECT AVG(difficulty_score) AS avg_diff FROM calving_records WHERE farm_id=$1 AND calving_date >= CURRENT_DATE - INTERVAL '180 days'`, [farmId]),
   ]);
 
