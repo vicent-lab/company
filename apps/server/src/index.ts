@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { config } from './env.js';
 import { healthCheck } from './db/index.js';
 import { runContinuousLearningCycle } from './ai/outcome-verifier.js';
@@ -58,7 +59,6 @@ import attendanceRoutes from './routes/attendance.js';
 import payrollRoutes from './routes/payroll.js';
 import pregnanciesRoutes from './routes/pregnancies.js';
 import offspringRoutes from './routes/offspring.js';
-
 
 const app = express();
 app.use(cors());
@@ -127,6 +127,12 @@ api.use('/attendance', attendanceRoutes);
 api.use('/payroll', payrollRoutes);
 
 app.use('/api/v1', api);
+
+const webDist = path.resolve(process.cwd(), 'apps/web/dist');
+if (require('fs').existsSync(webDist)) {
+  app.use(express.static(webDist));
+  app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+}
 
 app.use(notFound);
 app.use(errorHandler);
