@@ -1,15 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { CowPhoto, QrCode, PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, chartColors, gridColor, tickColor, Modal, Progress, useToast, useAsync, Skeleton, ResponsiveTable, Column } from '../ui';
-import { listCows, getCow, createCow, updateCow, createTreatment, getPedigree, getOffspring, getAncestors } from '../data';
-import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun, Stethoscope, ChevronRight, Camera, FolderOpen } from 'lucide-react';
+import { listCows, getCow, createCow, updateCow, createTreatment, getPedigree, getOffspring, getAncestors, mapNodes } from '../data';
+import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, QrCode as QrIc, Plus, Trash2, Edit3, Save, CloudSun, Stethoscope, ChevronRight, Camera, FolderOpen, FileText, Activity as ActivityIcon } from 'lucide-react';
 import { fmt } from '../format';
-import { BREEDS } from '../mock';
+import { BREEDS, BARNS } from '../mock';
 
 const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false };
 
 const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '', photoUrl: '' };
+
+type AnimalFilter = 'all' | 'cows' | 'bulls' | 'calves' | 'groups';
 
 function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (path: string) => void; depth?: number }) {
   const [expanded, setExpanded] = useState(depth < 1);
@@ -56,20 +58,65 @@ function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (pat
   );
 }
 
+function AnimalCard({ animal, onClick }: { animal: any; onClick: () => void }) {
+  const healthTone = animal.health === 'healthy' ? 'ok' : animal.health === 'sick' ? 'danger' : 'warn';
+  const age = animal.dob ? Math.floor((Date.now() - new Date(animal.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : null;
+
+  return (
+    <div className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={onClick}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <CowPhoto name={animal.name} color={animal.color} size={48} photoUrl={animal.photoUrl} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{animal.name || animal.cowCode}</div>
+              <div className="muted" style={{ fontSize: 12 }}>{animal.breed} · {animal.cowCode}</div>
+            </div>
+            <span className={`pill ${healthTone}`} style={{ fontSize: 10, flexShrink: 0 }}>{animal.health.replace('_', ' ')}</span>
+          </div>
+          <div className="row mt" style={{ gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+            {animal.isMilking && <span className="pill info" style={{ fontSize: 10 }}>Milking</span>}
+            {animal.isPregnant && <span className="pill warn" style={{ fontSize: 10 }}>Pregnant</span>}
+            {age !== null && <span className="pill muted" style={{ fontSize: 10 }}>{age}y</span>}
+            {animal.avgDailyMilk > 0 && <span className="muted" style={{ fontSize: 11 }}>{fmt.liters(animal.avgDailyMilk)}/day</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Herd() {
   const { farmId } = useFarm();
   const [, navigate] = useHashRoute();
   const { push } = useToast();
   const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<AnimalFilter>('all');
+  const [groupFilter, setGroupFilter] = useState<string>('all');
   const [listKey, setListKey] = useState(0);
-  const { data: cows, loading } = useAsync(() => listCows(farmId, { search: q }), [farmId, q, listKey]);
+  const { data: cows, loading } = useAsync(() => listCows(farmId, { search: q, gender: filter === 'cows' ? 'female' : filter === 'bulls' ? 'male' : undefined }), [farmId, q, filter, listKey]);
+  const { data: barnsData } = useAsync(() => mapNodes(farmId), [farmId]);
+  const barns = (barnsData as any)?.barns || BARNS;
   const list = cows || [];
   const milking = list.filter((c) => c.isMilking).length;
   const pregnant = list.filter((c) => c.isPregnant).length;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
-
   const [saving, setSaving] = useState(false);
+
+  const filteredList = useMemo(() => {
+    if (filter === 'groups' && groupFilter !== 'all') {
+      return list.filter((c: any) => c.barnId === groupFilter);
+    }
+    if (filter === 'calves') {
+      return list.filter((c: any) => {
+        if (!c.dob) return false;
+        const age = (Date.now() - new Date(c.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+        return age < 1;
+      });
+    }
+    return list;
+  }, [list, filter, groupFilter]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,48 +144,74 @@ export function Herd() {
     setSaving(false);
   };
 
+  const filters: { key: AnimalFilter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'cows', label: 'Cows' },
+    { key: 'bulls', label: 'Bulls' },
+    { key: 'calves', label: 'Calves' },
+    { key: 'groups', label: 'Groups' },
+  ];
+
   return (
     <div>
-      <PageHeader eyebrow="HERD" title="Your cows" desc={`${list.length} registered · ${milking} milking`}
-        actions={<button className="btn sm" onClick={() => { setQ(''); setOpen(true); }}><Plus size={16} /> Add cow</button>} />
+      <PageHeader eyebrow="ANIMALS" title="Your herd" desc={`${list.length} registered · ${milking} milking`}
+        actions={<button className="btn sm" onClick={() => { setQ(''); setOpen(true); }}><Plus size={16} /> Add animal</button>} />
       <div className="three mb">
         <Kpi icon={<Beef size={18} />} label="Total" value={list.length} loading={loading} />
         <Kpi icon={<Milk size={18} />} label="Milking" value={milking} />
         <Kpi icon={<HeartPulse size={18} />} label="Pregnant" value={pregnant} />
       </div>
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div className="between" style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
-          <h3>{loading ? 'Loading…' : `${list.length} cows`}</h3>
-          <input className="input" style={{ maxWidth: 280 }} placeholder="Search by code, name, breed" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
+      <div className="card mb" style={{ padding: '12px 16px' }}>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 160 }}>
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-soft)' }} />
+            <input className="input" style={{ paddingLeft: 32, width: '100%' }} placeholder="Search by code, name, breed" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
+          </div>
         </div>
-        <ResponsiveTable
-          rowKey="id"
-          onRowClick={(c) => navigate('/app/cow/' + c.id)}
-          columns={[
-            { key: 'name', header: 'Cow', render: (c: any) => <div className="row"><CowPhoto name={c.name} color={c.color} size={36} photoUrl={c.photoUrl} /><div><b>{c.name}</b><div className="muted" style={{ fontSize: 12 }}>{c.gender}</div></div></div> },
-            { key: 'cowCode', header: 'Code' },
-            { key: 'earTag', header: 'Ear tag' },
-            { key: 'breed', header: 'Breed' },
-            { key: 'health', header: 'Health', render: (c: any) => <span className={`pill ${c.health}`}>{c.health.replace('_', ' ')}</span> },
-            { key: 'isMilking', header: 'Milking', render: (c: any) => c.isMilking ? 'Yes' : 'No' },
-            { key: 'avgDailyMilk', header: 'Milk/day', render: (c: any) => c.avgDailyMilk ? fmt.liters(c.avgDailyMilk) : '—' },
-          ]}
-          data={list}
-        />
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          {filters.map((f) => (
+            <button key={f.key} className={`btn sm ${filter === f.key ? 'gold' : 'ghost'}`} onClick={() => setFilter(f.key)} style={{ borderRadius: 20 }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {filter === 'groups' && (
+          <div className="row mt" style={{ gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+            <button className={`btn sm ${groupFilter === 'all' ? 'gold' : 'ghost'}`} onClick={() => setGroupFilter('all')} style={{ borderRadius: 20 }}>All groups</button>
+            {barns.map((b: any) => (
+              <button key={b.id} className={`btn sm ${groupFilter === b.id ? 'gold' : 'ghost'}`} onClick={() => setGroupFilter(b.id)} style={{ borderRadius: 20 }}>
+                {b.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      {open && <Modal title="Add new cow" onClose={() => setOpen(false)}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {filteredList.length === 0 ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+            <p className="muted">No animals found.</p>
+          </div>
+        ) : (
+          filteredList.map((animal: any) => (
+            <AnimalCard key={animal.id} animal={animal} onClick={() => navigate('/app/cow/' + animal.id)} />
+          ))
+        )}
+      </div>
+      {open && <Modal title="Add new animal" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
           <div className="field"><label>Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
           <div className="field"><label>Breed</label><select className="select" value={form.breed} onChange={(e) => setForm({ ...form, breed: e.target.value })}>{BREEDS.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
           <div className="field"><label>Ear tag</label><input className="input" value={form.earTag} onChange={(e) => setForm({ ...form, earTag: e.target.value })} required /></div>
           <div className="field"><label>Weight (kg)</label><input className="input" type="number" value={form.weightKg} onChange={(e) => setForm({ ...form, weightKg: e.target.value })} /></div>
           <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.isMilking} onChange={(e) => setForm({ ...form, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.isPregnant} onChange={(e) => setForm({ ...form, isPregnant: e.target.checked })} /> Pregnant</label></div>
-          <button className="btn mt" style={{ marginTop: 16 }} type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save cow'}</button>
+          <button className="btn mt" style={{ marginTop: 16 }} type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save animal'}</button>
         </form>
       </Modal>}
     </div>
   );
 }
+
+type ProfileTab = 'overview' | 'health' | 'milk' | 'breeding' | 'pregnancy' | 'family' | 'treatments' | 'documents' | 'activity';
 
 export function CowProfile({ id }: { id: string }) {
   const [, navigate] = useHashRoute();
@@ -160,6 +233,7 @@ export function CowProfile({ id }: { id: string }) {
   const [pedigree, setPedigree] = useState<any>(null);
   const [offspringList, setOffspringList] = useState<any[]>([]);
   const [pedigreeLoading, setPedigreeLoading] = useState(false);
+  const [tab, setTab] = useState<ProfileTab>('overview');
   if (loading) return <div className="card"><Skeleton h={200} /></div>;
   if (!cow) return <div className="card">Cow not found.</div>;
 
@@ -179,7 +253,7 @@ export function CowProfile({ id }: { id: string }) {
   const pendingVacc = (cow.vaccinations || []).filter((v) => !v.done).length;
   const activeTreatments = (cow.treatments || []).filter((t) => t.status === 'Active').length;
   const gc = chartColors();
-  const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: tickColor(), maxTicksLimit: 6 }, grid: { color: gridColor() } }, y: { ticks: { color: tickColor() }, grid: { color: gridColor() } } } };
+  const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: tickColor(), maxTicksLimit: 6 }, grid: { color: gridColor() } }, y: { ticks: { color: tickColor(), grid: { color: gridColor() } } } } };
 
   const stopCamera = () => {
     if (stream) { stream.getTracks().forEach((t) => t.stop()); setStream(null); }
@@ -221,12 +295,25 @@ export function CowProfile({ id }: { id: string }) {
     };
     reader.readAsDataURL(file);
   };
+
+  const tabs: { key: ProfileTab; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'health', label: 'Health' },
+    { key: 'milk', label: 'Milk' },
+    { key: 'breeding', label: 'Breeding' },
+    { key: 'pregnancy', label: 'Pregnancy' },
+    { key: 'family', label: 'Family' },
+    { key: 'treatments', label: 'Treatments' },
+    { key: 'documents', label: 'Documents' },
+    { key: 'activity', label: 'Activity' },
+  ];
+
   return (
     <div>
       <div className="row" style={{ gap: 18, alignItems: 'center', marginBottom: 4 }}>
         <CowPhoto name={cow.name} color={cow.color} size={96} photoUrl={cow.photoUrl} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <PageHeader eyebrow="COW DASHBOARD" title={cow.name}
+          <PageHeader eyebrow="ANIMAL PROFILE" title={cow.name}
             desc={`${cow.cowCode} · ${cow.earTag} · ${cow.breed}${age ? ` · ${age} years` : ''}`}
             actions={
               <div className="row">
@@ -240,28 +327,46 @@ export function CowProfile({ id }: { id: string }) {
         </div>
       </div>
 
-      <div className="four mt">
-        <Kpi icon={<Milk size={18} />} label="Avg milk / day" value={fmt.liters(cow.avgDailyMilk)} delta={lastMilkTotal ? `${fmt.liters(lastMilkTotal)} today` : 'No records'} />
-        <Kpi icon={<Beef size={18} />} label="Weight" value={fmt.kg(cow.weightKg)} />
-        <Kpi icon={<HeartPulse size={18} />} label="Productivity" value={<AnimatedCounter value={cow.productivityScore} suffix="%" />} />
-        <Kpi icon={<CloudSun size={18} />} label="Water intake" value={`${cow.waterIntakeLiters ?? 0} L/day`} />
-        <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={`${(cow.vaccinations || []).filter((v) => v.done).length}/${(cow.vaccinations || []).length}`} delta={pendingVacc ? `${pendingVacc} pending` : 'Up to date'} tone={pendingVacc ? 'down' : 'up'} />
-        <Kpi icon={<Stethoscope size={18} />} label="Treatments" value={activeTreatments} delta={activeTreatments ? 'Active' : 'None'} tone={activeTreatments ? 'down' : 'up'} loading={loading} />
-        <Kpi icon={<Milk size={18} />} label="Total milk recorded" value={fmt.liters(milkTotal)} delta={`${cow.milk.length} records`} />
-        <Kpi icon={<Beef size={18} />} label="Status" value={cow.status === 'active' ? 'Active' : cow.status} tone={cow.status === 'active' ? 'up' : 'down'} />
+      <div className="card mb" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="row" style={{ overflowX: 'auto', gap: 0, borderBottom: '1px solid var(--border)' }}>
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              className={`btn ghost ${tab === t.key ? 'active-tab' : ''}`}
+              style={{ borderRadius: 0, padding: '12px 16px', whiteSpace: 'nowrap', fontSize: 13 }}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="split mt">
-        <ChartCard title="Milk production" subtitle="Last 30 days (L/day)">
-          {cow.milk.length ? <LineChart data={{ labels: cow.milk.map((m) => m.date.slice(5)), datasets: [{ label: 'Litres', data: cow.milk.map((m) => +(m.morning + m.afternoon + m.evening).toFixed(1)), borderColor: gc[0], backgroundColor: gc[0] + '22', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }] }} options={opts} /> : <p className="muted">No milk records yet.</p>}
-        </ChartCard>
-        <ChartCard title="Weight growth" subtitle="kg over time">
-          {(cow.weights && cow.weights.length) ? <LineChart data={{ labels: cow.weights.map((w) => w.date.slice(5)), datasets: [{ label: 'kg', data: cow.weights.map((w) => w.kg), borderColor: gc[1], backgroundColor: gc[1] + '22', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }] }} options={opts} /> : <p className="muted">No weight history.</p>}
-        </ChartCard>
-      </div>
+      {tab === 'overview' && (
+        <div>
+          <div className="four mt">
+            <Kpi icon={<Milk size={18} />} label="Avg milk / day" value={fmt.liters(cow.avgDailyMilk)} delta={lastMilkTotal ? `${fmt.liters(lastMilkTotal)} today` : 'No records'} />
+            <Kpi icon={<Beef size={18} />} label="Weight" value={fmt.kg(cow.weightKg)} />
+            <Kpi icon={<HeartPulse size={18} />} label="Productivity" value={<AnimatedCounter value={cow.productivityScore} suffix="%" />} />
+            <Kpi icon={<CloudSun size={18} />} label="Water intake" value={`${cow.waterIntakeLiters ?? 0} L/day`} />
+            <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={`${(cow.vaccinations || []).filter((v) => v.done).length}/${(cow.vaccinations || []).length}`} delta={pendingVacc ? `${pendingVacc} pending` : 'Up to date'} tone={pendingVacc ? 'down' : 'up'} />
+            <Kpi icon={<Stethoscope size={18} />} label="Treatments" value={activeTreatments} delta={activeTreatments ? 'Active' : 'None'} tone={activeTreatments ? 'down' : 'up'} loading={loading} />
+            <Kpi icon={<Milk size={18} />} label="Total milk recorded" value={fmt.liters(milkTotal)} delta={`${cow.milk.length} records`} />
+            <Kpi icon={<Beef size={18} />} label="Status" value={cow.status === 'active' ? 'Active' : cow.status} tone={cow.status === 'active' ? 'up' : 'down'} />
+          </div>
+          <div className="split mt">
+            <ChartCard title="Milk production" subtitle="Last 30 days (L/day)">
+              {cow.milk.length ? <LineChart data={{ labels: cow.milk.map((m) => m.date.slice(5)), datasets: [{ label: 'Litres', data: cow.milk.map((m) => +(m.morning + m.afternoon + m.evening).toFixed(1)), borderColor: gc[0], backgroundColor: gc[0] + '22', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }] }} options={opts} /> : <p className="muted">No milk records yet.</p>}
+            </ChartCard>
+            <ChartCard title="Weight growth" subtitle="kg over time">
+              {(cow.weights && cow.weights.length) ? <LineChart data={{ labels: cow.weights.map((w) => w.date.slice(5)), datasets: [{ label: 'kg', data: cow.weights.map((w) => w.kg), borderColor: gc[1], backgroundColor: gc[1] + '22', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }] }} options={opts} /> : <p className="muted">No weight history.</p>}
+            </ChartCard>
+          </div>
+        </div>
+      )}
 
-      <div className="two mt">
-        <div className="card">
+      {tab === 'health' && (
+        <div className="card mt" style={{ padding: 16 }}>
           <h3>Health status</h3>
           <div className="row mt" style={{ gap: 10 }}>
             <span className={`pill ${cow.health}`}>{cow.health.replace('_', ' ')}</span>
@@ -269,14 +374,6 @@ export function CowProfile({ id }: { id: string }) {
             {cow.isPregnant && <span className="pill warn">Pregnant</span>}
             <span className="tag">{cow.breed}</span>
           </div>
-          <h3 className="mt">Recent treatments</h3>
-          {(cow.treatments && cow.treatments.length) ? cow.treatments.slice(0, 5).map((t) => (
-            <div key={t.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <div><b>{t.disease}</b><div className="muted" style={{ fontSize: 12 }}>{t.diagnosis} · {fmt.date(t.date)} {t.vetName ? `· Vet: ${t.vetName}` : ''}</div></div>
-              <span className={`pill ${t.status === 'Active' ? 'danger' : 'warn'}`}>{t.status}</span>
-            </div>
-          )) : <p className="muted mt">No health issues recorded. 🎉</p>}
-          <button className="btn sm mt" onClick={() => setTreatOpen(true)}><Plus size={14} /> Add treatment</button>
           <h3 className="mt">Vaccination schedule</h3>
           {(cow.vaccinations || []).map((v) => (
             <div key={v.id} className="between mt" style={{ fontSize: 14 }}>
@@ -285,17 +382,54 @@ export function CowProfile({ id }: { id: string }) {
             </div>
           ))}
         </div>
+      )}
 
-        <div className="card">
-          <h3>Breeding & family</h3>
-          <h3 className="mt" style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Pregnancy history</h3>
+      {tab === 'milk' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <ChartCard title="Milk production" subtitle="Last 30 days (L/day)">
+            {cow.milk.length ? <LineChart data={{ labels: cow.milk.map((m) => m.date.slice(5)), datasets: [{ label: 'Litres', data: cow.milk.map((m) => +(m.morning + m.afternoon + m.evening).toFixed(1)), borderColor: gc[0], backgroundColor: gc[0] + '22', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }] }} options={opts} /> : <p className="muted">No milk records yet.</p>}
+          </ChartCard>
+          <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
+            <table><thead><tr><th>Date</th><th>Morning</th><th>Afternoon</th><th>Evening</th><th>Total</th></tr></thead>
+              <tbody>{cow.milk.slice(0, 10).map((m: any) => (
+                <tr key={m.date}><td>{fmt.date(m.date)}</td><td>{fmt.liters(m.morning)}</td><td>{fmt.liters(m.afternoon)}</td><td>{fmt.liters(m.evening)}</td><td><b>{fmt.liters(+(m.morning + m.afternoon + m.evening).toFixed(1))}</b></td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'breeding' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <h3>Breeding records</h3>
           {(cow.breedings && cow.breedings.length) ? cow.breedings.map((b) => (
             <div key={b.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
               <div><b>{b.method}</b> · {fmt.date(b.date)}<div className="muted" style={{ fontSize: 12 }}>Exp. calving {fmt.date(b.expectedCalving)}</div></div>
               <span className={`pill ${b.result === 'Pregnant' ? 'warn' : 'muted'}`}>{b.result}</span>
             </div>
           )) : <p className="muted mt">No breeding records.</p>}
-          <h3 className="mt">Family tree</h3>
+        </div>
+      )}
+
+      {tab === 'pregnancy' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <h3>Pregnancy status</h3>
+          <div className="row mt" style={{ gap: 10 }}>
+            {cow.isPregnant ? <span className="pill warn">Pregnant</span> : <span className="pill ok">Not pregnant</span>}
+            {cow.isMilking && <span className="pill info">Milking</span>}
+          </div>
+          {(cow.breedings || []).filter((b) => b.result === 'Pregnant').map((b) => (
+            <div key={b.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+              <div><b>{b.method}</b> · {fmt.date(b.date)}<div className="muted" style={{ fontSize: 12 }}>Expected calving: {fmt.date(b.expectedCalving)}</div></div>
+              <span className="pill warn">{b.result}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'family' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <h3>Family tree</h3>
           {pedigreeLoading ? <p className="muted mt">Loading pedigree…</p> : pedigree ? (
             <div style={{ fontSize: 13 }}>
               <PedigreeNode node={pedigree} navigate={navigate} />
@@ -319,15 +453,42 @@ export function CowProfile({ id }: { id: string }) {
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      <div className="card mt">
-        <h3>Feeding records</h3>
-        <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
-          <table><thead><tr><th>Date</th><th>Feed</th><th>Amount</th></tr></thead>
-            <tbody>{(cow.feed || []).map((f) => <tr key={f.id}><td>{fmt.date(f.date)}</td><td>{f.feed}</td><td>{fmt.kg(f.kg)}</td></tr>)}</tbody></table>
+      {tab === 'treatments' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <h3>Recent treatments</h3>
+          {(cow.treatments && cow.treatments.length) ? cow.treatments.slice(0, 10).map((t) => (
+            <div key={t.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+              <div><b>{t.disease}</b><div className="muted" style={{ fontSize: 12 }}>{t.diagnosis} · {fmt.date(t.date)} {t.vetName ? `· Vet: ${t.vetName}` : ''}</div></div>
+              <span className={`pill ${t.status === 'Active' ? 'danger' : 'warn'}`}>{t.status}</span>
+            </div>
+          )) : <p className="muted mt">No treatments recorded.</p>}
+          <button className="btn sm mt" onClick={() => setTreatOpen(true)}><Plus size={14} /> Add treatment</button>
         </div>
-      </div>
+      )}
+
+      {tab === 'documents' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <h3>Documents</h3>
+          <div className="row mt" style={{ gap: 10 }}>
+            <button className="btn sm" onClick={() => setQr(true)}><QrIc size={14} /> QR Code</button>
+            <button className="btn sm" onClick={() => push('Profile exported', <Download size={15} />)}><Download size={15} /> Export</button>
+            <button className="btn sm" onClick={() => window.print()}><Printer size={15} /> Print</button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'activity' && (
+        <div className="card mt" style={{ padding: 16 }}>
+          <h3>Feeding records</h3>
+          <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
+            <table><thead><tr><th>Date</th><th>Feed</th><th>Amount</th></tr></thead>
+              <tbody>{(cow.feed || []).map((f) => <tr key={f.id}><td>{fmt.date(f.date)}</td><td>{f.feed}</td><td>{fmt.kg(f.kg)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {qr && <Modal title={`QR — ${cow.cowCode}`} onClose={() => setQr(false)}>
         <div className="row" style={{ justifyContent: 'center', gap: 20 }}>

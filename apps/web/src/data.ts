@@ -125,7 +125,7 @@ export interface CowSummary {
   id: string; cowCode: string; earTag: string; name: string; breed: string;
   gender: string; health: string; isMilking: boolean; isPregnant: boolean;
   weightKg: number; color: string; avgDailyMilk: number; waterIntakeLiters: number;
-  status: string; photoUrl?: string | null;
+  status: string; photoUrl?: string | null; barnId?: string; dob?: string;
 }
 export interface CowDetail extends CowSummary {
   dob: string; barnId?: string; motherId?: string; fatherId?: string;
@@ -149,6 +149,8 @@ function normalizeSummary(c: any): CowSummary {
     waterIntakeLiters: Number(c.water_intake_liters ?? c.waterIntakeLiters ?? 0),
     status: c.status ?? 'active',
     photoUrl: c.photo_url ?? c.photoUrl ?? null,
+    barnId: c.barn_id ?? c.barnId ?? undefined,
+    dob: c.date_of_birth ?? c.dob ?? undefined,
   };
 }
 
