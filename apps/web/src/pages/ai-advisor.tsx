@@ -18,10 +18,6 @@ function WeatherIcon({ title }: { title: string }) {
   return <CloudSun size={15} style={{ color: 'var(--ok)' }} />;
 }
 
-// Same warmer, conversational voice from the mockup — "good news, however, here's the
-// concern, here's what I'd do" — but every clause is a real description string the
-// daily-advice engine already computed, just narrated instead of listed. No new facts,
-// no LLM: this is phrasing, not reasoning.
 function buildFriendlyNote(brief: DailyAdvice): { lines: string[]; cowId?: string } {
   const lines: string[] = [];
   const hasCriticalOrHigh = brief.priorityTasks.some((t) => t.severity === 'critical' || t.severity === 'high');
@@ -33,8 +29,6 @@ function buildFriendlyNote(brief: DailyAdvice): { lines: string[]; cowId?: strin
     lines.push(brief.milkProductionAnalysis.description);
   }
 
-  // The single most pressing, cow-specific concern — health warnings carry a cowId,
-  // priority tasks don't, so prefer a health warning when one exists.
   const concern = brief.healthWarnings.find((h) => h.cowId) ?? null;
 
   if (concern) {
@@ -66,11 +60,21 @@ const categoryLabel: Record<string, string> = {
   team_management: 'Team', sustainability: 'Sustainability', general: 'General',
 };
 const categoryOptions = Object.entries(categoryLabel).map(([k, v]) => ({ value: k, label: v }));
-const statusLabel: Record<string, string> = { new: 'New', acknowledged: 'Acknowledced', in_progress: 'In Progress', resolved: 'Resolved', dismissed: 'Dismissed' };
+const statusLabel: Record<string, string> = { new: 'New', acknowledged: 'Acknowledged', in_progress: 'In Progress', resolved: 'Resolved', dismissed: 'Dismissed' };
 const statusOptions = Object.entries(statusLabel).map(([k, v]) => ({ value: k, label: v }));
 
+const SUGGESTED_PROMPTS = [
+  "What needs attention today?",
+  "Which cows need attention?",
+  "Which cows are due to calve?",
+  "How is milk production performing?",
+  "Do I have enough feed?",
+  "What are my biggest risks?",
+  "Give me today's priorities.",
+];
+
 export function AIAdvisor() {
-  const { farmId } = useFarm();
+  const { farmId, farmName } = useFarm();
   const { push } = useToast();
   const [, navigate] = useHashRoute();
   const [insights, setInsights] = useState<AiInsight[]>([]);
@@ -84,6 +88,7 @@ export function AIAdvisor() {
   const [showFilters, setShowFilters] = useState(false);
   const [chat, setChat] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [plan, setPlan] = useState<any>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -101,6 +106,7 @@ export function AIAdvisor() {
   const [expandedWhy, setExpandedWhy] = useState<Record<string, boolean>>({});
   const [score, setScore] = useState<FarmScoreResult | null>(null);
   const [scoreLoading, setScoreLoading] = useState(true);
+  const [showInsights, setShowInsights] = useState(false);
 
   const loadScore = async () => {
     setScoreLoading(true);
@@ -110,6 +116,8 @@ export function AIAdvisor() {
   useEffect(() => { loadScore(); /* eslint-disable-next-line */ }, [farmId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSectionRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const loadBrief = async () => {
     setBriefLoading(true);
@@ -201,11 +209,9 @@ export function AIAdvisor() {
   const toggleAction = async (insight: AiInsight, actionIdx: number) => {
     const items = [...insight.action_items];
     items[actionIdx] = { ...items[actionIdx], done: !items[actionIdx].done };
-    // Optimistic update
     setInsights((prev) => prev.map((i) => i.id === insight.id ? { ...i, action_items: items } : i));
     if (detail?.id === insight.id) setDetail({ ...detail, action_items: items });
 
-    // Find or create related action item
     const existingAction = insight.actions?.find((a: any) => !a.completed_at);
     if (existingAction) {
       await updateAiAction(existingAction.id, farmId, { status: items[actionIdx].done ? 'completed' : 'pending' });
@@ -219,18 +225,19 @@ export function AIAdvisor() {
     if (!question && !attachment) return;
     const q = question || `Please take a look at the attached file: ${attachment?.name}`;
     const pendingAttachment = attachment;
-    setChat(''); setAttachment(null); setChatBusy(true);
+    setChat(''); setAttachment(null); setChatBusy(true); setChatError(null);
     try {
       const res = await aiChat(q, farmId, pendingAttachment || undefined);
       setChatHistory((h) => [{
         id: res.id, question: q, answer: res.answer, created_at: res.created_at,
         attachment_name: pendingAttachment?.name, attachment_type: pendingAttachment?.type, attachment_data: pendingAttachment?.data,
       }, ...h]);
-      // A question asked by voice gets its answer read back — that's what makes it a
-      // conversation instead of just voice-to-text-then-read-the-screen.
       if (viaVoice) speak(res.id, res.answer);
-    } catch { push('Chat failed'); }
-    setChatBusy(false);
+    } catch (err: any) {
+      setChatError(err?.message || 'Chat failed');
+    } finally {
+      setChatBusy(false);
+    }
   };
 
   const startVoiceInput = () => {
@@ -298,368 +305,281 @@ export function AIAdvisor() {
     new: insights.filter((i) => i.status === 'new').length,
   };
 
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatHistory, chatBusy]);
+
   return (
     <div>
-      <PageHeader eyebrow="AI FARM ADVISOR" title="Proactive intelligence" desc="Continuous analysis generates recommendations, warnings, and daily action plans for your farm."
+      <PageHeader eyebrow="AI FARM ADVISOR" title="AI Assistant" desc={`Conversational assistant for ${farmName || 'your farm'}. Ask anything about your herd, milk, feed, breeding, or finances.`}
         actions={
-          <div className="row btn-row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8 }}>
             <button className="btn ghost sm" onClick={generatePlan} disabled={planLoading}>
               {planLoading ? 'Generating…' : <><ClipboardList size={14} /> Daily Action Plan</>}
             </button>
             <button className="btn gold sm" onClick={runAnalysis} disabled={analysing}>
-              {analysing ? 'Analyzing…' : <><Sparkles size={14} /> Run Full Analysis</>}
+              {analysing ? 'Analyzing…' : <><Sparkles size={14} /> Analyze</>}
+            </button>
+            <button className="btn sm" onClick={() => setShowInsights((v) => !v)}>
+              {showInsights ? 'Hide Insights' : <><Activity size={14} /> Insights</>}
             </button>
           </div>
         }
       />
 
-      {/* Farm Health Dashboard */}
-      {scoreLoading && <div className="card mt" style={{ padding: 24, textAlign: 'center' }}><div className="skeleton" style={{ height: 20, width: 200, margin: '0 auto' }}>Scoring your farm…</div></div>}
-      {!scoreLoading && score && (
-        <div className="card mt" style={{ padding: 20 }}>
-          <div className="row" style={{ gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ textAlign: 'center', minWidth: 90 }}>
-              <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Farm Score</p>
-              <div style={{ fontSize: 32, fontWeight: 700, color: score.overall >= 80 ? 'var(--ok)' : score.overall >= 50 ? 'var(--warn)' : 'var(--danger)' }}>
-                {score.overall}<span style={{ fontSize: 14 }}>/100</span>
-              </div>
-            </div>
-            {([
-              ['Health', score.categories.health.score],
-              ['Milk', score.categories.milkProduction.score],
-              ['Breeding', score.categories.breeding.score],
-              ['Finance', score.categories.finance.score],
-              ['Feed', score.categories.nutrition.score],
-              ['Inventory', score.categories.inventory.score],
-            ] as [string, number][]).map(([label, s]) => (
-              <div key={label} style={{ textAlign: 'center', minWidth: 70 }}>
-                <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{label}</p>
-                <div style={{ fontSize: 20, fontWeight: 700, color: s >= 80 ? 'var(--ok)' : s >= 50 ? 'var(--warn)' : 'var(--danger)' }}>{s}%</div>
-              </div>
-            ))}
-          </div>
+      {/* Farm Context Banner */}
+      <div className="card mt" style={{ padding: '12px 16px', background: 'var(--surface-2)', border: 0 }}>
+        <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Bot size={16} style={{ color: 'var(--primary)' }} />
+          <span style={{ fontSize: 13, fontWeight: 600 }}>AI Assistant — {farmName || 'Current Farm'}</span>
+          {score && !scoreLoading && (
+            <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
+              Farm health: <b style={{ color: score.overall >= 80 ? 'var(--ok)' : score.overall >= 50 ? 'var(--warn)' : 'var(--danger)' }}>{score.overall}/100</b>
+            </span>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Today's Briefing */}
-      {briefLoading && <div className="card mt" style={{ padding: 40, textAlign: 'center' }}><div className="skeleton" style={{ height: 20, width: 200, margin: '0 auto' }}>Preparing today's briefing…</div></div>}
-      {!briefLoading && brief && (
-        <div className="card mt" style={{ padding: 20 }}>
-          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <h2 style={{ marginBottom: 8 }}>
-                {brief.greeting.startsWith('Good morning') ? '🌞' : brief.greeting.startsWith('Good afternoon') ? '🌤️' : '🌙'} {brief.greeting}
-              </h2>
-              {(() => {
-                const note = buildFriendlyNote(brief);
-                return (
-                  <div style={{ maxWidth: 480 }}>
-                    {note.lines.map((line, idx) => (
-                      <p key={idx} style={{ fontSize: 14, marginBottom: 4, color: line === 'However…' ? 'var(--text-soft)' : 'var(--text)' }}>{line}</p>
-                    ))}
-                    {note.cowId && (
-                      <button className="btn ghost sm mt" onClick={() => navigate('/app/cow/' + note.cowId)}>
-                        <ArrowRight size={13} /> Open Her Record
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
+      {/* Chat Section - Primary Focus */}
+      <div ref={chatSectionRef} className="card mt" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <Bot size={18} style={{ color: 'var(--primary)' }} />
+              <b style={{ fontSize: 15 }}>AI Assistant</b>
+              {chatBusy && <span className="muted" style={{ fontSize: 12 }}>Thinking…</span>}
             </div>
-            {score && (
-              <div style={{ textAlign: 'center' }}>
-                <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Farm Health Score</p>
-                <div style={{ fontSize: 36, fontWeight: 700, color: score.overall >= 80 ? 'var(--ok)' : score.overall >= 50 ? 'var(--warn)' : 'var(--danger)' }}>
-                  {score.overall}<span style={{ fontSize: 16 }}>/100</span>
-                </div>
-              </div>
+            {chatHistory.length > 0 && (
+              <button className="btn ghost sm" style={{ color: 'var(--text-soft)' }} onClick={clearHistory}>
+                <Trash2 size={13} /> Clear
+              </button>
             )}
           </div>
+        </div>
 
-          <div className="two mt" style={{ gap: 16 }}>
-            <div>
-              <h3 style={{ fontSize: 14, marginBottom: 8 }}>Today's Priorities</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {brief.priorityTasks.length === 0 && (
-                  <div style={{ fontSize: 14 }}>🟢 No urgent priorities right now.</div>
-                )}
-                {brief.priorityTasks.slice(0, 6).map((t, idx) => (
-                  <div key={idx} style={{ fontSize: 14, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <span>{PRIORITY_DOT[t.severity || 'low'] || '🟢'}</span>
-                    <span>{t.label}</span>
-                  </div>
-                ))}
-                <div style={{ fontSize: 14, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                  <WeatherIcon title={brief.weatherAdvice.title} />
-                  <span>{brief.weatherAdvice.description}</span>
-                </div>
-              </div>
+        {/* Messages */}
+        <div ref={chatContainerRef} style={{ padding: '16px 16px 8px', minHeight: 200, maxHeight: '50vh', overflowY: 'auto', background: 'var(--surface)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {historyLoading && (
+            <div style={{ textAlign: 'center', padding: 20 }}>
+              <div className="skeleton" style={{ height: 16, width: 180, margin: '0 auto' }}>Loading conversation…</div>
             </div>
-
-            <div>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <h3 style={{ fontSize: 14, margin: 0 }}>Recommended Tasks</h3>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {brief.endOfDayChecklist.map((item, idx) => (
-                  <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={item.done} onChange={() => toggleRecommendedTask(idx)} />
-                    <span style={{ textDecoration: item.done ? 'line-through' : 'none', color: item.done ? 'var(--text-soft)' : 'var(--text)' }}>{item.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              <div className="card mt" style={{ padding: 12, background: 'var(--surface-2)', border: 0 }}>
-                <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}><DollarSign size={12} /> Estimated Profit Today</p>
-                <div style={{ fontSize: 22, fontWeight: 700, color: brief.estimatedProfitUgx >= 0 ? 'var(--ok)' : 'var(--danger)' }}>
-                  UGX {brief.estimatedProfitUgx.toLocaleString()}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="four mt">
-        <Kpi icon={<Sparkles size={18} />} label="Total Insights" value={<AnimatedCounter value={counts.all} />} delta="all categories" />
-        <Kpi icon={<AlertTriangle size={18} />} label="Critical" value={<AnimatedCounter value={counts.critical} />} tone="down" delta="immediate action" />
-        <Kpi icon={<Zap size={18} />} label="High Priority" value={<AnimatedCounter value={counts.high} />} tone="down" delta="today" />
-        <Kpi icon={<Activity size={18} />} label="New" value={<AnimatedCounter value={counts.new} />} delta="awaiting review" />
-      </div>
-
-      {/* Insight History */}
-      <div className="card mt" style={{ padding: 16 }}>
-        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <h3 style={{ margin: 0 }}>Insight History</h3>
-            <span className="muted" style={{ fontSize: 12 }}>{insightHistory.length} insights in last {insightHistoryDays} days</span>
-          </div>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            {[7, 30, 90].map((d) => (
-              <button key={d} className={`btn ghost sm ${insightHistoryDays === d ? '' : ''}`}
-                style={insightHistoryDays === d ? { background: 'var(--primary)', color: '#fff', border: 0 } : {}}
-                onClick={() => setInsightHistoryDays(d)}>
-                {d === 7 ? '7 days' : d === 30 ? '30 days' : '90 days'}
-              </button>
-            ))}
-            <button className="btn ghost sm" onClick={loadInsightHistory} disabled={insightHistoryLoading}>
-              {insightHistoryLoading ? 'Loading…' : <><RefreshCw size={13} /> Refresh</>}
-            </button>
-          </div>
-        </div>
-        {insightHistoryLoading && <div className="skeleton" style={{ height: 60 }} />}
-        {!insightHistoryLoading && insightHistory.length === 0 && (
-          <p className="muted" style={{ fontSize: 13 }}>No insight history for this period.</p>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
-          {insightHistory.slice(0, 20).map((ins) => {
-            const tone = severityTone[ins.severity] || 'info';
-            return (
-              <div key={ins.id} className="reveal" style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, borderLeft: `3px solid var(--${tone})`, cursor: 'pointer' }} onClick={() => setDetail(ins)}>
-                <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                  <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                    <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{ins.severity}</span>
-                    <span className="pill info" style={{ fontSize: 10, textTransform: 'capitalize' }}>{ins.type.replace('_', ' ')}</span>
-                  </div>
-                  <span className="muted" style={{ fontSize: 11 }}>{fmt.shortDate(ins.created_at)}</span>
-                </div>
-                <div style={{ fontSize: 13, marginTop: 4 }}>{ins.title}</div>
-                <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span className="muted" style={{ fontSize: 11 }}>{categoryLabel[ins.category] || ins.category}</span>
-                  {ins.confidence_score > 0 && <span className="muted" style={{ fontSize: 11 }}>{Math.round(ins.confidence_score * 100)}% confidence</span>}
-                  <span className="pill" style={{ fontSize: 10, background: 'var(--surface)', color: 'var(--text-soft)' }}>{ins.status}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="card mt" style={{ padding: 16 }}>
-        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <Filter size={14} style={{ color: 'var(--text-soft)' }} />
-            <b style={{ fontSize: 13 }}>Filters</b>
-            <button className="btn ghost sm" onClick={() => setShowFilters((v) => !v)}>
-              {showFilters ? 'Hide' : 'Show'} advanced
-            </button>
-          </div>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            {(Object.keys(categoryLabel) as Array<keyof typeof categoryLabel>).map((k) => (
-              <button key={k} className={`btn ghost sm ${category === k ? '' : ''}`}
-                style={category === k ? { background: 'var(--primary)', color: '#fff', border: 0 } : {}}
-                onClick={() => setCategory(category === k ? 'all' : k)}>
-                {categoryLabel[k]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="row btn-row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          {(['all','recommendation','warning','prediction','action_plan','alert'] as FilterType[]).map(f => (
-            <button key={f} className={`btn ghost sm ${filter === f ? '' : ''}`}
-              style={filter === f ? { background: 'var(--primary)', color: '#fff', border: 0 } : {}}
-              onClick={() => setFilter(f)}>
-              {f === 'all' ? 'All' : f.replace('_',' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-              {f !== 'all' && insights.filter(i => i.type === f).length > 0 && <span className="badge-dot" style={{ marginLeft: 4 }}>{insights.filter(i => i.type === f).length}</span>}
-            </button>
-          ))}
-          {(['all','low','medium','high','critical'] as SeverityFilter[]).map(s => (
-            <button key={s} className={`btn ghost sm`}
-              style={severity === s ? { background: s === 'critical' ? 'var(--danger)' : s === 'high' ? 'var(--warn)' : 'var(--primary)', color: '#fff', border: 0 } : {}}
-              onClick={() => setSeverity(s)}>
-              {s === 'all' ? 'All severities' : s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-          {statusOptions.map((s) => (
-            <button key={s.value} className={`btn ghost sm`}
-              style={status === s.value ? { background: 'var(--info)', color: '#fff', border: 0 } : {}}
-              onClick={() => setStatus(status === s.value ? 'all' : s.value as StatusFilter)}>
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        {showFilters && (
-          <div className="card mt" style={{ padding: 12, background: 'var(--surface-2)', border: 0 }}>
-            <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ minWidth: 180 }}>
-                <label className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Min confidence: {minConfidence}%</label>
-                <input className="input" type="range" min={0} max={100} value={minConfidence} onChange={(e) => setMinConfidence(Number(e.target.value))} />
-              </div>
-              <div>
-                <label className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Category</label>
-                <select className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
-                  <option value="all">All categories</option>
-                  {categoryOptions.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Status</label>
-                <select className="select" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-                  <option value="all">All statuses</option>
-                  {statusOptions.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </div>
-              <button className="btn ghost sm" onClick={() => { setFilter('all'); setSeverity('all'); setCategory('all'); setStatus('all'); setMinConfidence(0); }}>Reset all</button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {loading && (
-          <div className="card" style={{ padding: 40, textAlign: 'center' }}><div className="skeleton" style={{ height: 20, width: 200, margin: '0 auto' }}>Loading insights…</div></div>
-        )}
-        {!loading && insights.length === 0 && (
-          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-            <Sparkles size={36} style={{ color: 'var(--text-soft)', marginBottom: 12 }} />
-            <h3 style={{ marginBottom: 6 }}>No insights yet</h3>
-            <p className="muted" style={{ maxWidth: 400, margin: '0 auto' }}>Run the Full Analysis to generate proactive recommendations, warnings, and predictions from your live farm data.</p>
-            <button className="btn gold mt" onClick={runAnalysis} disabled={analysing}>
-              <Sparkles size={14} /> {analysing ? 'Analyzing…' : 'Run AI Analysis'}
-            </button>
-          </div>
-        )}
-        {insights.map((ins) => {
-          const SIcon = severityIcon[ins.severity] || Activity;
-          const TIcon = typeIcon[ins.type] || Sparkles;
-          const tone = severityTone[ins.severity] || 'info';
-          const progress = ins.action_items.length ? Math.round((ins.action_items.filter(a => a.done).length / ins.action_items.length) * 100) : 0;
-          return (
-            <div key={ins.id} className="card reveal" style={{ cursor: 'pointer', borderLeft: `4px solid var(--${tone})` }} onClick={() => setDetail(ins)}>
-              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <span className={`pill ${tone}`} style={{ textTransform: 'capitalize' }}><SIcon size={12} /> {ins.severity}</span>
-                  <span className="pill info" style={{ textTransform: 'capitalize' }}><TIcon size={12} /> {ins.type.replace('_',' ')}</span>
-                  <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)' }}>{categoryLabel[ins.category] || ins.category}</span>
-                  {ins.status !== 'new' && <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)' }}>{ins.status}</span>}
-                </div>
-                <div className="row" style={{ gap: 6 }}>
-                  <span className="muted" style={{ fontSize: 12 }}>{fmt.shortDate(ins.created_at)}</span>
-                  {ins.confidence_score > 0 && <span className="muted" style={{ fontSize: 12 }}>{Math.round(ins.confidence_score*100)}%</span>}
-                </div>
-              </div>
-              <h3 style={{ marginTop: 10, marginBottom: 4 }}>{ins.title}</h3>
-              <p className="muted" style={{ fontSize: 14 }}>{ins.description}</p>
-              {ins.explanation && (
-                <div className="mt">
+          )}
+          {!historyLoading && chatHistory.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+              <Bot size={36} style={{ color: 'var(--primary)', marginBottom: 10, opacity: 0.7 }} />
+              <p style={{ fontSize: 14, marginBottom: 4, fontWeight: 600 }}>Hello! I'm your AI Farm Assistant.</p>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>I have access to your farm data. Ask me anything about your herd, milk, feed, breeding, or finances.</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+                {SUGGESTED_PROMPTS.map((prompt) => (
                   <button
-                    className="btn ghost sm"
-                    style={{ padding: '4px 10px' }}
-                    onClick={(e) => { e.stopPropagation(); setExpandedWhy((w) => ({ ...w, [ins.id]: !w[ins.id] })); }}
+                    key={prompt}
+                    className="btn sm ghost"
+                    style={{ borderRadius: 20, fontSize: 12 }}
+                    onClick={() => sendChat(prompt)}
+                    disabled={chatBusy}
                   >
-                    Why? {expandedWhy[ins.id] ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    {prompt}
                   </button>
-                  {expandedWhy[ins.id] && (
-                    <div className="card mt reveal" style={{ padding: 12, background: 'var(--surface-2)', border: 0 }} onClick={(e) => e.stopPropagation()}>
-                      {ins.explanation.reasons.length > 0 && (
-                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
-                          {ins.explanation.reasons.map((reason, idx) => <li key={idx}>{reason}</li>)}
-                        </ul>
-                      )}
-                      <div className="row mt" style={{ gap: 24, flexWrap: 'wrap' }}>
-                        <div>
-                          <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Probability</p>
-                          <div style={{ fontSize: 22, fontWeight: 700 }}>{ins.explanation.probability}%</div>
-                        </div>
-                        <div>
-                          <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Confidence</p>
-                          <div style={{ fontSize: 22, fontWeight: 700 }}>{Math.round(ins.confidence_score * 100)}%</div>
-                        </div>
-                        <div>
-                          <p className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Evidence</p>
-                          <div style={{ fontSize: 14, marginTop: 4 }}>{ins.evidence?.length || 0} indicator{ins.evidence?.length === 1 ? '' : 's'} analyzed</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                ))}
+              </div>
+            </div>
+          )}
+          {chatHistory.map((m) => (
+            <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: '85%', alignSelf: 'flex-start' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-soft)', marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>You · {fmt.shortDate(m.created_at)}</div>
+              <div style={{ background: 'var(--primary)', color: '#fff', padding: '10px 14px', borderRadius: 16, borderBottomLeftRadius: 4, fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {m.attachment_name && (
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6, opacity: 0.9, alignItems: 'center' }}>
+                    {m.attachment_type?.startsWith('image/') && m.attachment_data
+                      ? <img src={m.attachment_data} alt={m.attachment_name} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 6 }} />
+                      : <Paperclip size={14} />}
+                    <span style={{ fontSize: 12 }}>{m.attachment_name}</span>
+                  </div>
+                )}
+                {m.question}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-soft)', marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Assistant</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--primary-soft)', color: 'var(--primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  <Bot size={14} />
                 </div>
-              )}
-              {ins.action_items.length > 0 && (
-                <>
-                  <div style={{ marginTop: 10 }}>
-                    <div className="progress" style={{ height: 6, background: 'var(--surface-2)' }}><span style={{ width: `${progress}%`, transition: 'width 0.3s' }} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                      <span className="muted" style={{ fontSize: 12 }}>{ins.action_items.filter(a => a.done).length} of {ins.action_items.length} actions completed</span>
-                      <span className="muted" style={{ fontSize: 12 }}>{progress}%</span>
+                <div style={{ background: 'var(--surface-2)', padding: '10px 14px', borderRadius: 16, borderBottomRightRadius: 4, fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 }}>
+                  {m.answer}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                  <button className="btn ghost sm" title={speakingId === m.id ? 'Stop reading' : 'Read answer aloud'} onClick={() => speak(m.id, m.answer)} style={{ padding: 4, minHeight: 28 }}>
+                    {speakingId === m.id ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                  </button>
+                  <button className="btn ghost sm" title="Delete this exchange" style={{ color: 'var(--text-soft)', padding: 4, minHeight: 28 }} onClick={() => deleteMessage(m.id)}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {chatBusy && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', alignSelf: 'flex-start' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--primary-soft)', color: 'var(--primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <Bot size={14} />
+              </div>
+              <div style={{ background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 16, borderBottomRightRadius: 4, fontSize: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Loader2 size={14} className="spin" />
+                <span className="muted">AI is thinking…</span>
+              </div>
+            </div>
+          )}
+          {chatError && (
+            <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: 'var(--danger)', alignSelf: 'flex-start', maxWidth: '90%' }}>
+              <b>Something went wrong</b>
+              <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9 }}>{chatError}</p>
+              <button className="btn sm mt" style={{ marginTop: 8 }} onClick={() => setChatError(null)}>Try again</button>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Suggested Prompts */}
+        {chatHistory.length === 0 && !chatBusy && (
+          <div style={{ padding: '0 16px 12px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-soft)', marginBottom: 8, fontWeight: 700 }}>Suggested questions</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {SUGGESTED_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  className="btn sm ghost"
+                  style={{ borderRadius: 20, fontSize: 12, justifyContent: 'flex-start' }}
+                  onClick={() => sendChat(prompt)}
+                  disabled={chatBusy}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Input Area */}
+        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+          {attachment && (
+            <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', background: 'var(--surface-2)', padding: 8, borderRadius: 8 }}>
+              {attachment.type.startsWith('image/')
+                ? <img src={attachment.data} alt={attachment.name} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 6 }} />
+                : <Paperclip size={16} />}
+              <span style={{ fontSize: 13, flex: 1 }}>{attachment.name}</span>
+              <button className="btn ghost sm" onClick={() => setAttachment(null)}><X size={13} /></button>
+            </div>
+          )}
+          <div className="row" style={{ gap: 8 }}>
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.csv,.xlsx" style={{ display: 'none' }}
+              onChange={(e) => onAttachFile(e.target.files?.[0])} />
+            <button className="btn ghost sm" title="Attach a file or photo" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button>
+            <input
+              className="input"
+              placeholder="Ask about your farm…"
+              value={chat}
+              onChange={(e) => setChat(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendChat()}
+              style={{ flex: 1, minHeight: 44 }}
+            />
+            <button className="btn ghost sm" title="Voice input" onClick={startVoiceInput} disabled={chatBusy} style={{ color: listening ? 'var(--danger)' : undefined }}>
+              <Mic size={16} />
+            </button>
+            <button className="btn" onClick={() => sendChat()} disabled={chatBusy || (!chat.trim() && !attachment)} style={{ minHeight: 44 }}>
+              {chatBusy ? <><Loader2 size={14} className="spin" /> Sending…</> : <><Send size={14} /> Send</>}
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: 11, marginTop: 6, textAlign: 'center' }}>AI analyzes your farm data in real-time. Ask by text, voice, or attach a file.</p>
+        </div>
+      </div>
+
+      {/* Insights Panel (collapsible) */}
+      {showInsights && (
+        <>
+          <div className="four mt">
+            <Kpi icon={<Sparkles size={18} />} label="Total Insights" value={<AnimatedCounter value={counts.all} />} delta="all categories" />
+            <Kpi icon={<AlertTriangle size={18} />} label="Critical" value={<AnimatedCounter value={counts.critical} />} tone="down" delta="immediate action" />
+            <Kpi icon={<Zap size={18} />} label="High Priority" value={<AnimatedCounter value={counts.high} />} tone="down" delta="today" />
+            <Kpi icon={<Activity size={18} />} label="New" value={<AnimatedCounter value={counts.new} />} delta="awaiting review" />
+          </div>
+
+          <div className="card mt" style={{ padding: 16 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <h3 style={{ margin: 0 }}>Insights</h3>
+                <span className="muted" style={{ fontSize: 12 }}>{insightHistory.length} in last {insightHistoryDays} days</span>
+              </div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {[7, 30, 90].map((d) => (
+                  <button key={d} className="btn ghost sm"
+                    style={insightHistoryDays === d ? { background: 'var(--primary)', color: '#fff', border: 0 } : {}}
+                    onClick={() => setInsightHistoryDays(d)}>
+                    {d === 7 ? '7 days' : d === 30 ? '30 days' : '90 days'}
+                  </button>
+                ))}
+                <button className="btn ghost sm" onClick={loadInsightHistory} disabled={insightHistoryLoading}>
+                  {insightHistoryLoading ? 'Loading…' : <><RefreshCw size={13} /> Refresh</>}
+                </button>
+              </div>
+            </div>
+            {insightHistoryLoading && <div className="skeleton" style={{ height: 60 }} />}
+            {!insightHistoryLoading && insightHistory.length === 0 && (
+              <p className="muted" style={{ fontSize: 13 }}>No insight history for this period.</p>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
+              {insightHistory.slice(0, 20).map((ins) => {
+                const tone = severityTone[ins.severity] || 'info';
+                return (
+                  <div key={ins.id} className="reveal" style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, borderLeft: `3px solid var(--${tone})`, cursor: 'pointer' }} onClick={() => setDetail(ins)}>
+                    <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                        <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{ins.severity}</span>
+                        <span className="pill info" style={{ fontSize: 10, textTransform: 'capitalize' }}>{ins.type.replace('_', ' ')}</span>
+                      </div>
+                      <span className="muted" style={{ fontSize: 11 }}>{fmt.shortDate(ins.created_at)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, marginTop: 4 }}>{ins.title}</div>
+                    <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span className="muted" style={{ fontSize: 11 }}>{categoryLabel[ins.category] || ins.category}</span>
+                      {ins.confidence_score > 0 && <span className="muted" style={{ fontSize: 11 }}>{Math.round(ins.confidence_score * 100)}% confidence</span>}
+                      <span className="pill" style={{ fontSize: 10, background: 'var(--surface)', color: 'var(--text-soft)' }}>{ins.status}</span>
                     </div>
                   </div>
-                </>
-              )}
-              {(ins.status === 'new' || ins.status === 'acknowledged' || ins.status === 'in_progress') && (
-                <div className="row btn-row mt" style={{ gap: 6, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                  {ins.related_cow_id && (
-                    <button className="btn ghost sm" onClick={() => navigate('/app/cow/' + ins.related_cow_id)}><ArrowRight size={13} /> Open Cow</button>
-                  )}
-                  <button className="btn ghost sm" onClick={() => scheduleVet(ins)}><Stethoscope size={13} /> Schedule Vet</button>
-                  <button className="btn ghost sm" style={{ color: 'var(--text-soft)' }} onClick={() => changeStatus(ins.id, 'dismissed')}>Ignore</button>
-                  <button className="btn gold sm" onClick={() => changeStatus(ins.id, ins.status === 'new' ? 'acknowledged' : 'resolved')}>
-                    <CheckCircle2 size={13} /> Mark Checked
-                  </button>
-                  <button className="btn ghost sm" onClick={() => askAiAbout(ins)}><Bot size={13} /> Ask AI</button>
-                </div>
-              )}
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
+          </div>
+
+          <div className="card mt" style={{ padding: 16 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <Filter size={14} style={{ color: 'var(--text-soft)' }} />
+                <b style={{ fontSize: 13 }}>Filters</b>
+                <button className="btn ghost sm" onClick={() => setShowFilters((v) => !v)}>
+                  {showFilters ? 'Hide' : 'Show'} advanced
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Detail Modal */}
       {detail && (
-        <Modal title="AI Insight Detail" onClose={() => setDetail(null)}>
+        <Modal title="Insight Detail" onClose={() => setDetail(null)}>
           <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <span className={`pill ${severityTone[detail.severity] || 'info'}`} style={{ textTransform: 'capitalize' }}>{detail.severity}</span>
-            <span className="pill info" style={{ textTransform: 'capitalize' }}>{detail.type.replace('_',' ')}</span>
+            <span className="pill info" style={{ textTransform: 'capitalize' }}>{detail.type.replace('_', ' ')}</span>
             <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)' }}>{categoryLabel[detail.category] || detail.category}</span>
-            {detail.confidence_score > 0 && <span className="muted" style={{ fontSize: 13 }}>Confidence: {Math.round(detail.confidence_score*100)}%</span>}
+            {detail.confidence_score > 0 && <span className="muted" style={{ fontSize: 13 }}>Confidence: {Math.round(detail.confidence_score * 100)}%</span>}
           </div>
           <h3 style={{ marginBottom: 6 }}>{detail.title}</h3>
           <p style={{ fontSize: 14, lineHeight: 1.6 }}>{detail.description}</p>
 
           {detail.explanation && (
             <div className="card mt" style={{ padding: 16, background: 'var(--surface-2)', border: 0 }}>
-              <h4 style={{ marginBottom: 10, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 }}>AI Explanation</h4>
+              <h4 style={{ marginBottom: 10, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 }}>Why this matters</h4>
               <div style={{ marginBottom: 12 }}>
                 <b style={{ fontSize: 15 }}>Probability: {detail.explanation.probability}%</b>
                 <span className={`pill ${detail.explanation.probability >= 70 ? 'danger' : detail.explanation.probability >= 40 ? 'warn' : 'ok'}`} style={{ marginLeft: 8, fontSize: 11, textTransform: 'capitalize' }}>{detail.explanation.severity} risk</span>
@@ -689,13 +609,12 @@ export function AIAdvisor() {
 
           {(detail.evidence?.length || detail.metadata?.metrics) && (
             <div className="card mt" style={{ padding: 12, background: 'var(--surface-2)', border: 0 }}>
-              <h4 style={{ marginBottom: 6, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 }}>Evidence Chain</h4>
+              <h4 style={{ marginBottom: 6, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 }}>Evidence</h4>
               {detail.evidence?.length ? (
                 <div style={{ fontSize: 12, color: 'var(--text-soft)' }}>
                   {detail.evidence.map((ev: any, idx: number) => (
                     <div key={idx} style={{ marginBottom: 4 }}>
                       <b>{ev.rule_id}</b> | signal: {ev.signal} | base confidence: {Math.round((ev.base_confidence || 0) * 100)}%
-                      <div className="muted" style={{ fontSize: 11 }}>{JSON.stringify(ev.metrics)}</div>
                     </div>
                   ))}
                 </div>
@@ -758,93 +677,6 @@ export function AIAdvisor() {
           </div>
         </Modal>
       )}
-
-      {/* Chat */}
-      <div ref={chatSectionRef} className="card mt" style={{ padding: 16 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h3 style={{ marginBottom: 8 }}>Ask AI Advisor</h3>
-          {chatHistory.length > 0 && (
-            <button className="btn ghost sm" style={{ color: 'var(--danger)' }} onClick={clearHistory}><Trash2 size={13} /> Clear all</button>
-          )}
-        </div>
-
-        <div className="card mt" style={{ padding: 16, background: 'var(--surface-2)', border: 0, textAlign: 'center' }}>
-          <button
-            onClick={startVoiceInput}
-            disabled={chatBusy}
-            title="Speak your question"
-            style={{
-              width: 56, height: 56, borderRadius: '50%', border: 0, cursor: chatBusy ? 'default' : 'pointer',
-              background: listening ? 'var(--danger)' : 'var(--primary)', color: '#fff',
-              display: 'grid', placeItems: 'center', boxShadow: 'var(--shadow)',
-              animation: listening ? 'pulse 1.2s ease infinite' : 'none',
-            }}
-          >
-            <Mic size={24} />
-          </button>
-          <p className="muted mt" style={{ fontSize: 13 }}>
-            {listening ? 'Listening…' : chatBusy ? 'Thinking…' : 'Tap to ask by voice — the answer will be read back to you.'}
-          </p>
-        </div>
-
-        {attachment && (
-          <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', background: 'var(--surface-2)', padding: 8, borderRadius: 8 }}>
-            {attachment.type.startsWith('image/')
-              ? <img src={attachment.data} alt={attachment.name} style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6 }} />
-              : <Paperclip size={16} />}
-            <span style={{ fontSize: 13, flex: 1 }}>{attachment.name}</span>
-            <button className="btn ghost sm" onClick={() => setAttachment(null)}><X size={13} /></button>
-          </div>
-        )}
-
-        <div className="row btn-row" style={{ gap: 8 }}>
-          <input className="input" placeholder="Ask about your farm: 'What's urgent today?' or 'Show breeding advice'…" value={chat}
-            onChange={(e) => setChat(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendChat()} />
-          <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.csv,.xlsx" style={{ display: 'none' }}
-            onChange={(e) => onAttachFile(e.target.files?.[0])} />
-          <button className="btn ghost sm" title="Attach a file or photo" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button>
-          <button className="btn" onClick={() => sendChat()} disabled={chatBusy || (!chat.trim() && !attachment)}>
-            {chatBusy ? <><Loader2 size={14} className="spin" /> Thinking…</> : <><Send size={14} /> Send</>}
-          </button>
-        </div>
-        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>AI Advisor analyzes your data in real-time. Ask anything about your herd, milk, feed, breeding, finances, or what to prioritize today — by text, voice, or with a file attached.</p>
-
-        {historyLoading && <div className="skeleton mt" style={{ height: 60 }} />}
-        {!historyLoading && chatHistory.length > 0 && (
-          <div className="mt" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
-            {chatHistory.map((m) => (
-              <div key={m.id} className="reveal" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                <div style={{ textAlign: 'right' }}>
-                  <span className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Farmer</span>
-                </div>
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
-                  <div className="card" style={{ background: 'var(--primary)', color: '#fff', maxWidth: '80%', border: 0, padding: 10 }}>
-                    {m.attachment_name && (
-                      <div className="row" style={{ gap: 6, marginBottom: 6, opacity: 0.9 }}>
-                        {m.attachment_type?.startsWith('image/') && m.attachment_data
-                          ? <img src={m.attachment_data} alt={m.attachment_name} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 5 }} />
-                          : <Paperclip size={13} />}
-                        <span style={{ fontSize: 12 }}>{m.attachment_name}</span>
-                      </div>
-                    )}
-                    <span style={{ fontSize: 14 }}>{m.question}</span>
-                  </div>
-                </div>
-                <span className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>AI Advisor</span>
-                <div className="row" style={{ marginTop: 4, alignItems: 'flex-start', gap: 8 }}>
-                  <div className="icon" style={{ width: 28, height: 28, borderRadius: 8, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)', flexShrink: 0 }}><Bot size={14} /></div>
-                  <div className="card" style={{ maxWidth: '78%', border: 0, background: 'var(--surface-2)', padding: 10, whiteSpace: 'pre-wrap', fontSize: 14 }}>{m.answer}</div>
-                  <button className="btn ghost sm" title={speakingId === m.id ? 'Stop reading' : 'Read answer aloud'} onClick={() => speak(m.id, m.answer)}>
-                    {speakingId === m.id ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                  </button>
-                  <button className="btn ghost sm" title="Delete this exchange" style={{ color: 'var(--text-soft)' }} onClick={() => deleteMessage(m.id)}><Trash2 size={13} /></button>
-                </div>
-                <div className="muted" style={{ fontSize: 11, marginTop: 4, textAlign: 'right' }}>{fmt.shortDate(m.created_at)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
