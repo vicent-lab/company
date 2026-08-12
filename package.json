@@ -4,7 +4,7 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspace @dairy/web --if-present && cp -r apps/web/dist dist 2>/dev/null || true",
+    "build": "npm run build --workspace @dairy/web --if-present && npm run build --workspace @dairy/server --if-present && mkdir -p apps/server/dist/web && cp -r apps/web/dist/* apps/server/dist/web/ && cp -r apps/server/dist dist",
     "test": "npm run test --workspaces --if-present"
   }
 }

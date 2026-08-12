@@ -129,21 +129,25 @@ api.use('/payroll', payrollRoutes);
 
 app.use('/api/v1', api);
 
-const webDist = path.resolve(process.cwd(), 'apps/web/dist');
-const hasWebApp = fs.existsSync(webDist);
+const webDistPaths = [
+  path.resolve(process.cwd(), 'apps/web/dist'),
+  path.resolve(process.cwd(), 'dist/web'),
+];
+const webDist = webDistPaths.find((p) => fs.existsSync(p));
+const hasWebApp = Boolean(webDist);
 if (hasWebApp) {
-  app.use(express.static(webDist));
+  app.use(express.static(webDist!));
 }
 
 app.get('/', (_req, res) => {
   if (hasWebApp) {
-    return res.sendFile(path.join(webDist, 'index.html'));
+    return res.sendFile(path.join(webDist!, 'index.html'));
   }
   res.json({ name: 'Smart Dairy API', version: '0.1.0', docs: '/api/v1' });
 });
 
 if (hasWebApp) {
-  app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+  app.get('*', (_req, res) => res.sendFile(path.join(webDist!, 'index.html')));
 }
 
 app.use(notFound);
