@@ -4,7 +4,7 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace @dairy/web --if-present",
     "test": "npm run test --workspaces --if-present"
   }
 }
