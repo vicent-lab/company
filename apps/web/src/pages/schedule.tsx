@@ -52,9 +52,9 @@ export function DailySchedule() {
     <div>
       <PageHeader eyebrow="DAILY" title="Daily schedule" desc={`${list.length} activities · ${Math.round(totalMinutes / 60)}h logged`}
         actions={<button className="btn sm" onClick={() => setOpen(true)}><Plus size={16} /> Log activity</button>} />
-      <div className="row mt" style={{ gap: 10, marginBottom: 16, alignItems: 'center' }}>
+      <div className="row mt" style={{ gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <label style={{ fontSize: 14 }}>Date:</label>
-        <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 180 }} />
+        <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
       </div>
       <div className="four mt">
         <Kpi icon={<Activity size={18} />} label="Activities" value={list.length} />

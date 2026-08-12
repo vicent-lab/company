@@ -93,11 +93,11 @@ export function DailyRecords() {
               </div>
               <div className="field" style={{ flex: 1 }}><label>Date</label><input className="input" type="date" value={milk.date} onChange={(e) => setMilk({ ...milk, date: e.target.value })} required /></div>
             </div>
-            <div className="row mt">
-              <div className="field" style={{ flex: 1 }}><label>Morning (L)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={milk.morning} onChange={(e) => setMilk({ ...milk, morning: e.target.value })} /></div>
-              <div className="field" style={{ flex: 1 }}><label>Afternoon (L)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={milk.afternoon} onChange={(e) => setMilk({ ...milk, afternoon: e.target.value })} /></div>
-              <div className="field" style={{ flex: 1 }}><label>Evening (L)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={milk.evening} onChange={(e) => setMilk({ ...milk, evening: e.target.value })} /></div>
-            </div>
+             <div className="row mt" style={{ flexWrap: 'wrap' }}>
+               <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Morning (L)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={milk.morning} onChange={(e) => setMilk({ ...milk, morning: e.target.value })} /></div>
+               <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Afternoon (L)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={milk.afternoon} onChange={(e) => setMilk({ ...milk, afternoon: e.target.value })} /></div>
+               <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Evening (L)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={milk.evening} onChange={(e) => setMilk({ ...milk, evening: e.target.value })} /></div>
+             </div>
             <button className="btn mt" type="submit" disabled={submitting}>{submitting ? 'Saving…' : 'Save milk record'}</button>
           </form>
         </div>
@@ -116,10 +116,10 @@ export function DailyRecords() {
               </div>
               <div className="field" style={{ flex: 1 }}><label>Date</label><input className="input" type="date" value={feed.date} onChange={(e) => setFeed({ ...feed, date: e.target.value })} required /></div>
             </div>
-            <div className="row mt">
-              <div className="field" style={{ flex: 2 }}><label>Feed type</label><input className="input" placeholder="e.g. Silage, Hay, Concentrate" value={feed.feed} onChange={(e) => setFeed({ ...feed, feed: e.target.value })} required /></div>
-              <div className="field" style={{ flex: 1 }}><label>Amount (kg)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={feed.kg} onChange={(e) => setFeed({ ...feed, kg: e.target.value })} required /></div>
-            </div>
+             <div className="row mt" style={{ flexWrap: 'wrap' }}>
+               <div className="field" style={{ flex: 2, minWidth: 0 }}><label>Feed type</label><input className="input" placeholder="e.g. Silage, Hay, Concentrate" value={feed.feed} onChange={(e) => setFeed({ ...feed, feed: e.target.value })} required /></div>
+               <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Amount (kg)</label><input className="input" type="number" step="0.1" min="0" placeholder="0.0" value={feed.kg} onChange={(e) => setFeed({ ...feed, kg: e.target.value })} required /></div>
+             </div>
             <button className="btn mt" type="submit" disabled={submitting}>{submitting ? 'Saving…' : 'Save feed record'}</button>
           </form>
         </div>
@@ -327,10 +327,10 @@ export function GalleryManagement() {
   return (
     <div>
       <PageHeader eyebrow='MANAGEMENT' title='Farm management' desc='Daily records, team, and media.' />
-      <div className='card reveal' style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0 }}>
-        <button className={'btn ghost ' + (tab === 'daily' ? 'active-tab' : '')} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 16px' }} onClick={() => setTab('daily')}>Daily records</button>
-        <button className={'btn ghost ' + (tab === 'employees' ? 'active-tab' : '')} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 16px' }} onClick={() => setTab('employees')}>Employees</button>
-        <button className={'btn ghost ' + (tab === 'gallery' ? 'active-tab' : '')} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 16px' }} onClick={() => setTab('gallery')}>Gallery</button>
+      <div className='card reveal' style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto', flexWrap: 'nowrap' }}>
+        <button className={'btn ghost ' + (tab === 'daily' ? 'active-tab' : '')} style={{ borderRadius: 0, flex: '0 0 auto', justifyContent: 'center', padding: '12px 16px', whiteSpace: 'nowrap' }} onClick={() => setTab('daily')}>Daily records</button>
+        <button className={'btn ghost ' + (tab === 'employees' ? 'active-tab' : '')} style={{ borderRadius: 0, flex: '0 0 auto', justifyContent: 'center', padding: '12px 16px', whiteSpace: 'nowrap' }} onClick={() => setTab('employees')}>Employees</button>
+        <button className={'btn ghost ' + (tab === 'gallery' ? 'active-tab' : '')} style={{ borderRadius: 0, flex: '0 0 auto', justifyContent: 'center', padding: '12px 16px', whiteSpace: 'nowrap' }} onClick={() => setTab('gallery')}>Gallery</button>
       </div>
       {tab === 'daily' && <DailyRecords />}
       {tab === 'employees' && <EmployeeManagement />}

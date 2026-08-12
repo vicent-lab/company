@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
-import { PageHeader, Modal, Kpi, AnimatedCounter, useAsync, useToast, Skeleton } from '../ui';
+import { PageHeader, Modal, Kpi, AnimatedCounter, useAsync, useToast, Skeleton, Card, SectionHeader, Badge, EmptyState, TabBar, IconWrap } from '../ui';
 import { useAuth } from '../auth';
 import {
   employees, createEmployee, updateEmployee, deleteEmployee,
@@ -32,6 +32,18 @@ const ROLE_OPTIONS = [
   { value: 'viewer', label: 'Viewer' },
 ];
 
+const TAB_ITEMS = [
+  { key: 'members', label: 'Members', icon: <ShieldCheck size={16} /> },
+  { key: 'attendance', label: 'Attendance', icon: <Clock size={16} /> },
+  { key: 'gps', label: 'GPS', icon: <MapPin size={16} /> },
+  { key: 'shifts', label: 'Shifts', icon: <Calendar size={16} /> },
+  { key: 'training', label: 'Training', icon: <Award size={16} /> },
+  { key: 'performance', label: 'Reviews', icon: <TrendingUp size={16} /> },
+  { key: 'payroll', label: 'Payroll', icon: <DollarSign size={16} /> },
+  { key: 'leave', label: 'Leave', icon: <FileText size={16} /> },
+  { key: 'messages', label: 'Messages', icon: <MessageSquare size={16} /> },
+];
+
 function MembersTab({ farmId }: { farmId: string }) {
   const { user } = useAuth();
   const { push } = useToast();
@@ -60,48 +72,53 @@ function MembersTab({ farmId }: { farmId: string }) {
   return (
     <div>
       {canInvite && (
-        <div className="card" style={{ padding: 20 }}>
-          <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}><UserPlus size={16} /><b style={{ fontSize: 14 }}>Invite a team member</b></div>
-          <form onSubmit={invite} className="row" style={{ gap: 8 }}>
-            <input className="input" type="email" placeholder="teammate@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ flex: 1 }} />
-            <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
+        <Card title="Invite a team member" padding="md" className="mt">
+          <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}>
+            <IconWrap size={16}><UserPlus size={16} /></IconWrap>
+            <b style={{ fontSize: 14 }}>Invite a team member</b>
+          </div>
+          <form onSubmit={invite} className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <input className="input" type="email" placeholder="teammate@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ flex: 1, minWidth: 0 }} />
+            <select className="select" value={role} onChange={(e) => setRole(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
               {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
             <button className="btn sm" disabled={busy}>{busy ? 'Sending…' : 'Invite'}</button>
           </form>
-        </div>
+        </Card>
       )}
 
-      <div className="card mt" style={{ padding: 20 }}>
-        <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}><ShieldCheck size={16} /><b style={{ fontSize: 14 }}>Members</b></div>
-        {loading ? <Skeleton h={80} /> : !data?.members.length ? <p className="muted" style={{ fontSize: 13 }}>No members yet.</p> : (
+      <Card title="Members" subtitle={data?.members?.length ? `${data.members.length} member${data.members.length !== 1 ? 's' : ''}` : undefined} padding="md" className="mt">
+        {loading ? <Skeleton h={80} /> : !data?.members.length ? (
+          <EmptyState icon={<ShieldCheck size={20} />} title="No members yet" description="Invite your first team member to get started." />
+        ) : (
           <div>
             {data.members.map((m) => (
-              <div key={m.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                <div>
-                  <div style={{ fontSize: 14 }}>{m.name} {m.id === user?.id && <span className="muted" style={{ fontSize: 11 }}>(you)</span>}</div>
-                  <div className="muted" style={{ fontSize: 12 }}>{m.email}</div>
+              <Card key={m.id} padding="sm" className="member-row" style={{ marginBottom: 8, border: '1px solid var(--border)' }}>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 14 }}>{m.name} {m.id === user?.id && <span className="muted" style={{ fontSize: 11 }}>(you)</span>}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{m.email}</div>
+                  </div>
+                  <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                    {!m.email_verified && <Badge variant="warning">Unverified</Badge>}
+                    <Badge variant="info">{m.role.replace('_', ' ')}</Badge>
+                  </div>
                 </div>
-                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                  {!m.email_verified && <span className="muted" style={{ fontSize: 11 }}>Unverified</span>}
-                  <span className="pill" style={{ textTransform: 'capitalize' }}>{m.role.replace('_', ' ')}</span>
-                </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
-      </div>
+      </Card>
 
       {!!data?.pending.length && (
-        <div className="card mt" style={{ padding: 20 }}>
-          <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 14 }}><Mail size={16} /><b style={{ fontSize: 14 }}>Pending invitations</b></div>
+        <Card title="Pending invitations" subtitle={`${data.pending.length} pending`} padding="md" className="mt">
           {data.pending.map((p, i) => (
             <div key={i} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < data.pending.length - 1 ? '1px solid var(--border)' : 'none' }}>
               <span style={{ fontSize: 13 }}>{p.email}</span>
-              <span className="pill muted" style={{ textTransform: 'capitalize' }}>{p.role.replace('_', ' ')}</span>
+              <Badge variant="info">{p.role.replace('_', ' ')}</Badge>
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -132,23 +149,7 @@ export function Team() {
   return (
     <div>
       <PageHeader eyebrow="TEAM" title="Employee management" desc="Members & roles, attendance, shifts, training, payroll, leave, and messaging." />
-      <div className="card reveal" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto' }}>
-        {([
-          { key: 'members', label: 'Members', icon: <ShieldCheck size={14} /> },
-          { key: 'attendance', label: 'Attendance', icon: <Clock size={14} /> },
-          { key: 'gps', label: 'GPS', icon: <MapPin size={14} /> },
-          { key: 'shifts', label: 'Shifts', icon: <Calendar size={14} /> },
-          { key: 'training', label: 'Training', icon: <Award size={14} /> },
-          { key: 'performance', label: 'Reviews', icon: <TrendingUp size={14} /> },
-          { key: 'payroll', label: 'Payroll', icon: <DollarSign size={14} /> },
-          { key: 'leave', label: 'Leave', icon: <FileText size={14} /> },
-          { key: 'messages', label: 'Messages', icon: <MessageSquare size={14} /> },
-        ] as const).map((t) => (
-          <button key={t.key} className={`btn ghost ${tab === t.key ? 'active-tab' : ''}`} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 14px', whiteSpace: 'nowrap' }} onClick={() => setTab(t.key)}>
-            <span className="row" style={{ gap: 6, justifyContent: 'center' }}>{t.icon} {t.label}</span>
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={TAB_ITEMS} active={tab} onChange={(key) => setTab(key as Tab)} />
 
       <div className="mt">
         {tab === 'members' && <MembersTab farmId={farmId} />}
@@ -338,9 +339,9 @@ function GpsTab({ farmId, empList, gpsList, loading, refresh }: any) {
               {empList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Latitude</label><input className="input" type="number" step="any" value={form.latitude} onChange={(e) => setForm({ ...form, latitude: +e.target.value })} required /></div>
-            <div className="field" style={{ flex: 1 }}><label>Longitude</label><input className="input" type="number" step="any" value={form.longitude} onChange={(e) => setForm({ ...form, longitude: +e.target.value })} required /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Latitude</label><input className="input" type="number" step="any" value={form.latitude} onChange={(e) => setForm({ ...form, latitude: +e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Longitude</label><input className="input" type="number" step="any" value={form.longitude} onChange={(e) => setForm({ ...form, longitude: +e.target.value })} required /></div>
           </div>
           <div className="field"><label>Accuracy (m)</label><input className="input" type="number" value={form.accuracy} onChange={(e) => setForm({ ...form, accuracy: +e.target.value })} /></div>
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
@@ -398,9 +399,9 @@ function ShiftsTab({ farmId, empList, shiftList, loading, refresh, refreshKey }:
         <Kpi icon={<Users size={18} />} label="Employees" value={empList.length} loading={loading} />
         <Kpi icon={<Clock size={18} />} label="Active" value={shiftList.filter((s: any) => s.is_active).length} loading={loading} />
       </div>
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px,1fr))' }}>
+      <div className="grid mt scroll-x" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, minWidth: 0 }}>
         {shiftList.map((s: any) => (
-          <div key={s.id} className="card" style={{ borderLeft: `4px solid ${s.color}` }}>
+          <Card key={s.id} padding="md" style={{ borderLeft: `4px solid ${s.color}` }}>
             <div className="between">
               <b>{s.name}</b>
               <div className="row" style={{ gap: 4 }}>
@@ -413,13 +414,12 @@ function ShiftsTab({ farmId, empList, shiftList, loading, refresh, refreshKey }:
             <button className="btn sm mt" onClick={() => setAssignOpen(true)} style={{ marginTop: 8, width: '100%' }}>
               <Briefcase size={14} /> Assign employee
             </button>
-          </div>
+          </Card>
         ))}
       </div>
 
       {(assignments || []).length > 0 && (
-        <div className="card mt">
-          <h3>Current assignments</h3>
+        <Card title="Current assignments" padding="md" className="mt">
           <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
             <table><thead><tr><th>Employee</th><th>Shift</th><th>Time</th><th>Assigned on</th><th></th></tr></thead>
               <tbody>{(assignments || []).map((a: any) => (
@@ -433,15 +433,15 @@ function ShiftsTab({ farmId, empList, shiftList, loading, refresh, refreshKey }:
               ))}</tbody>
             </table>
           </div>
-        </div>
+        </Card>
       )}
 
       {open && <Modal title="Shift" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
           <div className="field"><label>Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Start</label><input className="input" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></div>
-            <div className="field" style={{ flex: 1 }}><label>End</label><input className="input" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Start</label><input className="input" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>End</label><input className="input" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></div>
           </div>
           <div className="field"><label>Color</label><input className="input" type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} /></div>
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
@@ -530,21 +530,21 @@ function TrainingTab({ farmId, empList, trainingList, loading, refresh }: any) {
           </div>
           <div className="field"><label>Title</label><input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></div>
           <div className="field"><label>Description</label><textarea className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Category</label>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Category</label>
               <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 <option value="general">General</option><option value="safety">Safety</option><option value="technical">Technical</option><option value="management">Management</option>
               </select>
             </div>
-            <div className="field" style={{ flex: 1 }}><label>Status</label>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Status</label>
               <select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                 <option value="scheduled">Scheduled</option><option value="in_progress">In progress</option><option value="completed">Completed</option>
               </select>
             </div>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Scheduled</label><input className="input" type="date" value={form.scheduledOn} onChange={(e) => setForm({ ...form, scheduledOn: e.target.value })} /></div>
-            <div className="field" style={{ flex: 1 }}><label>Completed</label><input className="input" type="date" value={form.completedOn} onChange={(e) => setForm({ ...form, completedOn: e.target.value })} /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Scheduled</label><input className="input" type="date" value={form.scheduledOn} onChange={(e) => setForm({ ...form, scheduledOn: e.target.value })} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Completed</label><input className="input" type="date" value={form.completedOn} onChange={(e) => setForm({ ...form, completedOn: e.target.value })} /></div>
           </div>
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
             <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
@@ -608,9 +608,9 @@ function PerformanceTab({ farmId, empList, perfList, loading, refresh }: any) {
               {empList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Period start</label><input className="input" type="date" value={form.periodStart} onChange={(e) => setForm({ ...form, periodStart: e.target.value })} required /></div>
-            <div className="field" style={{ flex: 1 }}><label>Period end</label><input className="input" type="date" value={form.periodEnd} onChange={(e) => setForm({ ...form, periodEnd: e.target.value })} required /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Period start</label><input className="input" type="date" value={form.periodStart} onChange={(e) => setForm({ ...form, periodStart: e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Period end</label><input className="input" type="date" value={form.periodEnd} onChange={(e) => setForm({ ...form, periodEnd: e.target.value })} required /></div>
           </div>
           <div className="field"><label>Rating (0-5)</label><input className="input" type="number" step="0.1" min="0" max="5" value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })} /></div>
           <div className="field"><label>Goals met</label><textarea className="input" value={form.goalsMet} onChange={(e) => setForm({ ...form, goalsMet: e.target.value })} /></div>
@@ -679,9 +679,9 @@ function PayrollTab({ farmId, empList, payrollList, loading, refresh }: any) {
               {empList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Period start</label><input className="input" type="date" value={form.periodStart} onChange={(e) => setForm({ ...form, periodStart: e.target.value })} required /></div>
-            <div className="field" style={{ flex: 1 }}><label>Period end</label><input className="input" type="date" value={form.periodEnd} onChange={(e) => setForm({ ...form, periodEnd: e.target.value })} required /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Period start</label><input className="input" type="date" value={form.periodStart} onChange={(e) => setForm({ ...form, periodStart: e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Period end</label><input className="input" type="date" value={form.periodEnd} onChange={(e) => setForm({ ...form, periodEnd: e.target.value })} required /></div>
           </div>
           <div className="field"><label>Gross amount</label><input className="input" type="number" step="0.01" value={form.grossAmount} onChange={(e) => setForm({ ...form, grossAmount: e.target.value })} required /></div>
           <div className="field"><label>Paid on</label><input className="input" type="date" value={form.paidOn} onChange={(e) => setForm({ ...form, paidOn: e.target.value })} /></div>
@@ -775,9 +775,9 @@ function LeaveTab({ farmId, empList, leaveList, loading, refresh }: any) {
               <option value="annual">Annual</option><option value="sick">Sick</option><option value="personal">Personal</option><option value="maternity">Maternity</option>
             </select>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}><label>Start date</label><input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required /></div>
-            <div className="field" style={{ flex: 1 }}><label>End date</label><input className="input" type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Start date</label><input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>End date</label><input className="input" type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required /></div>
           </div>
           <div className="field"><label>Reason</label><textarea className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>

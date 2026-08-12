@@ -48,14 +48,14 @@ export function Dashboard() {
         <Kpi icon={<Wallet size={20} />} label="Expenses" value={<AnimatedCounter value={s.expenses ?? 0} prefix="$" />} delta="on track" tone="down" loading={loading} />
       </div>
 
-      <div className="four mt">
+      <div className="five mt">
         <Kpi icon={<HeartPulse size={18} />} label="Pregnant" value={<AnimatedCounter value={s.pregnantCows ?? 0} />} delta="healthy cycle" loading={loading} />
         <Kpi icon={<Stethoscope size={18} />} label="Sick" value={<AnimatedCounter value={s.sickCows ?? 0} />} delta={s.sickCows ? 'needs care' : 'none'} tone={s.sickCows ? 'down' : 'up'} loading={loading} />
         <Kpi icon={<Wheat size={18} />} label="Feed stock" value={<AnimatedCounter value={s.feedStock ?? 0} suffix=" kg" />} delta="12 days left" loading={loading} />
-        <div onClick={() => navigate('/app/farm-score')} style={{ cursor: 'pointer' }}>
-          <Kpi icon={<Gauge size={18} />} label="AI Score" value={<AnimatedCounter value={score.data?.overall ?? 0} suffix="/100" />} delta="view breakdown →" tone={(score.data?.overall ?? 0) >= 60 ? 'up' : 'down'} loading={score.loading} />
-        </div>
-        <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={<AnimatedCounter value={s.upcomingVacc ?? 0} />} delta="next 7 days" tone={s.upcomingVacc ? 'down' : 'up'} loading={loading} />
+          <div onClick={() => navigate('/app/farm-score')} style={{ cursor: 'pointer' }}>
+            <Kpi icon={<Gauge size={18} />} label="AI Score" value={<AnimatedCounter value={score.data?.overall ?? 0} suffix="/100" />} delta="view breakdown →" tone={(score.data?.overall ?? 0) >= 60 ? 'up' : 'down'} loading={score.loading} />
+          </div>
+          <Kpi icon={<Syringe size={18} />} label="Vaccinations" value={<AnimatedCounter value={s.upcomingVacc ?? 0} />} delta="next 7 days" tone={s.upcomingVacc ? 'down' : 'up'} loading={loading} />
       </div>
 
       <div className="split mt">
@@ -109,15 +109,15 @@ export function Dashboard() {
           <div className="mt"><Progress value={Math.min(100, ((s.profit ?? 0) / (s.revenue || 1)) * 100)} /></div>
           <div className="between mt"><span className="muted" style={{ fontSize: 13 }}>Margin</span><b>{(((s.profit ?? 0) / (s.revenue || 1)) * 100).toFixed(1)}%</b></div>
         </div>
-        <div className="card">
-          <h3>Quick actions</h3>
-          <div className="row mt">
-            <button className="btn sm" onClick={() => navigate('/app/cows')}>Add cow</button>
-            <button className="btn ghost sm" onClick={() => navigate('/app/map')}>View map</button>
-            <button className="btn ghost sm" onClick={() => navigate('/app/ai')}>Ask AI</button>
-            <button className="btn ghost sm" onClick={() => navigate('/app/alerts')}>Alerts</button>
-          </div>
-        </div>
+          <div className="card">
+           <h3>Quick actions</h3>
+           <div className="row mt">
+             <button className="btn sm" onClick={() => navigate('/app/cows')}>Add cow</button>
+             <button className="btn sm ghost" onClick={() => navigate('/app/map')}>View map</button>
+             <button className="btn sm ghost" onClick={() => navigate('/app/ai')}>Ask AI</button>
+             <button className="btn sm ghost" onClick={() => navigate('/app/alerts')}>Alerts</button>
+           </div>
+         </div>
       </div>
     </div>
   );

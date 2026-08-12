@@ -146,10 +146,10 @@ function MedicineInventory({ farmId }: { farmId: string }) {
             <div className="field" style={{ flex: 1 }}><label>Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
             <div className="field" style={{ flex: 1 }}><label>Category</label><input className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required /></div>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field"><label>Quantity</label><input className="input" type="number" value={form.quantityOnHand} onChange={(e) => setForm({ ...form, quantityOnHand: e.target.value })} /></div>
-            <div className="field"><label>Unit</label><input className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
-            <div className="field"><label>Reorder level</label><input className="input" type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} /></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Quantity</label><input className="input" type="number" value={form.quantityOnHand} onChange={(e) => setForm({ ...form, quantityOnHand: e.target.value })} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Unit</label><input className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Reorder level</label><input className="input" type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} /></div>
           </div>
           <div className="row" style={{ gap: 10 }}>
             <div className="field"><label>Expiry date</label><input className="input" type="date" value={form.expiryDate} onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} /></div>
@@ -298,10 +298,10 @@ function ParasiteControl({ farmId }: { farmId: string }) {
             <div className="field" style={{ flex: 1 }}><label>Treatment type</label><input className="input" value={form.treatmentType} onChange={(e) => setForm({ ...form, treatmentType: e.target.value })} required /></div>
             <div className="field" style={{ flex: 1 }}><label>Product name</label><input className="input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} required /></div>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field"><label>Scheduled on</label><input className="input" type="date" value={form.scheduledOn} onChange={(e) => setForm({ ...form, scheduledOn: e.target.value })} required /></div>
-            <div className="field"><label>Administered on</label><input className="input" type="date" value={form.administeredOn} onChange={(e) => setForm({ ...form, administeredOn: e.target.value })} /></div>
-            <div className="field"><label>Status</label><select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="scheduled">Scheduled</option><option value="completed">Completed</option><option value="missed">Missed</option></select></div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Scheduled on</label><input className="input" type="date" value={form.scheduledOn} onChange={(e) => setForm({ ...form, scheduledOn: e.target.value })} required /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Administered on</label><input className="input" type="date" value={form.administeredOn} onChange={(e) => setForm({ ...form, administeredOn: e.target.value })} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 0 }}><label>Status</label><select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="scheduled">Scheduled</option><option value="completed">Completed</option><option value="missed">Missed</option></select></div>
           </div>
           <div className="row" style={{ gap: 10 }}>
             <div className="field"><label>Dosage</label><input className="input" value={form.dosage} onChange={(e) => setForm({ ...form, dosage: e.target.value })} /></div>
@@ -493,7 +493,7 @@ export function Health() {
       <PageHeader eyebrow="HEALTH" title="Health & Veterinary" desc="Disease detection, medicine inventory, lab tests, parasite control, quarantine, and emergency alerts"
         actions={<button className="btn sm" onClick={() => push('Feature ready', <Activity size={15} />)}><Activity size={15} /> Quick check</button>} />
 
-      <div className="row mt" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <div className="card reveal mt" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto', flexWrap: 'nowrap' }}>
         {[
           { key: 'records', label: 'Health records', icon: Activity },
           { key: 'medicines', label: 'Medicine inventory', icon: Pill },
@@ -503,7 +503,7 @@ export function Health() {
           { key: 'alerts', label: 'Emergency alerts', icon: AlertTriangle },
           { key: 'effectiveness', label: 'Treatment reports', icon: RefreshCw },
         ].map((t) => (
-          <button key={t.key} className={`btn ghost sm ${tab === t.key ? '' : 'muted'}`} onClick={() => setTab(t.key as any)}><t.icon size={15} /> {t.label}</button>
+          <button key={t.key} className={`btn ghost sm ${tab === t.key ? '' : 'muted'}`} style={{ borderRadius: 0, flex: '0 0 auto', justifyContent: 'center', padding: '10px 14px', whiteSpace: 'nowrap' }} onClick={() => setTab(t.key as any)}><t.icon size={15} /> {t.label}</button>
         ))}
       </div>
 

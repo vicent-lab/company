@@ -20,7 +20,7 @@ function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (pat
   const initials = (c.name || c.cowCode || '?').split(' ').map((s: string) => s[0]).slice(0, 2).join('').toUpperCase();
 
   return (
-    <div style={{ marginLeft: depth * 24, marginTop: 6, borderLeft: '2px solid var(--border)', paddingLeft: 10 }}>
+    <div style={{ marginLeft: Math.min(depth * 24, 120), marginTop: 6, borderLeft: '2px solid var(--border)', paddingLeft: 10 }}>
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
         <div
           onClick={() => navigate('/app/cow/' + c.id)}
@@ -41,7 +41,7 @@ function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (pat
       {node.mother && expanded && <PedigreeNode node={node.mother} navigate={navigate} depth={depth + 1} />}
       {node.father && expanded && <PedigreeNode node={node.father} navigate={navigate} depth={depth + 1} />}
       {node.offspring?.length > 0 && expanded && (
-        <div style={{ marginLeft: depth * 24, marginTop: 4 }}>
+        <div style={{ marginLeft: Math.min(depth * 24, 120), marginTop: 4 }}>
           {node.offspring.map((o: any) => (
             <div key={o.id} className="row" style={{ gap: 8, alignItems: 'center', marginTop: 4, fontSize: 12 }}
               onClick={() => navigate('/app/cow/' + o.id)}>
@@ -163,7 +163,7 @@ export function Herd() {
       </div>
       <div className="card mb" style={{ padding: '12px 16px' }}>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          <div style={{ position: 'relative', flex: 1, minWidth: 160 }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
             <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-soft)' }} />
             <input className="input" style={{ paddingLeft: 32, width: '100%' }} placeholder="Search by code, name, breed" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
           </div>
@@ -315,6 +315,7 @@ export function CowProfile({ id }: { id: string }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <PageHeader eyebrow="ANIMAL PROFILE" title={cow.name}
             desc={`${cow.cowCode} · ${cow.earTag} · ${cow.breed}${age ? ` · ${age} years` : ''}`}
+            back={() => navigate('/app/cows')}
             actions={
               <div className="row">
                 <button className="btn ghost sm" onClick={() => { setEditForm({ name: cow.name, breed: cow.breed, earTag: cow.earTag, weightKg: String(cow.weightKg), waterIntakeLiters: String(cow.waterIntakeLiters ?? 0), isMilking: cow.isMilking, isPregnant: cow.isPregnant, status: cow.status, deathDate: cow.deathDate ?? '', deathCause: cow.deathCause ?? '', deathNotes: cow.deathNotes ?? '', photoUrl: cow.photoUrl ?? '' }); setEditOpen(true); }}><Edit3 size={15} /> Edit</button>
@@ -491,11 +492,11 @@ export function CowProfile({ id }: { id: string }) {
       )}
 
       {qr && <Modal title={`QR — ${cow.cowCode}`} onClose={() => setQr(false)}>
-        <div className="row" style={{ justifyContent: 'center', gap: 20 }}>
+        <div className="stack-sm" style={{ alignItems: 'center' }}>
           <QrCode seed={cow.earTag + cow.id} size={180} />
-          <div style={{ fontSize: 14 }}>
+          <div style={{ fontSize: 14, textAlign: 'center' }}>
             <p><b>Scan to view:</b></p>
-            <ul className="mt" style={{ display: 'grid', gap: 6 }}>
+            <ul className="mt" style={{ display: 'grid', gap: 6, textAlign: 'left' }}>
               <li>Profile & photo</li><li>Milk records</li><li>Vaccination history</li><li>Health records</li><li>Breeding info</li>
             </ul>
           </div>

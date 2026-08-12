@@ -471,12 +471,21 @@ export const zoneHeatmap = async (farmId: string, period: mock.Period = 'today')
 
 // ---------- Notifications ----------
 const TONE: Record<string, string> = { sick: 'danger', vaccination: 'warn', feed: 'warn', medicine: 'warn', heat: 'info', calving: 'info', task: 'info', payment: 'warn' };
+const CATEGORY: Record<string, string> = { sick: 'critical', vaccination: 'important', feed: 'important', medicine: 'important', payment: 'important', heat: 'information', calving: 'important', task: 'information' };
+// Map type -> default route when the API doesn't provide a link
+const DEFAULT_LINK: Record<string, string> = {
+  sick: '/app/cow', vaccination: '/app/health', feed: '/app/management', medicine: '/app/health',
+  payment: '/app/customers', heat: '/app/breeding', calving: '/app/breeding', task: '/app/tasks',
+};
 export const notifications = async () => {
   if (!isLive) return mock.NOTIFICATIONS.map((n: any) => ({ ...n, read_at: n.read_at || null }));
   const r = await apiGet<{ data: any[] }>('/notifications');
   return r.data.map((n) => ({
     id: n.id, type: n.type, title: n.title, body: n.body,
     tone: TONE[n.type] || 'info', time: n.read_at ? 'read' : 'new', read_at: n.read_at || null,
+    category: n.category || CATEGORY[n.type] || 'information',
+    link: n.link || n.cow_id ? (n.link || `/app/cow/${n.cow_id}`) : (DEFAULT_LINK[n.type] || '/app/alerts'),
+    cowId: n.cow_id || n.cowId, taskId: n.task_id || n.taskId,
   }));
 };
 

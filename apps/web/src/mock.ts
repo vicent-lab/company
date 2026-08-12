@@ -685,14 +685,14 @@ function weatherAverage(farmId: string, daysBack: number) {
 
 // ---- Notifications ----
 export const NOTIFICATIONS = [
-  { id: 1, type: 'vaccination', title: 'Vaccination due', body: '3 cows need Leptospirosis booster this week.', time: '2h ago', tone: 'warn', read_at: null },
-  { id: 2, type: 'heat', title: 'Heat detected', body: 'Cow HF-014 showing strong estrus signs.', time: '4h ago', tone: 'info', read_at: null },
-  { id: 3, type: 'calving', title: 'Expected calving', body: 'JF-009 due to calve in 4 days.', time: 'Yesterday', tone: 'info', read_at: null },
-  { id: 4, type: 'sick', title: 'Sick cow alert', body: 'BR-021 flagged under treatment for lameness.', time: 'Yesterday', tone: 'danger', read_at: null },
-  { id: 5, type: 'feed', title: 'Low feed stock', body: 'Concentrate below reorder level (380 kg).', time: '2d ago', tone: 'warn', read_at: null },
-  { id: 6, type: 'medicine', title: 'Medicine expiring', body: 'Oxytetracycline expires in 18 days.', time: '3d ago', tone: 'warn', read_at: null },
-  { id: 7, type: 'task', title: 'Task reminder', body: 'Afternoon milking roster due at 4pm.', time: '3d ago', tone: 'info', read_at: null },
-  { id: 8, type: 'payment', title: 'Payment due', body: 'Supplier invoice #INV-228 due in 5 days.', time: '4d ago', tone: 'warn', read_at: null },
+  { id: 1, type: 'vaccination', title: 'Vaccination due', body: '3 cows need Leptospirosis booster this week.', time: '2h ago', tone: 'warn', read_at: null, category: 'important', link: '/app/health' },
+  { id: 2, type: 'heat', title: 'Heat detected', body: 'Cow HF-014 showing strong estrus signs.', time: '4h ago', tone: 'info', read_at: null, category: 'information', link: '/app/breeding' },
+  { id: 3, type: 'calving', title: 'Expected calving', body: 'JF-009 due to calve in 4 days.', time: 'Yesterday', tone: 'info', read_at: null, category: 'important', link: '/app/breeding' },
+  { id: 4, type: 'sick', title: 'Sick cow alert', body: 'BR-021 flagged under treatment for lameness.', time: 'Yesterday', tone: 'danger', read_at: null, category: 'critical', link: '/app/cow/f1-c5', cowCode: 'BR-021' },
+  { id: 5, type: 'feed', title: 'Low feed stock', body: 'Concentrate below reorder level (380 kg).', time: '2d ago', tone: 'warn', read_at: null, category: 'important', link: '/app/management' },
+  { id: 6, type: 'medicine', title: 'Medicine expiring', body: 'Oxytetracycline expires in 18 days.', time: '3d ago', tone: 'warn', read_at: null, category: 'important', link: '/app/health' },
+  { id: 7, type: 'task', title: 'Task reminder', body: 'Afternoon milking roster due at 4pm.', time: '3d ago', tone: 'info', read_at: null, category: 'information', link: '/app/tasks' },
+  { id: 8, type: 'payment', title: 'Payment due', body: 'Supplier invoice #INV-228 due in 5 days.', time: '4d ago', tone: 'warn', read_at: null, category: 'important', link: '/app/customers' },
 ];
 
 // ---- Gallery ----

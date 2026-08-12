@@ -3,7 +3,8 @@ import { useFarm } from '../app';
 import { PageHeader, Kpi, AnimatedCounter, ChartCard, LineChart, BarChart, DoughnutChart, chartColors, gridColor, tickColor, useToast, useAsync, Skeleton } from '../ui';
 import { predictions, analytics, finance, weather, sustainability, notifications, aiAsk, dashboardSummary, breedPopulation, healthDistribution } from '../data';
 import { isLive, apiSend } from '../api';
-import { Bot, Send, TrendingUp, TrendingDown, CloudSun, Droplets, Wind, Thermometer, Leaf, AlertTriangle, Syringe, HeartPulse, Flame, Package, CreditCard, FileDown, Mic, Sparkles, Activity } from 'lucide-react';
+import { useHashRoute } from '../router';
+import { Bot, Send, TrendingUp, TrendingDown, CloudSun, Droplets, Wind, Thermometer, Leaf, AlertTriangle, Syringe, HeartPulse, Flame, Package, CreditCard, FileDown, Mic, Sparkles, Activity, Bell, Baby, ClipboardList, Wheat, Pill, DollarSign, ChevronRight } from 'lucide-react';
 import { fmt } from '../format';
 import { exportTable, exportPDF, exportReport, openReportWindow, toCSV, download } from '../export';
 
@@ -120,7 +121,7 @@ export function AIAssistant() {
   return (
     <div>
       <PageHeader eyebrow="AI" title="Farm assistant" desc="Ask me anything about your farm, dairy management, or how to use DairyOS. I give advice on all matters and update automatically from your live data." />
-      <div className="card" style={{ height: 'calc(100vh - 230px)', display: 'flex', flexDirection: 'column' }}>
+      <div className="card" style={{ height: 'max(280px, calc(100vh - 280px))', display: 'flex', flexDirection: 'column', minHeight: 280 }}>
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 4px' }}>
           {msgs.map((m, i) => (
             <div key={i} className="reveal" style={{ marginBottom: 16 }}>
@@ -429,13 +430,15 @@ export function Sustainability() {
 
 export function Alerts() {
   const { push } = useToast();
+  const [, navigate] = useHashRoute();
   const { data: list } = useAsync(() => notifications(), []);
   const items = list || [];
   const [readIds, setReadIds] = useState<Set<string | number>>(new Set());
+
   const unreadCount = items.filter((n: any) => !readIds.has(n.id) && !n.read_at).length;
 
   const markAllRead = async () => {
-    const ids = items.map((n: any) => n.id);
+    const ids = items.map((n) => n.id);
     setReadIds(new Set(ids));
     try {
       await Promise.all(ids.map((id: string | number) => apiSend(`/notifications/${id}/read`, 'POST').catch(() => {})));
@@ -443,24 +446,89 @@ export function Alerts() {
     } catch (err: any) { push(err.message); }
   };
 
-  const toneIcon = (t: string) => t === 'danger' ? <AlertTriangle size={16} color="var(--danger)" /> : t === 'warn' ? <Syringe size={16} color="var(--warn)" /> : <HeartPulse size={16} color="var(--info)" />;
+  const notificationIcon = (n: any) => {
+    const toneColor = n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : n.tone === 'info' ? 'var(--info)' : 'var(--text-soft)';
+    if (n.type === 'sick') return <AlertTriangle size={16} color={toneColor} />;
+    if (n.type === 'vaccination') return <Syringe size={16} color={toneColor} />;
+    if (n.type === 'feed') return <Wheat size={16} color={toneColor} />;
+    if (n.type === 'medicine') return <Pill size={16} color={toneColor} />;
+    if (n.type === 'heat' || n.type === 'calving') return <Baby size={16} color={toneColor} />;
+    if (n.type === 'task') return <ClipboardList size={16} color={toneColor} />;
+    if (n.type === 'payment') return <DollarSign size={16} color={toneColor} />;
+    return <Bell size={16} color={toneColor} />;
+  };
+
+  const catOrder = ['critical', 'important', 'information'] as const;
+  const catLabels = { critical: 'CRITICAL', important: 'IMPORTANT', information: 'INFORMATION' };
+  const catTone: Record<string, string> = { critical: 'danger', important: 'warn', information: 'info' };
+
+  const grouped = items.reduce((acc: Record<string, any[]>, n: any) => {
+    const cat = (n.category || 'information').toLowerCase();
+    const key = catOrder.includes(cat as any) ? cat : 'information';
+    (acc[key] = acc[key] || []).push(n);
+    return acc;
+  }, {});
+
+  const unreadByCat = (cat: string) => (grouped[cat] || []).filter((n: any) => !readIds.has(n.id) && !n.read_at).length;
+
   return (
     <div>
       <PageHeader eyebrow="SMART NOTIFICATIONS" title="Alerts & reminders" desc="Automated alerts across your farm."
-        actions={<button className="btn sm" onClick={markAllRead} disabled={unreadCount === 0}>Mark all read</button>} />
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {items.map((n: any) => {
-          const isRead = readIds.has(n.id) || !!n.read_at;
-          return (
-            <div key={n.id} className="between" style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', opacity: isRead ? 0.6 : 1, background: isRead ? 'transparent' : 'var(--primary-soft)' }}>
-              <div className="row"><span style={{ color: n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)', display: 'grid', placeItems: 'center' }}>{toneIcon(n.tone)}</span>
-                <div><b>{n.title}</b><div className="muted" style={{ fontSize: 13 }}>{n.body}</div></div></div>
-              <div className="row"><span className="muted" style={{ fontSize: 12 }}>{isRead ? 'Read' : n.time}</span><span className={`pill ${n.tone}`}>{n.type}</span></div>
+        back={() => navigate('/app/dashboard')}
+        actions={
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn sm" onClick={markAllRead} disabled={unreadCount === 0}>Mark all read</button>
+            <button className="btn ghost sm" onClick={() => navigate('/app/command-center')}>Go to dashboard</button>
+          </div>
+        } />
+      {catOrder.map((cat) => {
+        const group = grouped[cat];
+        if (!group || group.length === 0) return null;
+        return (
+          <div key={cat} style={{ marginBottom: 24 }}>
+            <div className="between" style={{ padding: '8px 4px 4px', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: `var(--${catTone[cat]})`, fontWeight: 700 }}>
+              <span>{catLabels[cat]}</span>
+              {unreadByCat(cat) > 0 && <span className="badge-dot" style={{ fontSize: 9, padding: '1px 6px' }}>{unreadByCat(cat)} unread</span>}
             </div>
-          );
-        })}
-        {!items.length && <div className="muted" style={{ padding: 20 }}>No notifications.</div>}
-      </div>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              {group.map((n: any) => {
+                const isRead = readIds.has(n.id) || !!n.read_at;
+                return (
+                  <button
+                    key={n.id}
+                    onClick={() => {
+                      if (!isRead) {
+                        setReadIds((prev) => new Set(prev).add(n.id));
+                        if (n.link && isLive) apiSend(`/notifications/${n.id}/read`, 'POST').catch(() => {});
+                      }
+                      if (n.link) navigate(n.link);
+                    }}
+                    className="notification-item"
+                    style={{
+                      opacity: isRead ? 0.6 : 1,
+                      background: isRead ? 'transparent' : 'var(--primary-soft)',
+                      padding: '14px 18px',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    {notificationIcon(n)}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{n.title}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>{n.body}</div>
+                    </div>
+                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <span className="muted" style={{ fontSize: 11 }}>{isRead ? 'Read' : n.time}</span>
+                      <span className={`pill ${n.tone}`} style={{ fontSize: 10 }}>{n.type}</span>
+                      {n.link && <ChevronRight size={12} color="var(--text-soft)" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      {items.length === 0 && <div className="muted" style={{ padding: 20 }}>No notifications.</div>}
     </div>
   );
 }

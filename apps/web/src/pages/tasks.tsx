@@ -67,20 +67,20 @@ export function TaskManager() {
         {list.length === 0 && <p className="muted">No tasks found.</p>}
         {list.map((task: any) => (
           <div key={task.id} className="between" style={{ padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ flex: 1 }}>
-              <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="row" style={{ gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 15 }}>{task.title}</b>
                 <span className={`pill ${task.priority === 'urgent' ? 'danger' : task.priority === 'high' ? 'warn' : 'info'}`}>{task.priority}</span>
                 <span className={`pill ${task.status === 'completed' ? 'healthy' : task.status === 'in_progress' ? 'info' : 'muted'}`}>{task.status}</span>
               </div>
-              {task.description && <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>{task.description}</div>}
-              <div className="row" style={{ gap: 12, fontSize: 12, color: 'var(--muted)' }}>
+              {task.description && <div className="muted" style={{ fontSize: 13, marginBottom: 4, wordBreak: 'break-word' }}>{task.description}</div>}
+              <div className="row" style={{ gap: 12, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
                 {task.assigned_name && <span className="row" style={{ gap: 4 }}><User size={12} /> {task.assigned_name}</span>}
                 {task.due_date && <span className="row" style={{ gap: 4 }}><Calendar size={12} /> {fmt.date(task.due_date)}</span>}
                 {task.category && <span className="pill" style={{ fontSize: 11 }}>{task.category}</span>}
               </div>
             </div>
-            <div className="row" style={{ gap: 6 }}>
+            <div className="row" style={{ gap: 6, flexShrink: 0 }}>
               <button className="btn ghost sm" onClick={() => { setForm({ title: task.title, description: task.description || '', assignedTo: task.assigned_to || '', priority: task.priority, dueDate: task.due_date || '', dueTime: task.due_time || '', category: task.category || '', tags: task.tags || [] }); setOpen(true); }}><Edit3 size={14} /></button>
               <button className="btn ghost sm" onClick={() => updateTask(task.id, { status: task.status === 'completed' ? 'pending' : 'completed' }).then(() => setTaskKey((k) => k + 1))}>
                 {task.status === 'completed' ? 'Reopen' : 'Complete'}

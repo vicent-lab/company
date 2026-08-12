@@ -952,130 +952,140 @@ export function FarmMap() {
         </div>
       )}
 
-      {mapStyle === 'farm-layout' ? (
-        <div
-          ref={viewportRef}
-          className={`map ${theme === 'dark' ? 'dark' : ''}`}
-          style={{ cursor: editMode ? (editTool === 'move' ? 'move' : editTool === 'delete' ? 'not-allowed' : 'crosshair') : (zoom > 1 ? 'grab' : 'default'), touchAction: 'none' }}
-          onWheel={onWheel}
-          onPointerDown={onPointerDown}
-          onPointerMove={(e) => { onPointerMove(e); handleMapDrag(e); }}
-          onPointerUp={endPointer}
-          onPointerCancel={endPointer}
-          onPointerLeave={endPointer}
-          onClick={editMode ? handleMapClick : undefined}
-          onDoubleClick={editMode ? handleMapDoubleClick : undefined}
-        >
-          <div className={`map-scene ${interacting ? 'panning' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center center' }}>
-            <svg className="map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <polyline className="road" points={roadPoints.map((n) => `${n.x},${n.y}`).join(' ')} />
-            </svg>
-            {NODES.map((n) => {
-              const zh = heatByZone[n.id];
-              const tone = isHeat ? zoneColor(n.id, heatLayer, zh, weatherData) : n.tone;
-              const recs = zh?.recommendations || [];
-              const worst = recs.some((r) => r.severity === 'critical') ? 'critical' : recs.length ? 'warning' : null;
-              return (
-                <button key={n.id} className={`node ${active === n.id ? 'active' : ''}`}
-                  style={{
-                    left: n.x + '%', top: n.y + '%', borderColor: tone,
-                    background: isHeat ? `color-mix(in srgb, ${tone} 20%, var(--surface))` : undefined,
-                  }}
-                  onClick={() => { if (!drag.current.moved) setActive(n.id); drag.current.moved = false; }}>
-                  {worst && (
-                    <span className="node-alert" style={{ background: worst === 'critical' ? 'var(--danger)' : 'var(--warn)' }} title={`${recs.length} AI recommendation${recs.length > 1 ? 's' : ''}`}>
-                      <AlertTriangle size={11} />
-                    </span>
-                  )}
-                  <span style={{ color: tone, display: 'grid', placeItems: 'center' }}>{n.icon}</span>
-                  <span>
-                    {n.label}
-                    {isHeat && <><br /><small style={{ fontWeight: 700, opacity: 0.85 }}>{zoneValue(n.id, heatLayer, zh, weatherData)}</small></>}
-                  </span>
-                </button>
-              );
-            })}
-            {viewMode === 'cows' && NODES.map((n) => (cowsByZone[n.id] || []).map((c, idx) => {
-              const total = cowsByZone[n.id].length;
-              const pos = jitterFor(n.x, n.y, idx, total);
-              return (
-                <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${STATUS_LABEL[c.status]}`}
-                  style={{ left: pos.x + '%', top: pos.y + '%', background: STATUS_COLOR[c.status] }}
-                  onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
-              );
-            }          ))}
-            {isCalving && NODES.map((n) => (calvingByZone[n.id] || []).map((c, idx) => {
-              const total = calvingByZone[n.id].length;
-              const pos = jitterFor(n.x, n.y, idx, total);
-              const marker = calvingMarkerFor(c) as CalvingMarker;
-              return (
-                <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${CALVING_LABEL[marker]}`}
-                  style={{ left: pos.x + '%', top: pos.y + '%', background: CALVING_COLOR[marker] }}
-                  onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
-              );
-            }))}
-            {editMode && mapObjects.map((obj) => {
-              const projected = projectToScreen(obj.geometry);
-              const isSelected = obj.id === selectedId;
-              const color = obj.properties?.color || 'var(--primary)';
-              if (obj.geometry.type === 'Point') {
-                const p = projected as { x: number; y: number };
-                return (
-                  <div key={obj.id} className={`node ${isSelected ? 'active' : ''}`}
-                    style={{ left: p.x + '%', top: p.y + '%', borderColor: color, cursor: editTool === 'move' ? 'move' : 'pointer', zIndex: obj.zIndex }}
-                    onMouseDown={(e) => handleObjectMouseDown(e, obj)}>
-                    <span style={{ color, display: 'grid', placeItems: 'center' }}><MapPin size={16} /></span>
-                    <span>{obj.name}</span>
-                  </div>
-                );
-              }
-              if (obj.geometry.type === 'Polygon') {
-                const pts = projected as { x: number; y: number }[];
-                const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
-                return (
-                  <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
-                    <polygon points={pointsStr} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.5}
-                      style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
-                      onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
-                    {isSelected && pts.map((p, i) => (
-                      <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.5} fill={color} style={{ pointerEvents: 'all', cursor: 'move' }}
-                        onMouseDown={(e) => { e.stopPropagation(); handleSelectObject(obj.id); }} />
-                    ))}
-                  </svg>
-                );
-              }
-              if (obj.geometry.type === 'LineString') {
-                const pts = projected as { x: number; y: number }[];
-                const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
-                return (
-                  <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
-                    <polyline points={pointsStr} fill="none" stroke={color} strokeWidth={0.8}
-                      style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
-                      onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
-                  </svg>
-                );
-              }
-              return null;
-            })}
-            {editMode && drawPoints.length > 0 && (
-              <svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 999 }}>
-                <polyline points={drawPoints.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="var(--primary)" strokeWidth={0.5} strokeDasharray="2 2" />
-                {drawPoints.map((p, i) => (
-                  <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.2} fill="var(--primary)" />
-                ))}
+      <div className="map-wrapper">
+        {mapStyle === 'farm-layout' ? (
+          <div
+            ref={viewportRef}
+            className={`map ${theme === 'dark' ? 'dark' : ''}`}
+            style={{ cursor: editMode ? (editTool === 'move' ? 'move' : editTool === 'delete' ? 'not-allowed' : 'crosshair') : (zoom > 1 ? 'grab' : 'default'), touchAction: 'none' }}
+            onWheel={onWheel}
+            onPointerDown={onPointerDown}
+            onPointerMove={(e) => { onPointerMove(e); handleMapDrag(e); }}
+            onPointerUp={endPointer}
+            onPointerCancel={endPointer}
+            onPointerLeave={endPointer}
+            onClick={editMode ? handleMapClick : undefined}
+            onDoubleClick={editMode ? handleMapDoubleClick : undefined}
+          >
+            <div className={`map-scene ${interacting ? 'panning' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'center center' }}>
+              <svg className="map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <polyline className="road" points={roadPoints.map((n) => `${n.x},${n.y}`).join(' ')} />
               </svg>
-            )}
+              {NODES.map((n) => {
+                const zh = heatByZone[n.id];
+                const tone = isHeat ? zoneColor(n.id, heatLayer, zh, weatherData) : n.tone;
+                const recs = zh?.recommendations || [];
+                const worst = recs.some((r) => r.severity === 'critical') ? 'critical' : recs.length ? 'warning' : null;
+                return (
+                  <button key={n.id} className={`node ${active === n.id ? 'active' : ''}`}
+                    style={{
+                      left: n.x + '%', top: n.y + '%', borderColor: tone,
+                      background: isHeat ? `color-mix(in srgb, ${tone} 20%, var(--surface))` : undefined,
+                    }}
+                    onClick={() => { if (!drag.current.moved) setActive(n.id); drag.current.moved = false; }}>
+                    {worst && (
+                      <span className="node-alert" style={{ background: worst === 'critical' ? 'var(--danger)' : 'var(--warn)' }} title={`${recs.length} AI recommendation${recs.length > 1 ? 's' : ''}`}>
+                        <AlertTriangle size={11} />
+                      </span>
+                    )}
+                    <span style={{ color: tone, display: 'grid', placeItems: 'center' }}>{n.icon}</span>
+                    <span>
+                      {n.label}
+                      {isHeat && <><br /><small style={{ fontWeight: 700, opacity: 0.85 }}>{zoneValue(n.id, heatLayer, zh, weatherData)}</small></>}
+                    </span>
+                  </button>
+                );
+              })}
+              {viewMode === 'cows' && NODES.map((n) => (cowsByZone[n.id] || []).map((c, idx) => {
+                const total = cowsByZone[n.id].length;
+                const pos = jitterFor(n.x, n.y, idx, total);
+                return (
+                  <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${STATUS_LABEL[c.status]}`}
+                    style={{ left: pos.x + '%', top: pos.y + '%', background: STATUS_COLOR[c.status] }}
+                    onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
+                );
+              }          ))}
+              {isCalving && NODES.map((n) => (calvingByZone[n.id] || []).map((c, idx) => {
+                const total = calvingByZone[n.id].length;
+                const pos = jitterFor(n.x, n.y, idx, total);
+                const marker = calvingMarkerFor(c) as CalvingMarker;
+                return (
+                  <button key={c.cowId} className="cow-pin" title={`${c.name || c.cowCode} — ${CALVING_LABEL[marker]}`}
+                    style={{ left: pos.x + '%', top: pos.y + '%', background: CALVING_COLOR[marker] }}
+                    onClick={() => { if (!drag.current.moved) openCow(c); drag.current.moved = false; }} />
+                );
+              }))}
+              {editMode && mapObjects.map((obj) => {
+                const projected = projectToScreen(obj.geometry);
+                const isSelected = obj.id === selectedId;
+                const color = obj.properties?.color || 'var(--primary)';
+                if (obj.geometry.type === 'Point') {
+                  const p = projected as { x: number; y: number };
+                  return (
+                    <div key={obj.id} className={`node ${isSelected ? 'active' : ''}`}
+                      style={{ left: p.x + '%', top: p.y + '%', borderColor: color, cursor: editTool === 'move' ? 'move' : 'pointer', zIndex: obj.zIndex }}
+                      onMouseDown={(e) => handleObjectMouseDown(e, obj)}>
+                      <span style={{ color, display: 'grid', placeItems: 'center' }}><MapPin size={16} /></span>
+                      <span>{obj.name}</span>
+                    </div>
+                  );
+                }
+                if (obj.geometry.type === 'Polygon') {
+                  const pts = projected as { x: number; y: number }[];
+                  const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+                  return (
+                    <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
+                      <polygon points={pointsStr} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.5}
+                        style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
+                        onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
+                      {isSelected && pts.map((p, i) => (
+                        <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.5} fill={color} style={{ pointerEvents: 'all', cursor: 'move' }}
+                          onMouseDown={(e) => { e.stopPropagation(); handleSelectObject(obj.id); }} />
+                      ))}
+                    </svg>
+                  );
+                }
+                if (obj.geometry.type === 'LineString') {
+                  const pts = projected as { x: number; y: number }[];
+                  const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+                  return (
+                    <svg key={obj.id} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: obj.zIndex }}>
+                      <polyline points={pointsStr} fill="none" stroke={color} strokeWidth={0.8}
+                        style={{ pointerEvents: 'visiblePainted', cursor: editTool === 'move' ? 'move' : 'pointer' }}
+                        onMouseDown={(e) => handleObjectMouseDown(e, obj)} />
+                    </svg>
+                  );
+                }
+                return null;
+              })}
+              {editMode && drawPoints.length > 0 && (
+                <svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 999 }}>
+                  <polyline points={drawPoints.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="var(--primary)" strokeWidth={0.5} strokeDasharray="2 2" />
+                  {drawPoints.map((p, i) => (
+                    <circle key={i} cx={p.x + '%'} cy={p.y + '%'} r={1.2} fill="var(--primary)" />
+                  ))}
+                </svg>
+              )}
+            </div>
+            <div className="map-compass" title="North">N</div>
+            <div className="map-zoom">
+              <button type="button" onClick={() => setZoomClamped(zoom + 0.4)} title="Zoom in"><ZoomIn size={15} /></button>
+              <button type="button" onClick={() => setZoomClamped(zoom - 0.4)} title="Zoom out"><ZoomOut size={15} /></button>
+              <button type="button" onClick={resetView} title="Reset view"><Maximize size={15} /></button>
+            </div>
           </div>
-          <div className="map-compass" title="North">N</div>
-          <div className="map-zoom">
-            <button type="button" onClick={() => setZoomClamped(zoom + 0.4)} title="Zoom in"><ZoomIn size={15} /></button>
-            <button type="button" onClick={() => setZoomClamped(zoom - 0.4)} title="Zoom out"><ZoomOut size={15} /></button>
-            <button type="button" onClick={resetView} title="Reset view"><Maximize size={15} /></button>
-          </div>
+        ) : (
+          <div ref={mapContainerRef} className={`map ${theme === 'dark' ? 'dark' : ''}`} style={{ width: '100%', height: '100%', background: 'var(--surface-2)' }} />
+        )}
+
+        {/* Mobile floating controls */}
+        <div className="map-fab-zoom">
+          <button className="map-fab" onClick={() => setZoomClamped(zoom + 0.4)} title="Zoom in"><ZoomIn size={20} /></button>
+          <button className="map-fab" onClick={() => setZoomClamped(zoom - 0.4)} title="Zoom out"><ZoomOut size={20} /></button>
+          <button className="map-fab" onClick={resetView} title="Reset view"><Maximize size={20} /></button>
         </div>
-      ) : (
-        <div ref={mapContainerRef} style={{ width: '100%', height: 500, background: 'var(--surface-2)', borderRadius: 8 }} />
-      )}
+        <button className="map-fab map-fab-layers" onClick={() => setShowLayerPanel(true)} title="Layers"><Filter size={20} /></button>
+      </div>
       <div className="map-legend">
         {isHeat
           ? HEAT_LEGEND[heatLayer].map((l) => <div className="item" key={l.label}><span className="dot" style={{ background: l.color }} /> {l.label}</div>)
@@ -1083,45 +1093,48 @@ export function FarmMap() {
       </div>
 
       {editMode && selectedObject && (
-        <div className="card mt" style={{ border: '1px solid var(--primary)', background: 'var(--surface)' }}>
-          <div className="between" style={{ marginBottom: 12 }}>
-            <b style={{ fontSize: 15 }}>Properties</b>
-            <div className="row" style={{ gap: 6 }}>
-              <button className="btn sm ghost" onClick={() => setSelectedId(null)}><X size={14} /></button>
+        <>
+          <div className="more-drawer-backdrop" onClick={() => setSelectedId(null)} />
+          <div className="map-object-panel">
+            <div className="map-object-panel-header">
+              <b style={{ fontSize: 16 }}>{selectedObject.name}</b>
+              <button className="btn ghost sm" onClick={() => setSelectedId(null)} aria-label="Close properties"><X size={18} /></button>
+            </div>
+            <div className="map-object-panel-body">
+              <div className="field"><label>Name</label><input className="input" value={propertyForm.name} onChange={(e) => setPropertyForm((f) => ({ ...f, name: e.target.value }))} /></div>
+              <div className="field"><label>Type</label>
+                <select className="select" value={propertyForm.type} onChange={(e) => setPropertyForm((f) => ({ ...f, type: e.target.value }))}>
+                  <option value="building">Building</option><option value="barn">Barn</option><option value="pasture">Pasture</option><option value="road">Road</option><option value="fence">Fence</option><option value="gate">Gate</option><option value="water_point">Water Point</option><option value="feed_store">Feed Store</option><option value="milking_area">Milking Area</option><option value="vet_area">Vet Area</option><option value="equipment_area">Equipment Area</option><option value="custom">Custom</option>
+                </select>
+              </div>
+              {propertyForm.type === 'barn' && <>
+                <div className="field"><label>Capacity</label><input className="input" type="number" value={propertyForm.properties?.capacity ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, capacity: Number(e.target.value) } }))} /></div>
+                <div className="field"><label>Current Animals</label><input className="input" type="number" value={propertyForm.properties?.currentAnimals ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, currentAnimals: Number(e.target.value) } }))} /></div>
+                <div className="field"><label>Water Points</label><input className="input" type="number" value={propertyForm.properties?.waterPoints ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, waterPoints: Number(e.target.value) } }))} /></div>
+                <div className="field"><label>Feed Area</label><input className="input" value={propertyForm.properties?.feedArea ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, feedArea: e.target.value } }))} /></div>
+                <div className="field"><label>Ventilation</label><input className="input" value={propertyForm.properties?.ventilation ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, ventilation: e.target.value } }))} /></div>
+              </>}
+              <div className="field"><label>Notes</label><textarea className="input" rows={3} value={propertyForm.properties?.notes ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, notes: e.target.value } }))} /></div>
+              <div className="field"><label>Color</label><input type="color" value={propertyForm.properties?.color || '#3b82f6'} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, color: e.target.value } }))} style={{ width: 48, height: 32, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} /></div>
+              <div className="field"><label>Locked</label><input type="checkbox" checked={selectedObject.isLocked} onChange={(e) => handleUpdateObject(selectedObject.id, { isLocked: e.target.checked })} /></div>
+              {selectedObject.geometry.type === 'Point' && (
+                <div className="field"><label>GPS Coordinates</label><span className="muted" style={{ fontSize: 13 }}>{((selectedObject.geometry.coordinates as number[])[1]).toFixed(6)}, {((selectedObject.geometry.coordinates as number[])[0]).toFixed(6)}</span></div>
+              )}
+              {selectedObject.geometry.type === 'Polygon' && (
+                <div className="field"><label>Area</label><span className="muted" style={{ fontSize: 13 }}>Polygon with {(selectedObject.geometry.coordinates as number[][][])[0].length - 1} points</span></div>
+              )}
+              <div className="row mt" style={{ justifyContent: 'flex-end', gap: 8 }}>
+                <button className="btn sm" onClick={handleSaveProperty}>Save</button>
+              </div>
             </div>
           </div>
-          <div className="field"><label>Name</label><input className="input" value={propertyForm.name} onChange={(e) => setPropertyForm((f) => ({ ...f, name: e.target.value }))} /></div>
-          <div className="field"><label>Type</label>
-            <select className="select" value={propertyForm.type} onChange={(e) => setPropertyForm((f) => ({ ...f, type: e.target.value }))}>
-              <option value="building">Building</option><option value="barn">Barn</option><option value="pasture">Pasture</option><option value="road">Road</option><option value="fence">Fence</option><option value="gate">Gate</option><option value="water_point">Water Point</option><option value="feed_store">Feed Store</option><option value="milking_area">Milking Area</option><option value="vet_area">Vet Area</option><option value="equipment_area">Equipment Area</option><option value="custom">Custom</option>
-            </select>
-          </div>
-          {propertyForm.type === 'barn' && <>
-            <div className="field"><label>Capacity</label><input className="input" type="number" value={propertyForm.properties?.capacity ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, capacity: Number(e.target.value) } }))} /></div>
-            <div className="field"><label>Current Animals</label><input className="input" type="number" value={propertyForm.properties?.currentAnimals ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, currentAnimals: Number(e.target.value) } }))} /></div>
-            <div className="field"><label>Water Points</label><input className="input" type="number" value={propertyForm.properties?.waterPoints ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, waterPoints: Number(e.target.value) } }))} /></div>
-            <div className="field"><label>Feed Area</label><input className="input" value={propertyForm.properties?.feedArea ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, feedArea: e.target.value } }))} /></div>
-            <div className="field"><label>Ventilation</label><input className="input" value={propertyForm.properties?.ventilation ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, ventilation: e.target.value } }))} /></div>
-          </>}
-          <div className="field"><label>Notes</label><textarea className="input" rows={3} value={propertyForm.properties?.notes ?? ''} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, notes: e.target.value } }))} /></div>
-          <div className="field"><label>Color</label><input type="color" value={propertyForm.properties?.color || '#3b82f6'} onChange={(e) => setPropertyForm((f) => ({ ...f, properties: { ...f.properties, color: e.target.value } }))} style={{ width: 48, height: 32, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} /></div>
-          <div className="field"><label>Locked</label><input type="checkbox" checked={selectedObject.isLocked} onChange={(e) => handleUpdateObject(selectedObject.id, { isLocked: e.target.checked })} /></div>
-          {selectedObject.geometry.type === 'Point' && (
-            <div className="field"><label>GPS Coordinates</label><span className="muted" style={{ fontSize: 13 }}>{((selectedObject.geometry.coordinates as number[])[1]).toFixed(6)}, {((selectedObject.geometry.coordinates as number[])[0]).toFixed(6)}</span></div>
-          )}
-          {selectedObject.geometry.type === 'Polygon' && (
-            <div className="field"><label>Area</label><span className="muted" style={{ fontSize: 13 }}>Polygon with {(selectedObject.geometry.coordinates as number[][][])[0].length - 1} points</span></div>
-          )}
-          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 8 }}>
-            <button className="btn sm" onClick={handleSaveProperty}>Save</button>
-          </div>
-        </div>
+        </>
       )}
 
       {zoneRecommendations.length > 0 && (
         <div className="mt">
           <h3 style={{ fontSize: 16, marginBottom: 10 }}>AI recommendations</h3>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 12 }}>
+          <div className="grid mt scroll-x" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, minWidth: 0 }}>
             {zoneRecommendations.map((r, i) => (
               <div key={i} className="card" style={{ cursor: 'pointer', borderLeft: `4px solid ${r.severity === 'critical' ? 'var(--danger)' : 'var(--warn)'}` }}
                 onClick={() => setActive(r.zoneId)}>
@@ -1176,7 +1189,7 @@ export function FarmMap() {
             <div className="item" key={m}><span className="dot" style={{ background: CALVING_COLOR[m] }} /> {CALVING_LABEL[m]}</div>
           ))}
         </div>
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px,1fr))', gap: 16 }}>
+        <div className="grid mt scroll-x" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, minWidth: 0 }}>
           <div className="card">
             <div className="row" style={{ gap: 6 }}><CalendarClock size={16} color="var(--info)" /><b>Expected calving</b></div>
             {expectedCalvings.length === 0 && <p className="muted mt" style={{ fontSize: 13 }}>No pregnant cows with a due date on file.</p>}
@@ -1362,18 +1375,30 @@ export function FarmMap() {
       </div>
 
       {showLayerPanel && (
-        <div className="card mb" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontWeight: 600, fontSize: 13 }}>Layers</span>
-          {Object.entries({ satellite: 'Satellite', boundary: 'Farm Boundary', buildings: 'Buildings', pastures: 'Pastures', cows: 'Cows', water: 'Water', roads: 'Roads', fences: 'Fences', equipment: 'Equipment', healthRisk: 'Health Risk', milkProduction: 'Milk Production', weather: 'Weather', aiAlerts: 'AI Alerts' }).map(([key, label]) => (
-            <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!activeLayers[key]} onChange={(e) => {
-                const next = { ...activeLayers, [key]: e.target.checked };
-                setActiveLayers(next);
-                void updateMapLayers(farmId, next);
-              }} />
-              {label}
-            </label>
-          ))}
+        <div className="more-drawer-backdrop" onClick={() => setShowLayerPanel(false)}>
+          <div className="more-drawer" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '70vh' }}>
+            <div className="more-drawer-header">
+              <b>Map layers</b>
+              <button className="btn ghost sm" onClick={() => setShowLayerPanel(false)} aria-label="Close layers"><X size={18} /></button>
+            </div>
+            <div className="more-drawer-body">
+              <div className="map-layer-grid">
+                {Object.entries({ satellite: 'Satellite', boundary: 'Farm Boundary', buildings: 'Buildings', pastures: 'Pastures', cows: 'Cows', water: 'Water', roads: 'Roads', fences: 'Fences', equipment: 'Equipment', healthRisk: 'Health Risk', milkProduction: 'Milk Production', weather: 'Weather', aiAlerts: 'AI Alerts' }).map(([key, label]) => {
+                  const colors: Record<string, string> = { satellite: 'var(--text-soft)', boundary: '#3b82f6', buildings: 'var(--primary)', pastures: 'var(--accent)', cows: 'var(--purple)', water: 'var(--info)', roads: '#9ca3af', fences: '#6b7280', equipment: '#f59e0b', healthRisk: 'var(--danger)', milkProduction: 'var(--primary)', weather: 'var(--info)', aiAlerts: 'var(--warn)' };
+                  return (
+                    <button key={key} className={`map-layer-item ${activeLayers[key] ? 'active' : ''}`} onClick={() => {
+                      const next = { ...activeLayers, [key]: !activeLayers[key] };
+                      setActiveLayers(next);
+                      void updateMapLayers(farmId, next);
+                    }}>
+                      <span className="layer-dot" style={{ background: colors[key] || 'var(--text-soft)' }} />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

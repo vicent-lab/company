@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useFarm } from '../app';
 import { useAuth } from '../auth';
 import { isLive } from '../api';
-import { PageHeader, Kpi, AnimatedCounter, Modal, useToast, Skeleton, Progress, useAsync } from '../ui';
+import { PageHeader, Kpi, AnimatedCounter, Modal, useToast, Skeleton, Progress, useAsync, SectionHeader, Badge, EmptyState, Alert, Card } from '../ui';
 import { commandCenter, getFarmSetupStatus, FarmSetupStep, tasks, emergencyAlerts, dashboardSummary } from '../data';
 import {
   Clock, AlertTriangle, TrendingUp, Activity, Zap, CheckCircle2, X, ChevronDown,
@@ -27,7 +27,7 @@ function FarmSetupChecklist({ farmId }: { farmId: string }) {
   return (
     <div className="card mt" style={{ padding: 20 }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-        <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
             <ListChecks size={16} color="var(--primary)" />
             <b style={{ fontSize: 14 }}>Farm Setup</b>
@@ -210,94 +210,55 @@ export function CommandCenter() {
 
   return (
     <div>
-      <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName} 👋`} desc={farmName || 'Your AI operating system.'}
+      <PageHeader eyebrow="COMMAND CENTER" title={`${greeting} ${firstName}`} desc={farmName || 'Your AI operating system.'}
         actions={
-          <div className="row" style={{ gap: 8 }}>
-            <button className="btn ghost sm" onClick={refresh} disabled={refreshing}>
-              {refreshing ? <><RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Refreshing…</> : <><RefreshCw size={14} /> Refresh</>}
-            </button>
-          </div>
+          <button className="btn ghost sm" onClick={refresh} disabled={refreshing}>
+            {refreshing ? <><RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Refreshing…</> : <><RefreshCw size={14} /> Refresh</>}
+          </button>
         }
       />
 
       <FarmSetupChecklist farmId={farmId} />
 
       {loading && (
-        <div className="card mt" style={{ padding: 40, textAlign: 'center' }}>
-          <div className="skeleton" style={{ height: 20, width: 200, margin: '0 auto' }}>Loading command center…</div>
-        </div>
+        <Card padding="md" className="mt">
+          <div style={{ textAlign: 'center' }}>
+            <Skeleton h={20} w={200} style={{ margin: '0 auto' }} />
+            <div style={{ marginTop: 8, color: 'var(--text-soft)' }}>Loading command center…</div>
+          </div>
+        </Card>
       )}
 
       {!loading && data && (
         <>
           {hasCritical && (
             <>
-              <div className="eyebrow mt" style={{ marginBottom: 8, color: 'var(--danger)' }}>CRITICAL — NEEDS ATTENTION</div>
+              <SectionHeader title="Critical — needs attention" subtitle="Actions and alerts requiring immediate attention" />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {urgentActions.map((action) => {
                   const SIcon = CATEGORY_ICONS[action.category.toLowerCase()] || ClipboardList;
                   const tone = severityTone[action.severity] || 'danger';
+                  const toneColor = tone === 'danger' ? 'var(--danger)' : tone === 'warn' ? 'var(--warn)' : 'var(--info)';
                   return (
-                    <div key={action.id} className="card" style={{ padding: 14, borderLeft: `4px solid ${tone === 'danger' ? 'var(--danger)' : tone === 'warn' ? 'var(--warn)' : 'var(--info)'}` }}>
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                        <div style={{ marginTop: 1, color: tone === 'danger' ? 'var(--danger)' : tone === 'warn' ? 'var(--warn)' : 'var(--info)' }}><Zap size={16} /></div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2, alignItems: 'center' }}>
-                            <b style={{ fontSize: 14 }}>{action.title}</b>
-                            <span className={`pill ${tone}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
-                            {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
-                          </div>
-                          <p className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{action.reason}</p>
-                          <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
-                            <span className="muted" style={{ fontSize: 11 }}><DollarSign size={11} style={{ marginRight: 3 }} />Risk: {fmtMoney(action.estimatedCostIfSkippedUGX)}</span>
-                          </div>
-                        </div>
-                        <div style={{ flexShrink: 0 }}>
-                          <button className="btn sm" onClick={() => completeAction(action)}><CheckCircle2 size={13} /> Done</button>
-                        </div>
-                      </div>
-                    </div>
+                    <Alert key={action.id} variant={tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'info'} title={action.title} message={action.reason}
+                      icon={<Zap size={16} color={toneColor} />}
+                    />
                   );
                 })}
                 {(alertList || []).slice(0, 5).map((alert: any) => (
-                  <div key={alert.id} className="card" style={{ padding: 14, borderLeft: `4px solid ${alert.tone === 'danger' ? 'var(--danger)' : alert.tone === 'warn' ? 'var(--warn)' : 'var(--info)'}` }}>
-                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                      <Bell size={16} color={alert.tone === 'danger' ? 'var(--danger)' : alert.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <b style={{ fontSize: 14 }}>{alert.title}</b>
-                        <p className="muted" style={{ fontSize: 12, margin: 0 }}>{alert.body}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <Alert key={alert.id} variant={alert.tone === 'danger' ? 'danger' : alert.tone === 'warn' ? 'warning' : 'info'} title={alert.title} message={alert.body} icon={<Bell size={16} color={alert.tone === 'danger' ? 'var(--danger)' : alert.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />} />
                 ))}
                 {overdueTasks.map((task: any) => (
-                  <div key={task.id} className="card" style={{ padding: 14, borderLeft: '4px solid var(--warn)' }}>
-                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                      <Clock size={16} color="var(--warn)" />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <b style={{ fontSize: 14 }}>{task.title}</b>
-                        <p className="muted" style={{ fontSize: 12, margin: 0 }}>Due {task.due_date} · {task.priority}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <Alert key={task.id} variant="warning" title={task.title} message={`Due ${task.due_date} · ${task.priority}`} icon={<Clock size={16} color="var(--warn)" />} />
                 ))}
                 {data.herdPulse.sick > 0 && (
-                  <div className="card" style={{ padding: 14, borderLeft: '4px solid var(--danger)' }}>
-                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                      <Activity size={16} color="var(--danger)" />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <b style={{ fontSize: 14 }}>{data.herdPulse.sick} animal{data.herdPulse.sick === 1 ? '' : 's'} sick</b>
-                        <p className="muted" style={{ fontSize: 12, margin: 0 }}>{data.herdPulse.sickCodes.join(', ')}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <Alert variant="danger" title={`${data.herdPulse.sick} animal${data.herdPulse.sick === 1 ? '' : 's'} sick`} message={data.herdPulse.sickCodes.join(', ')} icon={<Activity size={16} color="var(--danger)" />} />
                 )}
               </div>
             </>
           )}
 
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>IMPORTANT — TODAY'S PRIORITIES</div>
+          <SectionHeader title="Important — today's priorities" subtitle="Key metrics and actions for today" />
           <div className="four mt">
             <Kpi icon={<Milk size={18} />} label="Milk today" value={<AnimatedCounter value={summary?.milkToday ?? 0} suffix=" L" />} delta="Production" />
             <Kpi icon={<Heart size={18} />} label="Pregnant" value={<AnimatedCounter value={summary?.pregnantCows ?? 0} />} delta={data.herdPulse.calvingToday > 0 ? `${data.herdPulse.calvingToday} calving today` : 'healthy cycle'} />
@@ -305,12 +266,9 @@ export function CommandCenter() {
             <Kpi icon={<Wheat size={18} />} label="Feed stock" value={<AnimatedCounter value={summary?.feedStock ?? 0} suffix=" kg" />} delta="12 days left" />
           </div>
 
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>TODAY'S TASKS</div>
+          <SectionHeader title="Today's tasks" subtitle="Actions scheduled for today" />
           {todayActions.length === 0 ? (
-            <div className="card mt" style={{ padding: 16, textAlign: 'center' }}>
-              <CheckCircle2 size={24} color="var(--primary)" style={{ marginBottom: 6 }} />
-              <p className="muted" style={{ fontSize: 13, margin: 0 }}>All caught up. No actions scheduled for right now.</p>
-            </div>
+            <EmptyState icon={<CheckCircle2 size={28} color="var(--primary)" />} title="All caught up" description="No actions scheduled for right now." />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {todayActions.slice(0, 6).map((action) => {
@@ -323,8 +281,8 @@ export function CommandCenter() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 2, alignItems: 'center' }}>
                           <b style={{ fontSize: 14, textDecoration: isDone ? 'line-through' : 'none' }}>{action.title}</b>
-                          <span className={`pill ${severityTone[action.severity] || 'info'}`} style={{ fontSize: 10, textTransform: 'capitalize' }}>{action.severity}</span>
-                          {action.cowCode && <span className="pill info" style={{ fontSize: 10 }}>{action.cowCode}</span>}
+                          <Badge variant={severityTone[action.severity] === 'danger' ? 'danger' : severityTone[action.severity] === 'warn' ? 'warning' : 'info'}>{action.severity}</Badge>
+                          {action.cowCode && <Badge variant="info">{action.cowCode}</Badge>}
                         </div>
                         <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
                           <span className="muted" style={{ fontSize: 11 }}><Timer size={11} style={{ marginRight: 3 }} />{action.estimatedTimeMinutes} min</span>
@@ -335,7 +293,7 @@ export function CommandCenter() {
                         {!isDone ? (
                           <button className="btn sm" onClick={() => completeAction(action)}><CheckCircle2 size={13} /> Done</button>
                         ) : (
-                          <span className="pill ok" style={{ fontSize: 10 }}><CheckCircle2 size={11} /> Done</span>
+                          <Badge variant="success"><CheckCircle2 size={11} /> Done</Badge>
                         )}
                       </div>
                     </div>
@@ -345,28 +303,28 @@ export function CommandCenter() {
             </div>
           )}
 
-          <div className="eyebrow mt" style={{ marginBottom: 8 }}>INFORMATION</div>
-          <div className="card mt" style={{ padding: '12px 16px' }}>
+          <SectionHeader title="Information" subtitle="Farm overview and status" />
+          <Card padding="sm" className="mt">
             <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div className="row" style={{ gap: 6 }}><Activity size={14} /><b style={{ fontSize: 13 }}>Herd pulse</b></div>
-              <span className="pill info" style={{ fontSize: 10 }}>{data.herdPulse.total} total</span>
-              <span className="pill ok" style={{ fontSize: 10 }}>{data.herdPulse.milking} milking</span>
-              {data.herdPulse.calvingToday > 0 && <span className="pill warn" style={{ fontSize: 10 }}>{data.herdPulse.calvingToday} calving today</span>}
-              {data.herdPulse.calvingThisWeek > 0 && <span className="pill info" style={{ fontSize: 10 }}>{data.herdPulse.calvingThisWeek} this week</span>}
-              {data.herdPulse.sick > 0 && <span className="pill danger" style={{ fontSize: 10 }}>{data.herdPulse.sick} sick</span>}
-              {data.herdPulse.inTreatment > 0 && <span className="pill warn" style={{ fontSize: 10 }}>{data.herdPulse.inTreatment} in treatment</span>}
+              <div className="row" style={{ gap: 6 }}><Activity size={16} /><b style={{ fontSize: 13 }}>Herd pulse</b></div>
+              <Badge variant="info">{data.herdPulse.total} total</Badge>
+              <Badge variant="success">{data.herdPulse.milking} milking</Badge>
+              {data.herdPulse.calvingToday > 0 && <Badge variant="info">{data.herdPulse.calvingToday} calving today</Badge>}
+              {data.herdPulse.calvingThisWeek > 0 && <Badge variant="info">{data.herdPulse.calvingThisWeek} this week</Badge>}
+              {data.herdPulse.sick > 0 && <Badge variant="danger">{data.herdPulse.sick} sick</Badge>}
+              {data.herdPulse.inTreatment > 0 && <Badge variant="warning">{data.herdPulse.inTreatment} in treatment</Badge>}
             </div>
-          </div>
+          </Card>
 
-          <div className="card mt" style={{ padding: '12px 16px' }}>
+          <Card padding="sm" className="mt">
             <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span className="muted" style={{ fontSize: 12 }}>Evening review</span>
-              <span className="pill ok" style={{ fontSize: 10 }}>{data.eveningReview.completionPct}%</span>
-              <span className="muted" style={{ fontSize: 11 }}>{data.eveningReview.tasksChecked} checked · {data.eveningReview.pendingCount} pending</span>
-              <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>Score <b>{data.farmScore}</b> <span className={`pill ${data.farmScoreDelta >= 0 ? 'ok' : 'danger'}`} style={{ fontSize: 10 }}>{data.farmScoreDelta >= 0 ? '+' : ''}{data.farmScoreDelta}</span></span>
-              <span className="pill" style={{ background: 'var(--surface-2)', color: 'var(--text-soft)', fontSize: 10 }}>{pendingCount} pending · {criticalPending} critical</span>
+              <span className="muted">Evening review</span>
+              <Badge variant="success">{data.eveningReview.completionPct}%</Badge>
+              <span className="muted">{data.eveningReview.tasksChecked} checked · {data.eveningReview.pendingCount} pending</span>
+              <span className="muted" style={{ marginLeft: 'auto' }}>Score <b>{data.farmScore}</b> <Badge variant={data.farmScoreDelta >= 0 ? 'success' : 'danger'}>{data.farmScoreDelta >= 0 ? '+' : ''}{data.farmScoreDelta}</Badge></span>
+              <Badge variant="default">{pendingCount} pending · {criticalPending} critical</Badge>
             </div>
-          </div>
+          </Card>
 
           <FarmSetupChecklist farmId={farmId} />
         </>

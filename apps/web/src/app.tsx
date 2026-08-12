@@ -1,10 +1,10 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useTheme } from './theme';
 import { useHashRoute } from './router';
-import { ThemeToggle, PageHeader, Modal, PasswordInput, OfflineBanner } from './ui';
+import { ThemeToggle, PageHeader, Modal, PasswordInput, OfflineBanner, GlobalSearch } from './ui';
 import { FARMS, NOTIFICATIONS } from './mock';
 import { useAsync } from './ui';
-import { isLive, ApiError } from './api';
+import { isLive, ApiError, apiSend } from './api';
 import { loadFarms, forgotPassword, getCaptcha, requestPhoneOtp, notifications } from './data';
 import { useAuth, LoginResult } from './auth';
 import { QuickActions, QuickAction } from './components/QuickActions';
@@ -13,7 +13,7 @@ import {
   CloudSun, Leaf, Images, Users, UserCog, Search, Trophy, Sun, Moon, Contrast,
   ChevronDown, Check, LogOut, ShieldCheck, ClipboardList, FlaskConical, Sparkles, Calendar, Gauge, Settings as SettingsIcon, Crown,
   Phone, KeyRound, ShieldAlert, Brain, Menu, X, Home, Milk, HeartPulse, Package, Wrench,
-  ChevronRight, Plus, Baby, Heart, Pill, Wheat,
+  ChevronRight, Plus, Baby, Heart, Pill, Wheat, AlertTriangle, Syringe,
 } from 'lucide-react';
 import logoImg from './assets/logo.png';
 import { useToast } from './ui';
@@ -117,7 +117,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'customers', icon: Users, label: 'Customers' },
     ],
   },
-  {
+   {
     label: 'AI',
     items: [
       { key: 'ai-advisor', icon: Sparkles, label: 'AI Advisor' },
@@ -339,10 +339,12 @@ export function AppShell() {
   const [bell, setBell] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const [search, setSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [verifySkipped, setVerifySkipped] = useState(false);
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
+   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+   const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
+   const unreadNotifications = notificationsList.filter((n: any) => !n.read_at).length;
   const { data: farms } = useAsync(loadFarms, [user?.id, user?.farmId]);
   const farmList = farms && farms.length ? farms : FARMS;
   const { canAccess, upgradeModal, setUpgradeModal } = usePlan();
@@ -361,6 +363,17 @@ export function AppShell() {
     }
     notifications().then((r: any) => setNotificationsList(r.data || r || [])).catch(() => {});
   }, [isLive, user, farmId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (isLive && loading) {
     return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}><p className="muted">Loading…</p></main>;
@@ -480,6 +493,12 @@ export function AppShell() {
       ],
     },
     {
+      label: 'Alerts',
+      items: [
+        { key: 'alerts', icon: AlertTriangle, label: 'Alerts & reminders' },
+      ],
+    },
+    {
       label: 'Tools',
       items: [
         { key: 'search', icon: Search, label: 'Advanced Search' },
@@ -512,6 +531,86 @@ export function AppShell() {
     }
     setMobileMenuOpen(false);
     setMoreDrawerOpen(false);
+  };
+
+  const markAllRead = () => {
+    setNotificationsList((prev) => prev.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })));
+    if (isLive) {
+      (async () => {
+        try { await apiSend('/notifications/read-all', 'POST'); } catch {}
+      })();
+    }
+  };
+
+  const notificationToneColor = (n: any) =>
+    n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : n.tone === 'info' ? 'var(--info)' : 'var(--text-soft)';
+
+  const notificationIcon = (n: any) => {
+    if (n.type === 'sick') return <AlertTriangle size={16} color={notificationToneColor(n)} />;
+    if (n.type === 'vaccination') return <Syringe size={16} color={notificationToneColor(n)} />;
+    if (n.type === 'feed') return <Wheat size={16} color={notificationToneColor(n)} />;
+    if (n.type === 'medicine') return <Pill size={16} color={notificationToneColor(n)} />;
+    if (n.type === 'heat' || n.type === 'calving') return <Baby size={16} color={notificationToneColor(n)} />;
+    if (n.type === 'task') return <ClipboardList size={16} color={notificationToneColor(n)} />;
+    if (n.type === 'payment') return <DollarSign size={16} color={notificationToneColor(n)} />;
+    return <Bell size={16} color={notificationToneColor(n)} />;
+  };
+
+  const handleNotificationClick = (n: any) => {
+    if (!n.read_at) {
+      setNotificationsList((prev) => prev.map((x) => x.id === n.id ? { ...x, read_at: new Date().toISOString() } : x));
+      if (isLive) {
+        apiSend(`/notifications/${n.id}/read`, 'POST').catch(() => {});
+      }
+    }
+    setBell(false);
+    navigate(n.link || '/app/alerts');
+  };
+
+  const renderNotificationGroups = (items: any[], compact = false) => {
+    const cats: Record<string, any[]> = { critical: [], important: [], information: [] };
+    items.forEach((n) => {
+      const cat = (n.category || 'information').toLowerCase();
+      if (cats[cat]) cats[cat].push(n);
+      else cats['information'].push(n);
+    });
+    const catLabels = { critical: 'CRITICAL', important: 'IMPORTANT', information: 'INFORMATION' };
+    const catTone: Record<string, string> = { critical: 'danger', important: 'warn', information: 'info' };
+    return (
+      <>
+        {(['critical', 'important', 'information'] as const).map((cat) => {
+          const group = cats[cat];
+          if (!group || group.length === 0) return null;
+          const unreadCount = group.filter((n) => !n.read_at).length;
+          const route = (n: any) => n.link || '/app/alerts';
+          return (
+            <div key={cat} className="notification-group">
+              <div className="notification-group-label">
+                <span style={{ color: `var(--${catTone[cat]})`, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6 }}>{catLabels[cat]}</span>
+                {unreadCount > 0 && <span className="badge-dot" style={{ marginLeft: 'auto', fontSize: 9, padding: '1px 6px' }}>{unreadCount} unread</span>}
+              </div>
+              {group.map((n) => (
+                <button
+                  key={n.id}
+                  className={`notification-item ${compact ? 'compact' : ''}`}
+                  onClick={() => handleNotificationClick(n)}
+                >
+                  {notificationIcon(n)}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {n.title}
+                      {!n.read_at && <span className="badge-dot" style={{ width: 6, height: 6, fontSize: 8, padding: 0 }} />}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{n.body}</div>
+                  </div>
+                  <span className="muted" style={{ fontSize: 11, marginLeft: 'auto', whiteSpace: 'nowrap' }}>{n.time}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </>
+    );
   };
 
   const farm = farmList.find((f) => f.id === farmId) || farmList[0];
@@ -591,9 +690,12 @@ export function AppShell() {
             <div className="row" style={{ gap: 4, position: 'relative' }}>
               <button className="btn ghost sm" style={{ position: 'relative' }} onClick={() => setBell((v) => !v)}>
                 <Bell size={18} />
-                {notificationsList.filter((n: any) => !n.read_at).length > 0 && (
-                  <span className="badge-dot" style={{ position: 'absolute', top: -2, right: -2, fontSize: 9, padding: '1px 4px' }}>{notificationsList.filter((n: any) => !n.read_at).length}</span>
+                {unreadNotifications > 0 && (
+                  <span className="badge-dot" style={{ position: 'absolute', top: -2, right: -2, fontSize: 9, padding: '1px 4px' }}>{unreadNotifications}</span>
                 )}
+              </button>
+              <button className="btn ghost sm" onClick={() => setSearchOpen(true)} aria-label="Search">
+                <Search size={20} />
               </button>
               <button className="btn ghost sm" onClick={() => setUserMenu((v) => !v)}>
                 <span className="photo" style={{ width: 24, height: 24, fontSize: 10, background: 'var(--primary)' }}>{user?.name?.charAt(0) || 'M'}</span>
@@ -603,25 +705,25 @@ export function AppShell() {
         )}
         {(isMobile || isTablet) && bell && (
           <div className="mobile-drawer-backdrop" onClick={() => setBell(false)}>
-            <div className="more-drawer" onClick={(e) => e.stopPropagation()}>
-              <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+            <div className="more-drawer notification-drawer" onClick={(e) => e.stopPropagation()}>
+             <div className="between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                 <b>Notifications</b>
-                <button className="btn ghost sm" onClick={() => setBell(false)}><X size={18} /></button>
+                <div className="row" style={{ gap: 4 }}>
+                  <button className="btn ghost sm" style={{ fontSize: 11 }} onClick={() => { markAllRead(); setBell(false); }} aria-label="Mark all read">Mark all</button>
+                  <button className="btn ghost sm" onClick={() => setBell(false)} aria-label="Close"><X size={18} /></button>
+                </div>
               </div>
-              <div style={{ padding: 10, maxHeight: '60vh', overflow: 'auto' }}>
+              <div style={{ padding: 10, maxHeight: '60vh', overflow: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
                 {notificationsList.length === 0 ? (
                   <p className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 13 }}>No notifications</p>
                 ) : (
-                  notificationsList.slice(0, 6).map((n: any) => (
-                    <button key={n.id} onClick={() => { setBell(false); go('alerts'); }} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', width: '100%', padding: '10px 12px', borderRadius: 8, textAlign: 'left', border: 0, background: 'none', color: 'inherit', cursor: 'pointer' }}>
-                      <Bell size={15} color={n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{n.title}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>{n.body}</div>
-                      </div>
-                    </button>
-                  ))
+                  renderNotificationGroups(notificationsList.slice(0, 6))
                 )}
+              </div>
+               <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+                <button className="btn ghost sm" style={{ width: '100%', fontSize: 12 }} onClick={() => { setBell(false); go('alerts'); }}>
+                  See all <ChevronRight size={14} style={{ float: 'right' }} />
+                </button>
               </div>
             </div>
           </div>
@@ -681,30 +783,49 @@ export function AppShell() {
           {NAV_GROUPS.map((group) => (
             <div key={group.label} style={{ marginBottom: 6 }}>
               <div style={{ padding: '6px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, color: 'var(--text-soft)', fontWeight: 700 }}>{group.label}</div>
-              {group.items.map((n) => (
-                <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
-                  <n.icon size={18} /> {n.label}
-                  {n.badge && <span className="badge-dot">{n.badge}</span>}
+               {group.items.map((n) => (
+                 <button key={n.key} className={`nav-item ${sub === n.key ? 'active' : ''}`} onClick={() => go(n.key)}>
+                   <n.icon size={18} /> {n.label}
+                   {n.badge && <span className="badge-dot">{n.badge}</span>}
+                 </button>
+               ))}
+             </div>
+           ))}
+            {unreadNotifications > 0 ? (
+              <>
+                <div style={{ padding: '6px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, color: 'var(--text-soft)', fontWeight: 700 }}>Alerts</div>
+                <button className="nav-item" onClick={() => go('alerts')}>
+                  <AlertTriangle size={18} /> Alerts
+                  <span className="badge-dot" style={{ background: 'var(--danger)', color: 'white', fontSize: 10, padding: '1px 5px', borderRadius: 8 }}>{unreadNotifications}</span>
                 </button>
-              ))}
-            </div>
-          ))}
-          {user?.isSuperAdmin && (
-            <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => navigate('/app/platform-admin')}>
-              <Crown size={18} /> Platform Admin
-            </button>
-          )}
+              </>
+            ) : (
+              <>
+                <div style={{ padding: '6px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, color: 'var(--text-soft)', fontWeight: 700 }}>Alerts</div>
+                <button className={`nav-item ${sub === 'alerts' ? 'active' : ''}`} onClick={() => go('alerts')}>
+                  <AlertTriangle size={18} /> Alerts
+                </button>
+              </>
+            )}
+           {user?.isSuperAdmin && (
+             <button className={`nav-item ${sub === 'platform-admin' ? 'active' : ''}`} onClick={() => navigate('/app/platform-admin')}>
+               <Crown size={18} /> Platform Admin
+             </button>
+           )}
           <button className="nav-item" style={{ marginTop: 'auto' }} onClick={() => navigate('/')}>
             <LogOut size={18} /> View website
           </button>
         </aside>
 
         <div className="main">
-          <header className="topbar">
+           <header className="topbar">
             <div className="search">
-              <input className="input" placeholder="Search cows, breeds, health…" value={search}
+              <Search size={16} color="var(--text-soft)" style={{ position: 'absolute', left: 10, zIndex: 1 }} />
+               <input className="input" placeholder="Search animals, employees, tasks, records…  ⌘K" value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && go('search')} />
+                onFocus={() => setSearchOpen(true)}
+                onKeyDown={(e) => e.key === 'Enter' && go('search')}
+                style={{ paddingLeft: 36 }} />
             </div>
 
             <div className="menu">
@@ -728,17 +849,21 @@ export function AppShell() {
             <QuickActions actions={quickActions} onSelect={(route) => navigate(route)} triggerLabel="Quick Actions" isMobile={false} />
 
             <div className="menu">
-              <button className="btn ghost sm" style={{ position: 'relative' }} onClick={() => setBell((v) => !v)}>
-                <Bell size={16} /> <span className="badge-dot" style={{ position: 'absolute', top: -4, right: -4 }}>{notificationsList.filter((n: any) => !n.read_at).length}</span>
+              <button className="btn ghost sm" style={{ position: 'relative' }} onClick={() => setBell((v) => !v)} aria-label="Notifications">
+                <Bell size={16} /> <span className="badge-dot" style={{ position: 'absolute', top: -4, right: -4 }}>{unreadNotifications}</span>
               </button>
               {bell && (
-                <div className="menu-pop" style={{ minWidth: 300 }} onMouseLeave={() => setBell(false)}>
-                  {notificationsList.slice(0, 6).map((n: any) => (
-                    <button key={n.id} onClick={() => { setBell(false); go('alerts'); }}>
-                      <Bell size={15} color={n.tone === 'danger' ? 'var(--danger)' : n.tone === 'warn' ? 'var(--warn)' : 'var(--info)'} />
-                      <span><b>{n.title}</b><br /><span className="muted" style={{ fontSize: 12 }}>{n.body}</span></span>
+                <div className="menu-pop notification-pop" style={{ minWidth: 320, width: 'min(360px, 90vw)' }} onMouseLeave={() => setBell(false)}>
+                  <div className="between" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                    <b>Notifications</b>
+                    <button className="btn ghost sm" style={{ fontSize: 11 }} onClick={() => { markAllRead(); setBell(false); }}>Mark all read</button>
+                  </div>
+                  {renderNotificationGroups(notificationsList.slice(0, 6), true)}
+                  <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+                    <button className="btn ghost sm" style={{ width: '100%', fontSize: 12 }} onClick={() => { setBell(false); go('alerts'); }}>
+                      See all notifications <ChevronRight size={14} style={{ float: 'right' }} />
                     </button>
-                  ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -817,8 +942,9 @@ export function AppShell() {
             )}
           </>
         )}
-        {isLive && <OfflineBanner />}
-      </div>
+         {isLive && <OfflineBanner />}
+         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} farmId={farmId} navigate={navigate} />
+       </div>
     </FCtx.Provider>
     </PlanProvider>
   );

@@ -110,7 +110,7 @@ export function FarmScore() {
         })}
       </div>
 
-      <div className="mt" style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+      <div className="mt scroll-x" style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', minWidth: 0 }}>
         {CATEGORY_META.map((m) => {
           const cat = data?.categories[m.key];
           if (!cat) return null;

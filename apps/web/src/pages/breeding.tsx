@@ -41,7 +41,7 @@ export function Breeding() {
   return (
     <div>
       <PageHeader eyebrow="BREEDING" title="Breeding management" desc="Heat detection, genetics, semen, calving, and reproductive performance." />
-      <div className="card reveal" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto' }}>
+      <div className="card reveal" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto', flexWrap: 'nowrap' }}>
         {([
           { key: 'heat', label: 'Heat detection', icon: <Thermometer size={14} /> },
           { key: 'recommendations', label: 'AI recommendations', icon: <Brain size={14} /> },
@@ -56,7 +56,7 @@ export function Breeding() {
           { key: 'assistant', label: 'Breeding assistant', icon: <Brain size={14} /> },
           { key: 'dashboard', label: 'Dashboard', icon: <HeartPulse size={14} /> },
         ] as const).map((t) => (
-          <button key={t.key} className={`btn ghost ${tab === t.key ? 'active-tab' : ''}`} style={{ borderRadius: 0, flex: 1, justifyContent: 'center', padding: '12px 14px', whiteSpace: 'nowrap' }} onClick={() => setTab(t.key)}>
+          <button key={t.key} className={`btn ghost ${tab === t.key ? 'active-tab' : ''}`} style={{ borderRadius: 0, flex: '0 0 auto', justifyContent: 'center', padding: '12px 14px', whiteSpace: 'nowrap' }} onClick={() => setTab(t.key)}>
             <span className="row" style={{ gap: 6, justifyContent: 'center' }}>{t.icon} {t.label}</span>
           </button>
         ))}

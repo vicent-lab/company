@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useFarm } from '../app';
-import { PageHeader, useToast, PasswordInput } from '../ui';
+import { PageHeader, useToast, PasswordInput, Card, SectionHeader, Badge, EmptyState, IconWrap, FormField } from '../ui';
 import { Save, RotateCcw, Bell, Shield, Palette, Thermometer, Tractor, Droplets, Wheat, ShieldCheck, History, Laptop, Smartphone, Monitor, X } from 'lucide-react';
 import { isLive } from '../api';
 import {
@@ -79,18 +79,18 @@ function SecuritySection() {
 
   if (!isLive) {
     return (
-      <div className="card mt" style={{ padding: 20 }}>
+      <Card padding="md">
         <p className="muted" style={{ fontSize: 13 }}>Security settings are available once connected to a live account.</p>
-      </div>
+      </Card>
     );
   }
 
   return (
     <>
-      <div className="card mt" style={{ padding: 20 }}>
-        <div className="row" style={{ gap: 10, marginBottom: 16, alignItems: 'center' }}>
-          <div className="icon" style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><ShieldCheck size={18} /></div>
-          <h3 style={{ margin: 0 }}>Two-factor authentication</h3>
+      <Card padding="md">
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+          <IconWrap size={36}><ShieldCheck size={18} /></IconWrap>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Two-factor authentication</h3>
         </div>
         {twoFaEnabled === null ? (
           <p className="muted" style={{ fontSize: 13 }}>Loading…</p>
@@ -100,11 +100,13 @@ function SecuritySection() {
             {!showDisable ? (
               <button className="btn ghost sm mt" onClick={() => setShowDisable(true)}>Turn off 2FA</button>
             ) : (
-              <form onSubmit={confirmDisable} className="row mt" style={{ gap: 8 }}>
-                <div style={{ flex: 1 }}><PasswordInput placeholder="Confirm your password" value={disablePassword} onChange={setDisablePassword} required /></div>
-                <button className="btn sm" disabled={busy}>{busy ? 'Disabling…' : 'Confirm'}</button>
-                <button type="button" className="btn ghost sm" onClick={() => setShowDisable(false)}>Cancel</button>
-              </form>
+               <form onSubmit={confirmDisable} className="row mt stack-sm" style={{ gap: 8 }}>
+                 <div style={{ flex: 1, minWidth: 0 }}><PasswordInput placeholder="Confirm your password" value={disablePassword} onChange={setDisablePassword} required /></div>
+                 <div className="row" style={{ gap: 8 }}>
+                   <button className="btn sm" disabled={busy}>{busy ? 'Disabling…' : 'Confirm'}</button>
+                   <button type="button" className="btn ghost sm" onClick={() => setShowDisable(false)}>Cancel</button>
+                 </div>
+               </form>
             )}
           </>
         ) : setupData ? (
@@ -125,13 +127,13 @@ function SecuritySection() {
             <button className="btn sm mt" onClick={startSetup} disabled={busy}>{busy ? 'Starting…' : 'Set up 2FA'}</button>
           </>
         )}
-      </div>
+      </Card>
 
-      <div className="card mt" style={{ padding: 20 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-            <div className="icon" style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Laptop size={18} /></div>
-            <h3 style={{ margin: 0 }}>Active sessions</h3>
+      <Card padding="md">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <IconWrap size={36}><Laptop size={18} /></IconWrap>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Active sessions</h3>
           </div>
           {sessions.length > 1 && <button className="btn ghost sm" onClick={doRevokeAll}>Sign out other devices</button>}
         </div>
@@ -140,8 +142,8 @@ function SecuritySection() {
             {sessions.map((s) => {
               const Icon = deviceIcon(s.userAgent);
               return (
-                <div key={s.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <Icon size={16} color="var(--text-soft)" />
                     <div>
                       <div style={{ fontSize: 13 }}>
@@ -157,24 +159,24 @@ function SecuritySection() {
             })}
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="card mt" style={{ padding: 20 }}>
-        <div className="row" style={{ gap: 10, marginBottom: 16, alignItems: 'center' }}>
-          <div className="icon" style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><History size={18} /></div>
-          <h3 style={{ margin: 0 }}>Login history</h3>
+      <Card padding="md">
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+          <IconWrap size={36}><History size={18} /></IconWrap>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Login history</h3>
         </div>
         {history.length === 0 ? <p className="muted" style={{ fontSize: 13 }}>{loadingData ? 'Loading…' : 'No recent activity.'}</p> : (
           <div>
             {history.map((h, i) => (
-              <div key={i} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontSize: 13, color: h.success ? 'var(--text)' : 'var(--danger)' }}>{h.success ? 'Successful sign-in' : loginFailureLabel(h.reason)}</span>
                 <span className="muted" style={{ fontSize: 11 }}>{new Date(h.created_at).toLocaleString()}</span>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </>
   );
 }
@@ -197,106 +199,130 @@ export function Settings() {
     push('Settings reset to defaults');
   };
 
-  const Section = ({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) => (
-    <div className="card mt" style={{ padding: 20 }}>
-      <div className="row" style={{ gap: 10, marginBottom: 16, alignItems: 'center' }}>
-        <div className="icon" style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Icon size={18} /></div>
-        <h3 style={{ margin: 0 }}>{title}</h3>
-      </div>
-      {children}
-    </div>
-  );
-
-  const Toggle = ({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) => (
-    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-      <span style={{ fontSize: 14 }}>{label}</span>
-      <button className={`btn sm ${value ? '' : 'ghost'}`} onClick={() => onChange(!value)}>{value ? 'On' : 'Off'}</button>
-    </div>
-  );
-
   return (
     <div>
       <PageHeader eyebrow="SETTINGS" title="Farm configuration" desc="Manage alerts, thresholds, display preferences, and automation rules for your farm."
         actions={
-          <div className="row" style={{ gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn ghost sm" onClick={handleReset}><RotateCcw size={14} /> Reset</button>
             <button className="btn" onClick={handleSave} disabled={saving}><Save size={14} /> {saving ? 'Saving…' : 'Save settings'}</button>
           </div>
         }
       />
 
-      <Section title="General" icon={Tractor}>
-        <div className="field"><label>Farm name</label><input className="input" value={settings.farmName} onChange={(e) => update(['farmName'], e.target.value)} /></div>
-      </Section>
+      <Card padding="md">
+        <SectionHeader title="General" action={
+          <IconWrap size={28} color="var(--primary)"><Tractor size={14} /></IconWrap>
+        } />
+        <FormField label="Farm name">
+          <input className="input" value={settings.farmName} onChange={(e) => update(['farmName'], e.target.value)} />
+        </FormField>
+      </Card>
 
-      <Section title="Alerts & Notifications" icon={Bell}>
-        <Toggle label="Email notifications" value={settings.alerts.emailNotifications} onChange={(v) => update(['alerts', 'emailNotifications'], v)} />
-        <Toggle label="SMS notifications" value={settings.alerts.smsNotifications} onChange={(v) => update(['alerts', 'smsNotifications'], v)} />
-        <Toggle label="Push notifications" value={settings.alerts.pushNotifications} onChange={(v) => update(['alerts', 'pushNotifications'], v)} />
-        <Toggle label="Critical alerts only" value={settings.alerts.criticalOnly} onChange={(v) => update(['alerts', 'criticalOnly'], v)} />
-        <Toggle label="Sound alerts" value={settings.alerts.soundEnabled} onChange={(v) => update(['alerts', 'soundEnabled'], v)} />
-      </Section>
-
-      <Section title="Alert Thresholds" icon={Thermometer}>
-        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-          <div className="field" style={{ minWidth: 200 }}><label>Heat stress THI threshold</label><input className="input" type="number" value={settings.thresholds.heatStressTHI} onChange={(e) => update(['thresholds', 'heatStressTHI'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>Milk drop warning (%)</label><input className="input" type="number" value={settings.thresholds.lowMilkDropPct} onChange={(e) => update(['thresholds', 'lowMilkDropPct'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>Low body condition score</label><input className="input" type="number" value={settings.thresholds.lowBodyConditionScore} onChange={(e) => update(['thresholds', 'lowBodyConditionScore'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>High lameness score</label><input className="input" type="number" value={settings.thresholds.highLamenessScore} onChange={(e) => update(['thresholds', 'highLamenessScore'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>Feed stock warning (days)</label><input className="input" type="number" value={settings.thresholds.feedStockDaysWarning} onChange={(e) => update(['thresholds', 'feedStockDaysWarning'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>Feed stock critical (days)</label><input className="input" type="number" value={settings.thresholds.feedStockDaysCritical} onChange={(e) => update(['thresholds', 'feedStockDaysCritical'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>Medicine expiry warning (days)</label><input className="input" type="number" value={settings.thresholds.medicineExpiryDays} onChange={(e) => update(['thresholds', 'medicineExpiryDays'], Number(e.target.value))} /></div>
-          <div className="field" style={{ minWidth: 200 }}><label>Vaccination due warning (days)</label><input className="input" type="number" value={settings.thresholds.vaccinationDueDays} onChange={(e) => update(['thresholds', 'vaccinationDueDays'], Number(e.target.value))} /></div>
+      <Card padding="md">
+        <SectionHeader title="Alerts & Notifications" subtitle="Control how and when you receive farm alerts" action={
+          <IconWrap size={28} color="var(--primary)"><Bell size={14} /></IconWrap>
+        } />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {[
+            ['Email notifications', settings.alerts.emailNotifications, ['alerts', 'emailNotifications']],
+            ['SMS notifications', settings.alerts.smsNotifications, ['alerts', 'smsNotifications']],
+            ['Push notifications', settings.alerts.pushNotifications, ['alerts', 'pushNotifications']],
+            ['Critical alerts only', settings.alerts.criticalOnly, ['alerts', 'criticalOnly']],
+            ['Sound alerts', settings.alerts.soundEnabled, ['alerts', 'soundEnabled']],
+          ].map(([label, value, path]) => (
+            <div key={String(path)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 14 }}>{label}</span>
+              <Badge variant={value ? 'success' : 'default'}>{value ? 'On' : 'Off'}</Badge>
+            </div>
+          ))}
         </div>
-      </Section>
+      </Card>
 
-      <Section title="Display" icon={Palette}>
-        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-          <div className="field" style={{ minWidth: 200 }}>
-            <label>Theme</label>
+      <Card padding="md">
+        <SectionHeader title="Alert Thresholds" action={
+          <IconWrap size={28} color="var(--primary)"><Thermometer size={14} /></IconWrap>
+        } />
+        <div className="grid grid-form" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+          <FormField label="Heat stress THI threshold">
+            <input className="input" type="number" value={settings.thresholds.heatStressTHI} onChange={(e) => update(['thresholds', 'heatStressTHI'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="Milk drop warning (%)">
+            <input className="input" type="number" value={settings.thresholds.lowMilkDropPct} onChange={(e) => update(['thresholds', 'lowMilkDropPct'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="Low body condition score">
+            <input className="input" type="number" value={settings.thresholds.lowBodyConditionScore} onChange={(e) => update(['thresholds', 'lowBodyConditionScore'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="High lameness score">
+            <input className="input" type="number" value={settings.thresholds.highLamenessScore} onChange={(e) => update(['thresholds', 'highLamenessScore'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="Feed stock warning (days)">
+            <input className="input" type="number" value={settings.thresholds.feedStockDaysWarning} onChange={(e) => update(['thresholds', 'feedStockDaysWarning'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="Feed stock critical (days)">
+            <input className="input" type="number" value={settings.thresholds.feedStockDaysCritical} onChange={(e) => update(['thresholds', 'feedStockDaysCritical'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="Medicine expiry warning (days)">
+            <input className="input" type="number" value={settings.thresholds.medicineExpiryDays} onChange={(e) => update(['thresholds', 'medicineExpiryDays'], Number(e.target.value))} />
+          </FormField>
+          <FormField label="Vaccination due warning (days)">
+            <input className="input" type="number" value={settings.thresholds.vaccinationDueDays} onChange={(e) => update(['thresholds', 'vaccinationDueDays'], Number(e.target.value))} />
+          </FormField>
+        </div>
+      </Card>
+
+      <Card padding="md">
+        <SectionHeader title="Display" subtitle="Visual preferences and localization" action={
+          <IconWrap size={28} color="var(--primary)"><Palette size={14} /></IconWrap>
+        } />
+        <div className="grid grid-form" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+          <FormField label="Theme">
             <select className="select" value={settings.display.theme} onChange={(e) => update(['display', 'theme'], e.target.value)}>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="system">System</option>
+              <option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option>
             </select>
-          </div>
-          <div className="field" style={{ minWidth: 200 }}>
-            <label>Language</label>
+          </FormField>
+          <FormField label="Language">
             <select className="select" value={settings.display.language} onChange={(e) => update(['display', 'language'], e.target.value)}>
-              <option value="en">English</option>
-              <option value="fr">French</option>
-              <option value="sw">Swahili</option>
+              <option value="en">English</option><option value="fr">French</option><option value="sw">Swahili</option>
             </select>
-          </div>
-          <div className="field" style={{ minWidth: 200 }}>
-            <label>Date format</label>
+          </FormField>
+          <FormField label="Date format">
             <select className="select" value={settings.display.dateFormat} onChange={(e) => update(['display', 'dateFormat'], e.target.value)}>
-              <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-              <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-              <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+              <option value="DD/MM/YYYY">DD/MM/YYYY</option><option value="MM/DD/YYYY">MM/DD/YYYY</option><option value="YYYY-MM-DD">YYYY-MM-DD</option>
             </select>
-          </div>
-          <div className="field" style={{ minWidth: 200 }}>
-            <label>Currency</label>
+          </FormField>
+          <FormField label="Currency">
             <select className="select" value={settings.display.currency} onChange={(e) => update(['display', 'currency'], e.target.value)}>
-              <option value="UGX">UGX</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
+              <option value="UGX">UGX</option><option value="USD">USD</option><option value="EUR">EUR</option>
             </select>
-          </div>
+          </FormField>
         </div>
-      </Section>
+      </Card>
 
-      <Section title="Automation" icon={Shield}>
-        <Toggle label="Auto-reorder feed when low" value={settings.automation.autoReorderFeed} onChange={(v) => update(['automation', 'autoReorderFeed'], v)} />
-        <Toggle label="Auto-acknowledge low-risk insights" value={settings.automation.autoAcknowledgeLowRisk} onChange={(v) => update(['automation', 'autoAcknowledgeLowRisk'], v)} />
-        <Toggle label="Auto-schedule checkups for sick cows" value={settings.automation.autoScheduleCheckups} onChange={(v) => update(['automation', 'autoScheduleCheckups'], v)} />
-        <Toggle label="Daily AI advice" value={settings.automation.dailyAdviceEnabled} onChange={(v) => update(['automation', 'dailyAdviceEnabled'], v)} />
-        <Toggle label="Continuous learning (AI improves from feedback)" value={settings.automation.continuousLearning} onChange={(v) => update(['automation', 'continuousLearning'], v)} />
-      </Section>
+      <Card padding="md">
+        <SectionHeader title="Automation" subtitle="Rules and AI-driven automation preferences" action={
+          <IconWrap size={28} color="var(--primary)"><Shield size={14} /></IconWrap>
+        } />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {[
+            ['Auto-reorder feed when low', settings.automation.autoReorderFeed, ['automation', 'autoReorderFeed']],
+            ['Auto-acknowledge low-risk insights', settings.automation.autoAcknowledgeLowRisk, ['automation', 'autoAcknowledgeLowRisk']],
+            ['Auto-schedule checkups for sick cows', settings.automation.autoScheduleCheckups, ['automation', 'autoScheduleCheckups']],
+            ['Daily AI advice', settings.automation.dailyAdviceEnabled, ['automation', 'dailyAdviceEnabled']],
+            ['Continuous learning (AI improves from feedback)', settings.automation.continuousLearning, ['automation', 'continuousLearning']],
+          ].map(([label, value, path]) => (
+            <div key={String(path)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 14 }}>{label}</span>
+              <Badge variant={value ? 'success' : 'default'}>{value ? 'On' : 'Off'}</Badge>
+            </div>
+          ))}
+        </div>
+      </Card>
 
-      <h3 style={{ marginTop: 28, marginBottom: 4 }}>Security</h3>
-      <p className="muted" style={{ fontSize: 13, margin: 0 }}>Two-factor authentication, active sessions, and recent sign-in activity.</p>
+      <div style={{ marginTop: 28 }}>
+        <h2 style={{ margin: 0, fontSize: 20 }}>Security</h2>
+        <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>Two-factor authentication, active sessions, and recent sign-in activity.</p>
+      </div>
       <SecuritySection />
     </div>
   );
