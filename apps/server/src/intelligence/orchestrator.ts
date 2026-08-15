@@ -44,18 +44,37 @@ export class MasterOrchestrator {
   }
 
   async orchestrate(question: string): Promise<OrchestrationResult> {
-    const lower = question.toLowerCase();
+    return this.orchestrateWithContext(question, { turns: [], entities: { cowCodes: [], cowIds: [], counts: [], dates: [], categories: [], lastPregnantCows: [], lastSickCows: [], lastTopProducers: [], lastCalvingCows: [] }, expandedQuestion: question, conversationId: null });
+  }
+
+  async orchestrateWithContext(question: string, ctx: { turns: any[]; entities: any; expandedQuestion: string; conversationId: string | null }): Promise<OrchestrationResult> {
+    const lower = ctx.expandedQuestion.toLowerCase();
     const intent = this.detectIntent(lower);
     const agentsToRun = this.selectAgents(intent, lower);
 
+    const cowCodeMatch = ctx.expandedQuestion.match(/\b([A-Z]{2,3}-\d{1,4})\b/i);
+    const cowIdMatch = ctx.expandedQuestion.match(/\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i);
+    const cowIdentifier = cowCodeMatch?.[1] || cowIdMatch?.[1] || null;
+
+    let cowProfile: any = null;
+    let cowHistory: any = null;
+    if (cowIdentifier) {
+      try {
+        cowProfile = await this.knowledge.getCowProfile(cowIdentifier);
+        if (cowProfile?.id) {
+          cowHistory = await this.knowledge.getCowHistory(cowProfile.id);
+        }
+      } catch { /* cow-specific data is best-effort */ }
+    }
+
     const [agentResults, predictions, simulation] = await Promise.all([
-      Promise.all(agentsToRun.map((name) => this.agents.get(name)!(question))),
+      Promise.all(agentsToRun.map((name) => this.agents.get(name)!(ctx.expandedQuestion))),
       this.runPredictions(intent),
       this.runSimulation(intent, lower),
     ]);
 
     const allResults = [...agentResults, ...predictions, ...simulation].filter(Boolean);
-    const masterAnswer = this.synthesizeAnswer(question, allResults);
+    const masterAnswer = this.synthesizeAnswer(ctx.expandedQuestion, allResults, cowProfile, cowHistory, ctx);
     const allEvidence = allResults.flatMap((r) => r.evidence);
     const allReasoning = allResults.flatMap((r) => r.reasoning);
     const allRisks = allResults.flatMap((r) => r.risks);
@@ -161,18 +180,27 @@ export class MasterOrchestrator {
   }
 
   private detectIntent(question: string): string {
-    if (/\b(cow|calf|tell me about|everything about|history|compare)\b/.test(question)) return 'cow_profile';
-    if (/\b(milk|production|yield|liters|produce)\b/.test(question)) return 'milk_analysis';
-    if (/\b(sick|health|disease|risk|lameness|mastitis|fever)\b/.test(question)) return 'health_analysis';
-    if (/\b(profit|expense|income|finance|money|losing|cash)\b/.test(question)) return 'finance_analysis';
-    if (/\b(feed|inventory|medicine|expire|equipment|service)\b/.test(question)) return 'inventory_analysis';
-    if (/\b(employee|worker|attendance|workload|tasks completed)\b/.test(question)) return 'employee_analysis';
+    if (/\b(cow|calf|tell me about|everything about|history|compare|show me)\b/.test(question)) return 'cow_profile';
+    if (/\b(milk|production|yield|liters|produce)\b/.test(question) && /\b(fall|falling|fell|drop|dropp|declin|decreas|down|less|reduc|reduced)\b/.test(question)) return 'milk_analysis';
+    if (/\b(how much milk.*today|today's? milk|milk.*today|milk.*this morning|milk.*this evening)\b/.test(question)) return 'milk_analysis';
+    if (/\b(which cow.*produce.*most|top.*milk|highest.*milk|best.*milk|most.*milk|top.*producer)\b/.test(question)) return 'milk_analysis';
+    if (/\b(sick|unwell|ill|unhealthy|diseased|health problem|health issue|lameness|mastitis|fever|treatment|vet|veterinarian)\b/.test(question)) return 'health_analysis';
+    if (/\b((?:which cows?.*(?:sick|unwell|ill|health|attention)|any cows? (?:sick|at risk|unwell|ill)|who.*(?:need|needs).*?(?:attention|check|vet|help|care)))\b/.test(question)) return 'health_analysis';
+    if (/\b(profit|expense|income|finance|money|losing|cash|budget|spend|spent|cost)\b/.test(question)) return 'finance_analysis';
+    if (/\b(feed|inventory|medicine|expire|equipment|service|stock|supply|running low|shortage)\b/.test(question)) return 'inventory_analysis';
+    if (/\b(employee|worker|staff|team|attendance|workload|tasks completed)\b/.test(question)) return 'employee_analysis';
     if (/\b(weather|forecast|temperature|rain|wind|heat)\b/.test(question)) return 'weather_impact';
-    if (/\b(breed|breeding|inseminate|pregnant|calve|calving|pregnancy)\b/.test(question)) return 'breeding_analysis';
+    if (/\b(breed|breeding|inseminate|pregnant|calve|calving|pregnancy|pregnant|due|expecting)\b/.test(question)) return 'breeding_analysis';
     if (/\b(report|generate report|summary|overview|briefing)\b/.test(question)) return 'report';
-    if (/\b(emergency|urgent|critical|help)\b/.test(question)) return 'emergency';
+    if (/\b(emergency|urgent|critical|help|risk|danger|threat|problem|issue|warning)\b/.test(question)) return 'emergency';
     if (/\b(predict|forecast|will|next)\b/.test(question)) return 'prediction';
     if (/\b(simulate|what if|scenario|what happens)\b/.test(question)) return 'simulation';
+    if (/\b(how are|how('s| is)|status|state|condition)\b.*?\b(cow|herd|farm|cattle|animal)\b/.test(question)) return 'report';
+    if (/\b(what (should|must|needs?|has to)|priorit|focus|first|urgent|immediate)\b.*?\b(today|now|do|action)\b/.test(question)) return 'report';
+    if (/\b(yesterday|last night|previous day|day before|past 24|last 24)\b/.test(question) && /\b(happen|happened|going on|did|occur|activity|work|task|event)\b/.test(question)) return 'report';
+    if (/\b(how many|count|number of)\b.*?\b(cow|cattle|animal|head|herd|calves|calf)\b/.test(question)) return 'report';
+    if (/\b(which|what|show|list|tell).*?\b(cow|cattle|animal)\b.*?\b(not|haven't|hasn't|never|missing|without|un)\b.*?\b(vaccin|shot|immune|protected|covered)\b/.test(question)) return 'health_analysis';
+    if (/\b(not|haven't|hasn't|never|missing|without|un)\b.*?\b(vaccin|shot|immune|protected|covered)\b/.test(question)) return 'health_analysis';
     return 'overview';
   }
 
@@ -266,13 +294,76 @@ export class MasterOrchestrator {
     return [];
   }
 
-  private synthesizeAnswer(question: string, results: AgentResult[]): string {
+  private synthesizeAnswer(question: string, results: AgentResult[], cowProfile: any = null, cowHistory: any = null, ctx: { turns: any[]; entities: any } = { turns: [], entities: { cowCodes: [], cowIds: [], counts: [], dates: [], categories: [], lastPregnantCows: [], lastSickCows: [], lastTopProducers: [], lastCalvingCows: [] } }): string {
     const critical = results.filter((r) => r.severity === 'critical' || r.severity === 'high');
     const parts: string[] = [];
 
     parts.push('# Farm Intelligence Report');
     parts.push(`**Question:** ${question}`);
+    if (ctx.entities.cowCodes.length > 0 && question !== ctx.entities.cowCodes.join(', ')) {
+      parts.push(`**Context:** referring to ${ctx.entities.cowCodes.slice(0, 5).join(', ')}${ctx.entities.cowCodes.length > 5 ? ' and others' : ''}`);
+    }
     parts.push('');
+
+    if (cowProfile) {
+      parts.push('## 🐄 Cow Profile');
+      parts.push(`**ID:** ${cowProfile.cow_code} (${cowProfile.id})`);
+      parts.push(`**Name:** ${cowProfile.name || 'Unnamed'}`);
+      parts.push(`**Breed:** ${cowProfile.breed || 'Unknown'}`);
+      parts.push(`**Gender:** ${cowProfile.gender}`);
+      parts.push(`**Status:** ${cowProfile.status}`);
+      parts.push(`**Health:** ${cowProfile.health}`);
+      parts.push(`**Milking:** ${cowProfile.is_milking ? 'Yes' : 'No'}`);
+      parts.push(`**Pregnant:** ${cowProfile.is_pregnant ? 'Yes' : 'No'}`);
+      parts.push(`**Barn:** ${cowProfile.barn_name || 'Unassigned'}`);
+      if (cowProfile.date_of_birth) parts.push(`**Born:** ${cowProfile.date_of_birth}`);
+      parts.push('');
+
+      if (cowHistory) {
+        if (cowHistory.milk?.length) {
+          parts.push('### Recent Milk Production');
+          cowHistory.milk.slice(0, 5).forEach((m: any) => {
+            parts.push(`• ${m.recorded_on}: ${Number(m.total).toFixed(1)} L (morning ${Number(m.morning_liters).toFixed(1)}, afternoon ${Number(m.afternoon_liters).toFixed(1)}, evening ${Number(m.evening_liters).toFixed(1)})`);
+          });
+          parts.push('');
+        }
+        if (cowHistory.health?.length) {
+          parts.push('### Recent Health Records');
+          cowHistory.health.slice(0, 5).forEach((h: any) => {
+            parts.push(`• ${h.recorded_on}: ${h.health_status}${h.ai_detected_disease ? ` — ${h.ai_detected_disease}` : ''}`);
+          });
+          parts.push('');
+        }
+        if (cowHistory.treatments?.length) {
+          parts.push('### Recent Treatments');
+          cowHistory.treatments.slice(0, 5).forEach((t: any) => {
+            parts.push(`• ${t.diagnosed_on}: ${t.diagnosis || t.disease_id || 'Treatment'}${t.treatment_plan ? ` — ${t.treatment_plan}` : ''}`);
+          });
+          parts.push('');
+        }
+        if (cowHistory.vaccinations?.length) {
+          parts.push('### Vaccinations');
+          cowHistory.vaccinations.slice(0, 5).forEach((v: any) => {
+            parts.push(`• ${v.vaccine_name}: due ${v.due_on}${v.administered_on ? `, given ${v.administered_on}` : ' (pending)'}`);
+          });
+          parts.push('');
+        }
+        if (cowHistory.breeding?.length) {
+          parts.push('### Breeding Records');
+          cowHistory.breeding.slice(0, 5).forEach((b: any) => {
+            parts.push(`• ${b.breeding_date}: ${b.method}${b.expected_calving_on ? `, expected calving ${b.expected_calving_on}` : ''}${b.result ? ` (${b.result})` : ''}`);
+          });
+          parts.push('');
+        }
+        if (cowHistory.calving?.length) {
+          parts.push('### Calving History');
+          cowHistory.calving.slice(0, 5).forEach((c: any) => {
+            parts.push(`• ${c.calving_date}: difficulty ${c.difficulty_score}/5${c.assistance_required ? ' (assistance required)' : ''}`);
+          });
+          parts.push('');
+        }
+      }
+    }
 
     if (critical.length > 0) {
       parts.push('## 🚨 Critical & High Priority');

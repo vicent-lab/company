@@ -157,7 +157,7 @@ export async function generatePredictions(farmId: string): Promise<AllPrediction
     query(`SELECT count(*)::int AS n FROM attendance a JOIN employees e ON e.id=a.employee_id WHERE e.farm_id=$1 AND a.attended_on >= CURRENT_DATE - INTERVAL '7 days' AND a.status NOT IN ('absent','leave')`, [farmId]),
     getWeatherObservation(farmId).then((o) => ({ rows: [{ temp: o.temperatureC, humidity: o.humidityPct }] })),
     query(`SELECT c.id, c.cow_code, AVG(mr.morning_liters+mr.afternoon_liters+mr.evening_liters) AS avg_yield FROM cows c JOIN milk_records mr ON mr.cow_id=c.id WHERE c.farm_id=$1 AND c.is_milking AND mr.recorded_on >= CURRENT_DATE - INTERVAL '30 days' GROUP BY c.id ORDER BY avg_yield DESC LIMIT 10`, [farmId]),
-    query(`SELECT result, count(*)::int AS n FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.serviced_on >= CURRENT_DATE - INTERVAL '180 days' GROUP BY result`, [farmId]),
+    query(`SELECT result, count(*)::int AS n FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.breeding_date >= CURRENT_DATE - INTERVAL '180 days' GROUP BY result`, [farmId]),
   ]);
 
   const n = Number(totalCowsRes.rows[0]?.n || 0);

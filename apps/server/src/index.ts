@@ -62,7 +62,21 @@ import pregnanciesRoutes from './routes/pregnancies.js';
 import offspringRoutes from './routes/offspring.js';
 
 const app = express();
-app.use(cors());
+const allowedOrigins = [config.frontendUrl];
+if (config.env !== 'production') {
+  allowedOrigins.push('http://localhost:5173', 'http://localhost:4000', 'http://127.0.0.1:5173', 'http://127.0.0.1:4000');
+}
+app.use(cors({ origin: (origin, callback) => {
+  if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+  return callback(new Error('Not allowed by CORS'));
+}}));
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 app.use(express.json({ limit: '6mb' }));
 
 app.get('/health', async (_req, res) => {

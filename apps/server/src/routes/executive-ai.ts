@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db/index.js';
-import { requireAuth, resolveFarmId, audit } from '../middleware/auth.js';
+import { requireAuth, resolveFarmId, audit, requirePermission } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/errors.js';
 import { runExecutiveOrchestrator } from '../ai/executive/orchestrator.js';
 import { generateDailyBrief } from '../ai/executive/briefing/daily-brief.js';
@@ -10,7 +10,7 @@ import { recallMemory, storeMemory, type Memory } from '../ai/executive/memory/s
 import { getAgentStatus } from '../ai/executive/orchestrator.js';
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requirePermission('ai:read'));
 
 router.get('/executive/brief/daily', asyncHandler(async (req, res) => {
   const farmId = resolveFarmId(req);

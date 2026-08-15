@@ -115,8 +115,8 @@ export function followUpDelayDays(category: string): number {
 async function verifyBreedingFollowThrough(farmId: string): Promise<'success' | 'failure' | 'partial' | 'unknown'> {
   const r = await query(`
     SELECT
-      COUNT(*) FILTER (WHERE br.result IS NULL AND br.serviced_on < CURRENT_DATE - INTERVAL '45 days') AS still_unconfirmed,
-      COUNT(*) FILTER (WHERE lower(br.result) = 'pregnant' AND br.serviced_on >= CURRENT_DATE - INTERVAL '120 days') AS confirmed_pregnant
+      COUNT(*) FILTER (WHERE br.result IS NULL AND br.breeding_date < CURRENT_DATE - INTERVAL '45 days') AS still_unconfirmed,
+      COUNT(*) FILTER (WHERE lower(br.result) = 'pregnant' AND br.breeding_date >= CURRENT_DATE - INTERVAL '120 days') AS confirmed_pregnant
     FROM breeding_records br
     JOIN cows c ON c.id = br.cow_id
     WHERE c.farm_id = $1

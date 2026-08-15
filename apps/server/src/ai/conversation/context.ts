@@ -1,0 +1,16 @@
+export {
+  loadConversationContext,
+  saveTurn,
+  extractEntities,
+  resolvePronouns,
+  buildContextSummary,
+  getOrCreateConversation,
+  loadConversationMessages,
+  appendMessage,
+  getRelevantMemory,
+  generateFollowUpQuestions,
+  type ConversationTurn,
+  type ResolvedContext,
+  type ExtractedEntities,
+  type ConversationContext,
+} from './engine.js';

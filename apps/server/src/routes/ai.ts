@@ -1,60 +1,71 @@
 import { Router } from 'express';
 import { query } from '../db/index.js';
-import { requireAuth, resolveFarmId } from '../middleware/auth.js';
+import { requireAuth, resolveFarmId, requirePermission } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/errors.js';
 import {
   answerMilkDecline, answerCowsNeedingAttention, answerTomorrowPlan, answerCowProfitability,
   answerIncreaseProfit, answerPregnancyCandidates, answerFinancialReport, answerFeedCostIncrease,
   answerPedigree, answerOffspringCount, answerExpectedCalving, answerBreedingCount,
   answerNonConceivers, answerTopSires, answerCowsDueThisMonth, answerReproductiveHistory, answerAreRelated,
+  answerFarmOverview, answerTodayMilk, answerTopProducers, answerUnvaccinatedCows,
+  answerCalvesBornThisMonth, answerYesterdayActivities, answerFarmRisks,
+  answerTodayPriorities, answerCalvingSoon, answerHerdCount, answerMonthlySpend, answerFeedStatus,
+  farmSource, sourceLine,
 } from '../ai/qa-answers.js';
+import { loadConversationContext, saveTurn } from '../ai/conversation/engine.js';
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requirePermission('ai:read'));
 
 function classifyIntent(q: string): { intent: string; confidence: number; entities: string[] } {
   const lower = q.toLowerCase();
   const entities: string[] = [];
 
-  // Specific, data-grounded question patterns are checked first so they take priority
-  // over the broader topic keywords below (e.g. "milk" alone routes to milk_production,
-  // but "milk...falling" should route to the trend/decline analysis instead).
   if (/\b(milk|production|yield)\b/.test(lower) && /\b(fall|falling|fell|drop|dropp|declin|decreas|down|less|reduc)\b/.test(lower)) return { intent: 'milk_decline', confidence: 0.95, entities };
-  if (/\bcow(s)?\b/.test(lower) && /\battention|priorit|watch|focus\b/.test(lower)) return { intent: 'attention_today', confidence: 0.9, entities };
+  if (/\b(which|what|any|show|list|tell).*?\b(cow|cattle|animal|bovine)\b.*?\b(sick|unwell|ill|unhealthy|diseased|problem|attention|health)\b/.test(lower)) return { intent: 'attention_today', confidence: 0.95, entities };
+  if (/\b(which|what|any|show|list|tell).*?\b(sick|unwell|ill|unhealthy|diseased|problem|attention|health)\b.*?\b(cow|cattle|animal|bovine)\b/.test(lower)) return { intent: 'attention_today', confidence: 0.95, entities };
+  if (/\b(how are|how('s| is)|status of|state of|condition of)\b.*?\b(my )?(?:cow|cattle|herd|farm|animal)s?\b/.test(lower)) return { intent: 'farm_overview', confidence: 0.9, entities };
+  if (/\b(what (should|must|needs?|has to))\b.*?\b(priority|priorit|focus|first|today|now|immediate|urgent|do)\b/.test(lower)) return { intent: 'today_priorities', confidence: 0.9, entities };
+  if (/\b(priorit|focus|first|urgent|immediate)\b/.test(lower) && /\b(today|now|do|action)\b/.test(lower)) return { intent: 'today_priorities', confidence: 0.9, entities };
+  if (/\b(how many|count|number of)\b.*?\b(cow|cattle|animal|head|herd)\b/.test(lower)) return { intent: 'herd_count', confidence: 0.95, entities };
+  if (/\b(how many|count|number of)\b.*?\b(calves|calf|baby)\b.*?\b(born|delivered|this month|this week|this year)\b/.test(lower)) return { intent: 'calves_born', confidence: 0.95, entities };
+  if (/\b(calves|calf)\b.*?\b(born|delivered|this month|this week|this year)\b/.test(lower)) return { intent: 'calves_born', confidence: 0.9, entities };
+  if (/\b(show|tell|about|everything|details?|info)\b.*?\b(cow|cattle)\b\s*([A-Za-z0-9\-]+)/i.test(lower)) return { intent: 'cow_profile', confidence: 0.95, entities };
   if (/\btomorrow\b/.test(lower)) return { intent: 'tomorrow_plan', confidence: 0.9, entities };
   if (/\bcow(s)?\b/.test(lower) && /\bmoney|costing|expensive|losing money|unprofitable|profitab/.test(lower)) return { intent: 'cow_profitability', confidence: 0.9, entities };
   if (/\bprofit\b/.test(lower) && /\bincreas|improve|boost|raise|more\b/.test(lower)) return { intent: 'increase_profit', confidence: 0.9, entities };
-  if (/pregnan/.test(lower) && /\bwhich|likely|candidate|probably\b/.test(lower)) return { intent: 'pregnancy_candidates', confidence: 0.9, entities };
+  if (/pregnan/.test(lower) && /\b(which|how many|about|show|list|due)\b/.test(lower)) return { intent: 'pregnancy_candidates', confidence: 0.95, entities };
+  if (/\b(which|what|show|list|tell).*?\b(cow|cattle|animal)\b.*?\b(pregnant|pregnancy|bred|conceived|expecting)\b/.test(lower)) return { intent: 'pregnancy_candidates', confidence: 0.95, entities };
+  if (/\b(pregnant|pregnancy|bred|conceived|expecting)\b/.test(lower) && /\b(which|what|how many|show|list)\b/.test(lower)) return { intent: 'pregnancy_candidates', confidence: 0.9, entities };
+  if (/\b(which|what|show|list|tell).*?\b(cow|cattle|animal)\b.*?\b(calv|due|expecting|birthing|birth)\b/.test(lower)) return { intent: 'calving_soon', confidence: 0.95, entities };
+  if (/\b(calv|due|expecting|birthing|birth)\b/.test(lower) && /\b(which|what|how many|show|list|soon|next)\b/.test(lower)) return { intent: 'calving_soon', confidence: 0.9, entities };
+  if (/\b(how much|what|how many|total|volume)\b.*?\b(milk|litre|liter|produce|production|yield|got|receive)\b.*?\b(today|now|current|this morning|this evening)\b/.test(lower)) return { intent: 'milk_today', confidence: 0.95, entities };
+  if (/\b(milk|litre|liter|produce|production|yield)\b.*?\b(today|now|current|this morning|this evening|so far)\b/.test(lower)) return { intent: 'milk_today', confidence: 0.9, entities };
+  if (/\b(which|what|show|list|tell).*?\b(cow|cattle|animal)\b.*?\b(produce|production|yield|milk|most|top|highest|best|maximum)\b/.test(lower)) return { intent: 'top_producers', confidence: 0.95, entities };
+  if (/\b(most|top|highest|best|maximum)\b.*?\b(milk|production|yield|producer)\b/.test(lower)) return { intent: 'top_producers', confidence: 0.9, entities };
   if (/report/.test(lower) && /financ/.test(lower)) return { intent: 'financial_report', confidence: 0.9, entities };
-  if (/feed/.test(lower) && /cost/.test(lower) && /(increas|rising|risen|rose|expensive|higher|up|why)/.test(lower)) return { intent: 'feed_cost_increase', confidence: 0.9, entities };
-
+  if (/\b(how much|what|spend|spent|expense|cost|pay|budget)\b.*?\b(this month|this week|month|recently|currently|so far)\b/.test(lower)) return { intent: 'monthly_spend', confidence: 0.9, entities };
+  if (/\b(spend|spent|expense|cost)\b.*?\b(this month|this week|recently|currently|so far)\b/.test(lower)) return { intent: 'monthly_spend', confidence: 0.85, entities };
+  if (/\b(enough|sufficient|adequate|shortage|plenty|run out|low|running low|stock|inventory|supply)\b/.test(lower)) return { intent: 'feed_status', confidence: 0.9, entities };
+  if (/\b(feed|fodder|silage|hay|concentrate|ration|feedstock)\b/.test(lower)) return { intent: 'feed_status', confidence: 0.85, entities };
+  if (/\b(what('s| is| was| were| happened|happen|going on|occur|took place|did))\b.*?\b(yesterday|last night|previous day|day before|past 24|last 24)\b/.test(lower)) return { intent: 'yesterday_activities', confidence: 0.9, entities };
+  if (/\b(yesterday|last night|previous day|day before)\b/.test(lower) && /\b(happen|happened|going on|did|occur|activity|work|task|event)\b/.test(lower)) return { intent: 'yesterday_activities', confidence: 0.9, entities };
+  if (/\b(risk|danger|threat|problem|issue|warning|alert|concern|worry|careful|watch out|bad|urgent|critical|emergency)\b/.test(lower)) return { intent: 'farm_risks', confidence: 0.9, entities };
+  if (/\b(risk|danger|threat|problem|issue|warning|alert|concern|worry)\b/.test(lower) && /\b(farm|biggest|main|major|key|top)\b/.test(lower)) return { intent: 'farm_risks', confidence: 0.95, entities };
+  if (/\b(which|what|show|list|tell).*?\b(cow|cattle|animal)\b.*?\b(not|haven't|hasn't|never|missing|without|un)\b.*?\b(vaccin|shot|immune|protected|covered)\b/.test(lower)) return { intent: 'unvaccinated', confidence: 0.95, entities };
+  if (/\b(not|haven't|hasn't|never|missing|without|un)\b.*?\b(vaccin|shot|immune|protected|covered)\b/.test(lower)) return { intent: 'unvaccinated', confidence: 0.9, entities };
   if (/\b(vaccin|vaccination|booster|shot|injection|immune|antibody)\b/.test(lower)) return { intent: 'vaccination', confidence: 0.95, entities };
   if (/\b(milk|litre|liter|production|yield|milking|udder|mastitis|fat|snf|butterfat)\b/.test(lower)) return { intent: 'milk_production', confidence: 0.95, entities };
   if (/\b(low|worst|underperforming|poor|best|top|highest|lowest)\b/.test(lower) && /\b(perform|produc|yield|cow|herd)\b/.test(lower)) return { intent: 'performance', confidence: 0.9, entities };
   if (/\b(feed|fodder|silage|hay|concentrate|stock|inventory|ration|tdn|dnf|protein|energy)\b/.test(lower)) return { intent: 'feed_nutrition', confidence: 0.95, entities };
   if (/\b(sick|health|disease|ill|treatment|vet|veterinarian|medicine|antibiotic|lameness|foot|hoof|metritis|retained placenta|ketosis|acidosis)\b/.test(lower)) return { intent: 'health', confidence: 0.95, entities };
   if (/\b(pregnan|calving|breeding|ai|insemination|serviced|open|heat|estrus|bull|sire|dam|calf|heifer)\b/.test(lower)) return { intent: 'breeding', confidence: 0.95, entities };
-  if (/\bcow(s)?\b/.test(lower) && /\bfamily|pedigree|ancestor|mother|father|dam|sire|offspring|calves\b/.test(lower)) return { intent: 'pedigree', confidence: 0.95, entities };
-  if (/\bhow many\b/.test(lower) && /\bcalves|offspring|bred|services|times\b/.test(lower)) return { intent: 'pedigree', confidence: 0.9, entities };
-  if (/\bwhen\b/.test(lower) && /\bcalve|due|expected\b/.test(lower)) return { intent: 'pedigree', confidence: 0.9, entities };
-  if (/\bwhich\b/.test(lower) && /\bcows.*related|related.*cows|bulls.*conception|conception.*bulls|cows.*due|due.*calve|non.*conceiv|conceiv.*fail\b/.test(lower)) return { intent: 'pedigree', confidence: 0.9, entities };
-  if (/\bcomplete.*reproductive|reproductive.*history\b/.test(lower)) return { intent: 'pedigree', confidence: 0.95, entities };
-  if (/\bare\b/.test(lower) && /\brelated\b/.test(lower)) return { intent: 'pedigree', confidence: 0.95, entities };
   if (/\b(weather|rain|temperature|humidity|wind|grazing|pasture|heat stress|cold|frost)\b/.test(lower)) return { intent: 'weather', confidence: 0.9, entities };
-  if (/\b(finance|money|income|expense|profit|cost|revenue|cash|budget|roi|return|investment|break even)\b/.test(lower)) return { intent: 'finance', confidence: 0.95, entities };
-  if (/\b(analytics|report|trend|breed|performance|statistics|data|insight|kpi|metric)\b/.test(lower)) return { intent: 'analytics', confidence: 0.9, entities };
+  if (/\b(finance|finances|money|income|expense|profit|cost|revenue|cash|budget|roi|return|investment|break even)\b/.test(lower)) return { intent: 'finance', confidence: 0.95, entities };
   if (/\b(employee|worker|staff|team|attendance|payroll|leave|shift|roster|hr|human resource)\b/.test(lower)) return { intent: 'employees', confidence: 0.9, entities };
-  if (/\b(gallery|photo|image|picture|media|upload|camera)\b/.test(lower)) return { intent: 'gallery', confidence: 0.9, entities };
   if (/\b(cow|cattle|herd|animal|bovine|stock|animal welfare|body condition|bcs)\b/.test(lower)) return { intent: 'herd_management', confidence: 0.8, entities };
-  if (/\b(barn|facility|equipment|map|location|building|infrastructure|fence|water|tank|milking parlor|parlour)\b/.test(lower)) return { intent: 'infrastructure', confidence: 0.8, entities };
-  if (/\b(sustainability|water|carbon|manure|renewable|solar|environment|green|eco|emission)\b/.test(lower)) return { intent: 'sustainability', confidence: 0.9, entities };
-  if (/\b(customer|client|buyer|order|invoice|payment|delivery|sales|sale|supplier)\b/.test(lower)) return { intent: 'customers', confidence: 0.9, entities };
-  if (/\b(ai|assistant|bot|help|feature|how to|guide|tutorial|use|navigate|dashboard|page|screen)\b/.test(lower)) return { intent: 'project_help', confidence: 0.9, entities };
+  if (/\b(analytics|report|trend|breed|performance|statistics|data|insight|kpi|metric)\b/.test(lower)) return { intent: 'analytics', confidence: 0.9, entities };
   if (/\b(predict|forecast|future|next month|estimate|trend)\b/.test(lower)) return { intent: 'predictions', confidence: 0.95, entities };
-  if (/\b(password|login|register|account|sign in|auth|security|2fa|permission|role|access)\b/.test(lower)) return { intent: 'auth_support', confidence: 0.9, entities };
-  if (/\b(export|pdf|excel|csv|download|report|print|share)\b/.test(lower)) return { intent: 'export', confidence: 0.9, entities };
-  if (/\b(mobile|phone|tablet|app|ios|android|responsive|offline)\b/.test(lower)) return { intent: 'mobile', confidence: 0.85, entities };
-  if (/\b(pricing|plan|subscription|cost|upgrade|starter|pro|enterprise|trial|free|payment)\b/.test(lower)) return { intent: 'pricing', confidence: 0.9, entities };
   if (/\b(hello|hi|hey|good morning|good afternoon|thanks|thank you|please|sorry)\b/.test(lower)) return { intent: 'greeting', confidence: 0.95, entities };
   if (/\b(bye|goodbye|see you|exit|quit)\b/.test(lower)) return { intent: 'goodbye', confidence: 0.95, entities };
   return { intent: 'general', confidence: 0.5, entities };
@@ -62,7 +73,10 @@ function classifyIntent(q: string): { intent: string; confidence: number; entiti
 
 router.post('/ask', asyncHandler(async (req, res) => {
   const farmId = resolveFarmId(req);
-  const question = (req.body && req.body.question) || '';
+  const userId = req.user?.id ?? 'anonymous';
+  const rawQuestion = (req.body && req.body.question) || '';
+  const ctx = await loadConversationContext(farmId, userId, rawQuestion);
+  const question = ctx.expandedQuestion;
   const { intent } = classifyIntent(question);
 
   const [
@@ -211,21 +225,30 @@ router.post('/ask', asyncHandler(async (req, res) => {
       break;
 
     case 'vaccination': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', totalCows, 'cows'),
+        farmSource('💉 Vaccination records', vaccDue, 'health'),
+      ];
       if (vaccDue > 0) {
-        answer = `You have ${vaccDue} vaccination(s) due this week. `;
+        answer = `Based on your current farm records, you have ${vaccDue} vaccination(s) due this week. `;
         answer += `I recommend prioritizing: Leptospirosis boosters for lactating cows, BVD for calves, and IBR for breeding stock. `;
         answer += `Check the Alerts tab for exact due dates and cow IDs. Visit each cow's profile to mark vaccinations as complete. `;
         answer += `Tip: vaccinate in the morning when cows are calm and temperatures are cooler.`;
       } else {
-        answer = 'Great news! No vaccinations are due this week. All cattle are up to date. ';
+        answer = 'Based on your current farm records, great news! No vaccinations are due this week. All cattle are up to date. ';
         answer += `Next steps: review your vaccination calendar, schedule upcoming boosters (typically every 6 months), and ensure cold chain storage for vaccines.`;
       }
+      answer += sourceLine(indicators);
       break;
     }
 
     case 'milk_production': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', milking, 'cows'),
+        farmSource('🥛 Milk records', Math.max(1, milk > 0 ? 1 : 0), 'milk'),
+      ];
       const top = topProducers[0];
-      answer = `Today's production: ${milk.toLocaleString()} L from ${milking} milking cows (${totalCows} total). `;
+      answer = `Based on your current farm records, today's production: ${milk.toLocaleString()} L from ${milking} milking cows (${totalCows} total). `;
       answer += `Farm average: ${farmAvg.toFixed(1)} L per milking cow. `;
       if (top) answer += `Top producer: ${top.name} (${top.cow_code}) at ${Number(top.today_liters).toFixed(1)} L today. `;
       answer += `\n\nAdvice:\n`;
@@ -234,12 +257,17 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `• Check for mastitis signs: clots, watery milk, udder swelling\n`;
       answer += `• Ensure proper milking machine function and teat disinfection\n`;
       answer += `• Track individual cow yields to spot declines early`;
+      answer += sourceLine(indicators);
       break;
     }
 
     case 'performance': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', bottomProducers.length || topProducers.length, 'cows'),
+        farmSource('🥛 Milk records', bottomProducers.length || topProducers.length, 'milk'),
+      ];
       if (bottomProducers.length) {
-        answer = `Lowest-producing milking cows:\n`;
+        answer = `Based on your current farm records, lowest-producing milking cows:\n`;
         bottomProducers.forEach((c: any) => {
           answer += `• ${c.name} (${c.cow_code}, ${c.breed}): ${Number(c.avg_daily_milk).toFixed(1)} L/day — ${c.health === 'healthy' ? 'Consider feed review or vet check' : 'Has health issues — prioritize treatment'}\n`;
         });
@@ -250,16 +278,21 @@ router.post('/ask', asyncHandler(async (req, res) => {
         answer += `4. Consider culling cows with consistently poor performance after 2+ lactations\n`;
         answer += `5. Open Analytics tab for full rankings and trends`;
       } else {
-        answer = 'All milking cows are performing well! No low producers detected. ';
+        answer = 'Based on your current farm records, all milking cows are performing well! No low producers detected. ';
         answer += `Top performers: ${topProducers.map((c: any) => `${c.name} (${c.cow_code})`).join(', ')}. `;
         answer += `Consider breeding from these high-yielders to improve herd genetics.`;
       }
+      answer += sourceLine(indicators);
       break;
     }
 
     case 'predictions': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', totalCows, 'cows'),
+        farmSource('🥛 Milk records', milk > 0 ? 1 : 0, 'milk'),
+      ];
       const nextMonth = Math.round(milk * 30 * 1.03);
-      answer = `Based on current data:\n\n`;
+      answer = `Based on your current farm records:\n\n`;
       answer += `• Next month projection: ~${nextMonth.toLocaleString()} L\n`;
       answer += `• Current momentum: ${milk > 0 ? '+' : ''}${((milk / (milking || 1) - 20) * 3).toFixed(1)}% vs baseline\n`;
       answer += `• ${pregnant} pregnancies may increase output in coming months\n\n`;
@@ -268,11 +301,16 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `• Prepare for dry period 60 days before expected calving\n`;
       answer += `• Maintain vaccination schedule to prevent disease outbreaks\n`;
       answer += `• Check Predictions tab for detailed 6-month forecasts and risk factors`;
+      answer += sourceLine(indicators);
       break;
     }
 
     case 'feed_nutrition': {
-      answer = `Current feed stock: ${stock.toLocaleString()} kg. `;
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🌾 Feed inventory', stock > 0 ? 1 : 0, 'feed'),
+        farmSource('🐄 Animal records', milking + pregnant, 'cows'),
+      ];
+      answer = `Based on your current farm records, current feed stock: ${stock.toLocaleString()} kg. `;
       if (stock < 1000) answer += '⚠️ Stock is running low — order more soon. ';
       answer += `\n\nTop feed types consumed:\n`;
       topFeeds.forEach((f: any) => {
@@ -285,16 +323,22 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `• Monitor body condition score (BCS) monthly — target 2.5-3.5 for milking cows\n`;
       answer += `• Rotate pastures to prevent overgrazing and maintain forage quality\n`;
       answer += `• Store silage properly to prevent mold and nutrient loss`;
+      answer += sourceLine(indicators);
       break;
     }
 
     case 'health': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', totalCows, 'cows'),
+        farmSource('❤️ Health alerts', sick, 'health'),
+      ];
       if (sick > 0) {
-        answer = `Currently ${sick} cow(s) need attention. `;
+        answer = `Based on your current farm records, currently ${sick} cow(s) need attention. `;
         if (activeTreatments.length) {
           answer += `Active treatments:\n`;
           activeTreatments.forEach((t: any) => {
-            answer += `• ${t.cow_name}: ${t.disease_id} — diagnosed ${t.diagnosed_on}\n`;
+            const diagnosis = t.diagnosis || t.treatment_plan || 'Ongoing treatment';
+            answer += `• ${t.cow_name}: ${diagnosis} — diagnosed ${t.diagnosed_on}\n`;
           });
         }
         answer += `\nAction items:\n`;
@@ -305,7 +349,7 @@ router.post('/ask', asyncHandler(async (req, res) => {
         answer += `5. Document all treatments in cow profiles\n`;
         answer += `6. Review biosecurity protocols to prevent future outbreaks`;
       } else {
-        answer = 'All cows are currently healthy! ';
+        answer = 'Based on your current farm records, all cows are currently healthy! ';
         answer += `\nPreventive measures:\n`;
         answer += `• Maintain regular vaccination schedule\n`;
         answer += `• Practice good milking hygiene to prevent mastitis\n`;
@@ -313,11 +357,16 @@ router.post('/ask', asyncHandler(async (req, res) => {
         answer += `• Monitor for early signs: reduced feed intake, lethargy, temperature changes\n`;
         answer += `• Schedule regular vet check-ups (quarterly herd health reviews)`;
       }
+      answer += sourceLine(indicators);
       break;
     }
 
     case 'breeding': {
-      answer = `Breeding status: ${pregnant} cows confirmed pregnant out of ${totalCows} total. `;
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', totalCows, 'cows'),
+        farmSource('🤰 Breeding', pregnant, 'breeding'),
+      ];
+      answer = `Based on your current farm records, breeding status: ${pregnant} cows confirmed pregnant out of ${totalCows} total. `;
       answer += `\n\nBreeding advice:\n`;
       answer += `• AI success rate: 60-70% for first service, 85-90% overall\n`;
       answer += `• Best time for AI: 12 hours after heat detection (stand-to-be-mount)\n`;
@@ -327,6 +376,54 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `• Dry period: 45-60 days before expected calving\n`;
       answer += `• Monitor body condition — cows should be BCS 3.0-3.5 at breeding\n`;
       answer += `• Consider sexed semen for herd replacement or beef crossbreeding`;
+      answer += sourceLine(indicators);
+      break;
+    }
+
+    case 'cow_profile': {
+      const cowMatch = question.match(/(?:cow|cattle)\s*([A-Za-z0-9\-]+)/i) || question.match(/#?([A-Za-z0-9]{3,8})/i);
+      const cowId = cowMatch ? cowMatch[1] : null;
+      if (!cowId) {
+        answer = 'Which cow would you like to know about? You can use the cow code (e.g. GF-008) or name.';
+        break;
+      }
+      const cowQuery = await query(`SELECT id, cow_code, name, breed, gender, status, health, is_milking, is_pregnant, barn_id FROM cows WHERE farm_id=$1 AND (cow_code ILIKE $2 OR name ILIKE $2 OR id=$2)`, [farmId, cowId]);
+      if (!cowQuery.rows.length) {
+        answer = `Cow ${cowId} not found on this farm.`;
+        break;
+      }
+      const cow = cowQuery.rows[0];
+      const parts: string[] = [];
+      parts.push(`${cow.name || cow.cow_code} (${cow.cow_code}): ${cow.breed || 'Unknown breed'}, ${cow.gender}.`);
+      parts.push(`Status: ${cow.status}. Health: ${cow.health}. Milking: ${cow.is_milking ? 'Yes' : 'No'}. Pregnant: ${cow.is_pregnant ? 'Yes' : 'No'}.`);
+
+      const [milk, health, treatments, vaccinations, breeding, calving] = await Promise.all([
+        query(`SELECT recorded_on, (morning_liters+afternoon_liters+evening_liters) AS total FROM milk_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY recorded_on DESC LIMIT 5`, [farmId, cow.id]),
+        query(`SELECT recorded_on, health_status, ai_detected_disease FROM health_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY recorded_on DESC LIMIT 5`, [farmId, cow.id]),
+        query(`SELECT diagnosed_on, diagnosis, treatment_plan, status FROM treatments WHERE farm_id=$1 AND cow_id=$2 ORDER BY diagnosed_on DESC LIMIT 5`, [farmId, cow.id]),
+        query(`SELECT vaccine_name, administered_on, due_on FROM vaccinations WHERE farm_id=$1 AND cow_id=$2 ORDER BY due_on DESC LIMIT 5`, [farmId, cow.id]),
+        query(`SELECT method, breeding_date, expected_calving_on, result FROM breeding_records WHERE cow_id=$2 ORDER BY breeding_date DESC LIMIT 5`, [farmId, cow.id]),
+        query(`SELECT calving_date, difficulty_score, assistance_required FROM calving_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY calving_date DESC LIMIT 5`, [farmId, cow.id]),
+      ]);
+
+      if (milk.rows.length) parts.push(`Recent milk (last ${milk.rows.length} records): ${milk.rows.map((m: any) => `${m.recorded_on}: ${Number(m.total).toFixed(1)} L`).join(', ')}.`);
+      if (health.rows.length) parts.push(`Health: ${health.rows.map((h: any) => `${h.recorded_on}: ${h.health_status}${h.ai_detected_disease ? ` (${h.ai_detected_disease})` : ''}`).join('; ')}.`);
+      if (treatments.rows.length) parts.push(`Treatments: ${treatments.rows.map((t: any) => `${t.diagnosed_on}: ${t.diagnosis || t.treatment_plan || 'Ongoing'} (${t.status})`).join('; ')}.`);
+      if (vaccinations.rows.length) parts.push(`Vaccinations: ${vaccinations.rows.map((v: any) => `${v.vaccine_name} due ${v.due_on}${v.administered_on ? `, given ${v.administered_on}` : ' (pending)'}`).join('; ')}.`);
+      if (breeding.rows.length) parts.push(`Breeding: ${breeding.rows.map((b: any) => `${b.breeding_date}: ${b.method}${b.expected_calving_on ? `, expected ${b.expected_calving_on}` : ''}${b.result ? ` (${b.result})` : ''}`).join('; ')}.`);
+      if (calving.rows.length) parts.push(`Calving history: ${calving.rows.map((c: any) => `${c.calving_date}: difficulty ${c.difficulty_score}/5${c.assistance_required ? ' (assistance)' : ''}`).join('; ')}.`);
+
+      answer = parts.join('\n');
+      const cowIndicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', 1, 'cow', cow.cow_code),
+      ];
+      if (milk.rows.length) cowIndicators.push(farmSource('🥛 Milk records', milk.rows.length, 'milk'));
+      if (health.rows.length) cowIndicators.push(farmSource('❤️ Health records', health.rows.length, 'health'));
+      if (treatments.rows.length) cowIndicators.push(farmSource('💊 Treatment records', treatments.rows.length, 'health'));
+      if (vaccinations.rows.length) cowIndicators.push(farmSource('💉 Vaccination records', vaccinations.rows.length, 'health'));
+      if (breeding.rows.length) cowIndicators.push(farmSource('📋 Breeding records', breeding.rows.length, 'breeding'));
+      if (calving.rows.length) cowIndicators.push(farmSource('👶 Calving records', calving.rows.length, 'breeding'));
+      answer += sourceLine(cowIndicators);
       break;
     }
 
@@ -361,14 +458,22 @@ router.post('/ask', asyncHandler(async (req, res) => {
       break;
     }
 
-    case 'weather':
-      answer = 'Open the Weather tab for live conditions and grazing recommendations. ';
+    case 'weather': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🌾 Feed inventory', stock > 0 ? 1 : 0, 'feed'),
+      ];
+      answer = `Open the Weather tab for live conditions and grazing recommendations. `;
       answer += `General guidance: ${stock > 0 ? 'Feed stock is adequate.' : 'Consider supplementary feeding during poor grazing conditions.'} `;
       answer += `Monitor temperature-humidity index (THI) for heat stress risk.`;
+      answer += sourceLine(indicators);
       break;
+    }
 
     case 'finance': {
-      answer = `Financial snapshot (this month):\n\n`;
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('💰 Finance records', 1, 'finance'),
+      ];
+      answer = `Based on your current farm records, financial snapshot (this month):\n\n`;
       answer += `• Income: ${inc.toLocaleString()}\n`;
       answer += `• Expenses: ${exp.toLocaleString()}\n`;
       answer += `• Net profit: ${profit.toLocaleString()}\n`;
@@ -389,6 +494,7 @@ router.post('/ask', asyncHandler(async (req, res) => {
         answer += `5. Reduce waste: feed leftovers, energy, water\n`;
       }
       answer += `\nOpen the Finance tab for detailed cash flow, expense breakdown, and sales trends.`;
+      answer += sourceLine(indicators);
       break;
     }
 
@@ -433,8 +539,11 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `• Export gallery for external use via PDF or Excel`;
       break;
 
-    case 'herd_management':
-      answer = `Herd management encompasses all aspects of cow care:\n\n`;
+    case 'herd_management': {
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', totalCows, 'cows'),
+      ];
+      answer = `Based on your current farm records, herd management encompasses all aspects of cow care:\n\n`;
       answer += `• Health: vaccinations, treatments, vet checks, disease prevention\n`;
       answer += `• Breeding: AI, natural service, pregnancy checks, calving management\n`;
       answer += `• Nutrition: feed rations, water access, body condition scoring\n`;
@@ -442,7 +551,9 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `• Record keeping: individual cow IDs, medical history, production data\n`;
       answer += `• Culling: remove chronically low producers or unhealthy animals\n\n`;
       answer += `Current herd: ${totalCows} cows, ${milking} milking, ${sick} health issues, ${pregnant} pregnant.`;
+      answer += sourceLine(indicators);
       break;
+    }
 
     case 'infrastructure':
       answer = 'Open the Farm Map tab to view barns, pastures, water points, milking stations, and feed storage. ';
@@ -559,11 +670,67 @@ router.post('/ask', asyncHandler(async (req, res) => {
       answer += `All plans include 14-day free trial, no credit card required.`;
       break;
 
+    case 'farm_overview':
+      answer = await answerFarmOverview(farmId);
+      break;
+
+    case 'today_priorities':
+      answer = await answerTodayPriorities(farmId);
+      break;
+
+    case 'herd_count':
+      answer = await answerHerdCount(farmId);
+      break;
+
+    case 'calves_born':
+      answer = await answerCalvesBornThisMonth(farmId);
+      break;
+
+    case 'milk_today':
+      answer = await answerTodayMilk(farmId);
+      break;
+
+    case 'top_producers':
+      answer = await answerTopProducers(farmId);
+      break;
+
+    case 'feed_status':
+      answer = await answerFeedStatus(farmId);
+      break;
+
+    case 'yesterday_activities':
+      answer = await answerYesterdayActivities(farmId);
+      break;
+
+    case 'farm_risks':
+      answer = await answerFarmRisks(farmId);
+      break;
+
+    case 'unvaccinated':
+      answer = await answerUnvaccinatedCows(farmId);
+      break;
+
+    case 'calving_soon':
+      answer = await answerCalvingSoon(farmId);
+      break;
+
+    case 'monthly_spend':
+      answer = await answerMonthlySpend(farmId);
+      break;
+
     case 'general':
     default: {
       const hasFarmData = totalCows > 0;
+      const indicators: ReturnType<typeof farmSource>[] = [
+        farmSource('🐄 Animal records', totalCows, 'cows'),
+      ];
+      if (milking > 0) indicators.push(farmSource('🥛 Milk records', 1, 'milk'));
+      if (sick > 0) indicators.push(farmSource('❤️ Health alerts', sick, 'health'));
+      if (pregnant > 0) indicators.push(farmSource('🤰 Breeding', pregnant, 'breeding'));
+      if (vaccDue > 0) indicators.push(farmSource('💉 Vaccination records', vaccDue, 'health'));
+
       answer = hasFarmData
-        ? `I'm here to help with all aspects of your dairy farm and DairyOS. `
+        ? `Based on your current farm records, I'm here to help with all aspects of your dairy farm and DairyOS. `
         : `I'm your comprehensive dairy and project assistant. `;
       answer += `\n\nI can advise on:\n`;
       answer += `• 🐄 Herd management (health, breeding, nutrition, milk quality)\n`;
@@ -583,9 +750,13 @@ router.post('/ask', asyncHandler(async (req, res) => {
       } else {
         answer += `Start by asking about dairy management, or use the Dashboard to explore your farm data.`;
       }
+      answer += sourceLine(indicators);
       break;
     }
   }
+
+  await saveTurn(ctx.conversationId, farmId, 'user', rawQuestion, { expanded: question });
+  await saveTurn(ctx.conversationId, farmId, 'assistant', answer, { intent });
 
   res.json({ answer });
 }));

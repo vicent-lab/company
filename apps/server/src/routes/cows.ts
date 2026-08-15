@@ -52,17 +52,18 @@ const createSchema = z.object({
   health: z.enum(['healthy', 'sick', 'under_treatment']).default('healthy'),
   isMilking: z.boolean().optional(),
   isPregnant: z.boolean().optional(),
+  photoUrl: z.string().optional(),
 });
 
 router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
   const b = createSchema.parse(req.body);
   const farmId = resolveFarmId(req);
   const { rows } = await query(
-    `INSERT INTO cows (farm_id, barn_id, cow_code, ear_tag, name, breed, gender, date_of_birth, weight_kg, health, is_milking, is_pregnant, water_intake_liters)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    `INSERT INTO cows (farm_id, barn_id, cow_code, ear_tag, name, breed, gender, date_of_birth, weight_kg, health, is_milking, is_pregnant, water_intake_liters, photo_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT (farm_id, cow_code) DO UPDATE SET name=EXCLUDED.name, updated_at=now()
      RETURNING *`,
-    [farmId, b.barnId ?? null, b.cowCode, b.earTag, b.name ?? null, b.breed ?? null, b.gender, b.dateOfBirth ?? null, b.weightKg ?? null, b.health, b.isMilking ?? false, b.isPregnant ?? false, b.waterIntakeLiters ?? 0]
+     [farmId, b.barnId ?? null, b.cowCode, b.earTag, b.name ?? null, b.breed ?? null, b.gender, b.dateOfBirth ?? null, b.weightKg ?? null, b.health, b.isMilking ?? false, b.isPregnant ?? false, b.waterIntakeLiters ?? 0, b.photoUrl ?? null]
   );
   await audit(req.user, 'create', 'cow', rows[0].id, { cowCode: b.cowCode });
   res.status(201).json(rows[0]);

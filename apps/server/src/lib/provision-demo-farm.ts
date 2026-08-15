@@ -80,7 +80,7 @@ export async function provisionDemoFarm(ownerFirstName: string): Promise<{ farmI
     }
     if (isPregnant) {
       await query(
-        `INSERT INTO breeding_records (cow_id, method, serviced_on, expected_calving_on, result) VALUES ($1,$2,$3,$4,'Pregnant')`,
+        `INSERT INTO breeding_records (cow_id, method, breeding_date, expected_calving_on, result) VALUES ($1,$2,$3,$4,'Pregnant')`,
         [cowId, pick(['AI', 'Natural']), daysAgo(60 + Math.floor(Math.random() * 150)), daysFromNow(10 + Math.floor(Math.random() * 100))]
       );
     }

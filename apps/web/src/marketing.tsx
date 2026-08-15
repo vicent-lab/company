@@ -15,6 +15,9 @@ export function Marketing() {
   const [faqOpen, setFaqOpen] = useState<number | null>(0);
   const [roi, setRoi] = useState({ cows: 120, pricePerL: 0.45, waste: 12 });
   const [sent, setSent] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
 
   const selectPlan = (name: 'Starter' | 'Pro' | 'Enterprise') => {
     setPlan(name);
@@ -179,7 +182,11 @@ export function Marketing() {
                   <div style={{ textAlign: 'right' }}><div style={{ fontFamily: 'Playfair Display', fontSize: 40 }}>{p.price}</div><small className="muted" style={{ fontSize: 16 }}>{p.per}</small></div>
                 </div>
                 <ul style={{ marginTop: 22, display: 'grid', gap: 12 }}>{p.feats.map((f) => <li key={f} className="row" style={{ gap: 10 }}><Check size={16} color="var(--primary)" /> {f}</li>)}</ul>
-                <button className={`btn ${p.feat ? 'gold' : ''} mt`} style={{ marginTop: 24, width: '100%' }} onClick={startTrial}>{p.cta}</button>
+                {p.cta === 'Contact sales' ? (
+                  <a className={`btn ${p.feat ? 'gold' : ''} mt`} style={{ marginTop: 24, width: '100%', textAlign: 'center', textDecoration: 'none', display: 'inline-block' }} href="https://wa.me/256704898432" target="_blank" rel="noopener noreferrer">{p.cta}</a>
+                ) : (
+                  <button className={`btn ${p.feat ? 'gold' : ''} mt`} style={{ marginTop: 24, width: '100%' }} onClick={startTrial}>{p.cta}</button>
+                )}
               </div>
             );
           })()}
@@ -208,10 +215,10 @@ export function Marketing() {
         <p className="lead">Book a demo or ask a question — we reply within one business day.</p>
         <div className="card" style={{ maxWidth: 560, margin: '0 auto' }}>
           {sent ? <div className="toast" style={{ position: 'static', borderLeftColor: 'var(--primary)' }}><Check color="var(--primary)" /> Thanks! We’ll be in touch soon.</div> :
-          <form onSubmit={(e) => { e.preventDefault(); setSent(true); }}>
-            <div className="field"><label>Name</label><input className="input" required /></div>
-            <div className="field"><label>Email</label><input className="input" type="email" required /></div>
-            <div className="field"><label>Message</label><textarea className="input" rows={4} required /></div>
+          <form onSubmit={(e) => { e.preventDefault(); const body = `Name: ${contactName}\nEmail: ${contactEmail}\n\n${contactMessage}`; window.location.href = `mailto:mabikkekomp@gmail.com?subject=Contact form message&body=${encodeURIComponent(body)}`; setSent(true); }}>
+            <div className="field"><label>Name</label><input className="input" value={contactName} onChange={(e) => setContactName(e.target.value)} required /></div>
+            <div className="field"><label>Email</label><input className="input" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} required /></div>
+            <div className="field"><label>Message</label><textarea className="input" rows={4} value={contactMessage} onChange={(e) => setContactMessage(e.target.value)} required /></div>
             <button className="btn gold" type="submit">Send message</button>
           </form>}
         </div>

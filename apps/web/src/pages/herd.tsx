@@ -7,7 +7,7 @@ import { Beef, Milk, HeartPulse, Syringe, Search, ArrowLeft, Download, Printer, 
 import { fmt } from '../format';
 import { BREEDS, BARNS } from '../mock';
 
-const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false };
+const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false, photoUrl: '' };
 
 const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '', photoUrl: '' };
 
@@ -58,7 +58,7 @@ function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (pat
   );
 }
 
-function AnimalCard({ animal, onClick }: { animal: any; onClick: () => void }) {
+function AnimalCard({ animal, onClick, onEdit }: { animal: any; onClick: () => void; onEdit?: () => void }) {
   const healthTone = animal.health === 'healthy' ? 'ok' : animal.health === 'sick' ? 'danger' : 'warn';
   const age = animal.dob ? Math.floor((Date.now() - new Date(animal.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : null;
 
@@ -74,11 +74,14 @@ function AnimalCard({ animal, onClick }: { animal: any; onClick: () => void }) {
             </div>
             <span className={`pill ${healthTone}`} style={{ fontSize: 10, flexShrink: 0 }}>{animal.health.replace('_', ' ')}</span>
           </div>
-          <div className="row mt" style={{ gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-            {animal.isMilking && <span className="pill info" style={{ fontSize: 10 }}>Milking</span>}
-            {animal.isPregnant && <span className="pill warn" style={{ fontSize: 10 }}>Pregnant</span>}
-            {age !== null && <span className="pill muted" style={{ fontSize: 10 }}>{age}y</span>}
-            {animal.avgDailyMilk > 0 && <span className="muted" style={{ fontSize: 11 }}>{fmt.liters(animal.avgDailyMilk)}/day</span>}
+          <div className="row mt" style={{ gap: 10, flexWrap: 'wrap', marginTop: 8, justifyContent: 'space-between' }}>
+            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+              {animal.isMilking && <span className="pill info" style={{ fontSize: 10 }}>Milking</span>}
+              {animal.isPregnant && <span className="pill warn" style={{ fontSize: 10 }}>Pregnant</span>}
+              {age !== null && <span className="pill muted" style={{ fontSize: 10 }}>{age}y</span>}
+              {animal.avgDailyMilk > 0 && <span className="muted" style={{ fontSize: 11 }}>{fmt.liters(animal.avgDailyMilk)}/day</span>}
+            </div>
+            {onEdit && <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ padding: '4px 8px', fontSize: 11 }}><Edit3 size={14} /> Edit</button>}
           </div>
         </div>
       </div>
@@ -103,6 +106,17 @@ export function Herd() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editCow, setEditCow] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', photoUrl: '' });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const filteredList = useMemo(() => {
     if (filter === 'groups' && groupFilter !== 'all') {
@@ -132,9 +146,11 @@ export function Herd() {
         is_pregnant: form.isPregnant,
         gender: 'female',
         health: 'healthy',
+        photo_url: photoPreview,
       });
       push('Cow added');
       setForm(EMPTY);
+      setPhotoPreview(null);
       setOpen(false);
       setListKey((k) => k + 1);
       window.dispatchEvent(new Event('dairyos:refresh'));
@@ -142,6 +158,103 @@ export function Herd() {
       push(err.message || 'Failed to add cow');
     }
     setSaving(false);
+  };
+
+  const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setPhotoPreview(dataUrl);
+      setForm((f) => ({ ...f, photoUrl: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const stopCamera = () => {
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); setStream(null); }
+  };
+
+  const startCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setStream(s);
+      setCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); } }, 100);
+    } catch (err) { push('Camera access denied'); }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      setPhotoPreview(dataUrl);
+      setForm((f) => ({ ...f, photoUrl: dataUrl }));
+    }
+    stopCamera();
+    setCameraOpen(false);
+  };
+
+  const openEdit = (animal: any) => {
+    setEditCow(animal);
+    setEditForm({
+      name: animal.name || '',
+      breed: animal.breed || BREEDS[0],
+      earTag: animal.earTag || '',
+      weightKg: String(animal.weightKg ?? ''),
+      waterIntakeLiters: String(animal.waterIntakeLiters ?? 0),
+      isMilking: animal.isMilking ?? true,
+      isPregnant: animal.isPregnant ?? false,
+      status: animal.status || 'active',
+      photoUrl: animal.photoUrl || '',
+    });
+    setEditPhotoPreview(animal.photoUrl || null);
+    setEditOpen(true);
+  };
+
+  const handleEditPhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setEditPhotoPreview(dataUrl);
+      setEditForm((f) => ({ ...f, photoUrl: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const submitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCow) return;
+    setEditSaving(true);
+    try {
+      await updateCow(editCow.id, {
+        name: editForm.name.trim(),
+        breed: editForm.breed,
+        ear_tag: editForm.earTag.trim(),
+        weight_kg: Number(editForm.weightKg) || 0,
+        water_intake_liters: Number(editForm.waterIntakeLiters) || 0,
+        is_milking: editForm.isMilking,
+        is_pregnant: editForm.isPregnant,
+        status: editForm.status,
+        photo_url: editForm.photoUrl || null,
+      });
+      push('Cow updated');
+      setEditOpen(false);
+      setEditCow(null);
+      setListKey((k) => k + 1);
+      window.dispatchEvent(new Event('dairyos:refresh'));
+    } catch (err: any) {
+      push(err.message || 'Failed to update cow');
+    }
+    setEditSaving(false);
   };
 
   const filters: { key: AnimalFilter; label: string }[] = [
@@ -193,7 +306,7 @@ export function Herd() {
           </div>
         ) : (
           filteredList.map((animal: any) => (
-            <AnimalCard key={animal.id} animal={animal} onClick={() => navigate('/app/cow/' + animal.id)} />
+            <AnimalCard key={animal.id} animal={animal} onClick={() => navigate('/app/cow/' + animal.id)} onEdit={() => openEdit(animal)} />
           ))
         )}
       </div>
@@ -203,9 +316,53 @@ export function Herd() {
           <div className="field"><label>Breed</label><select className="select" value={form.breed} onChange={(e) => setForm({ ...form, breed: e.target.value })}>{BREEDS.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
           <div className="field"><label>Ear tag</label><input className="input" value={form.earTag} onChange={(e) => setForm({ ...form, earTag: e.target.value })} required /></div>
           <div className="field"><label>Weight (kg)</label><input className="input" type="number" value={form.weightKg} onChange={(e) => setForm({ ...form, weightKg: e.target.value })} /></div>
+          <div className="field"><label>Photo</label>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoFile} />
+              </label>
+              <button type="button" className="btn sm" onClick={startCamera}><Camera size={14} /> Take photo</button>
+              {photoPreview && <button type="button" className="btn ghost sm" onClick={() => { setPhotoPreview(null); setForm((f) => ({ ...f, photoUrl: '' })); if (fileInputRef.current) fileInputRef.current.value = ''; }}><Trash2 size={14} /> Remove</button>}
+            </div>
+            {photoPreview && <img src={photoPreview} alt="Preview" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, background: 'var(--surface-2)' }} />}
+          </div>
           <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.isMilking} onChange={(e) => setForm({ ...form, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.isPregnant} onChange={(e) => setForm({ ...form, isPregnant: e.target.checked })} /> Pregnant</label></div>
           <button className="btn mt" style={{ marginTop: 16 }} type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save animal'}</button>
         </form>
+      </Modal>}
+      {editOpen && editCow && <Modal title="Edit cow" onClose={() => { setEditOpen(false); setEditCow(null); }}>
+        <form onSubmit={submitEdit}>
+          <div className="field"><label>Name</label><input className="input" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required /></div>
+          <div className="field"><label>Breed</label><select className="select" value={editForm.breed} onChange={(e) => setEditForm({ ...editForm, breed: e.target.value })}>{BREEDS.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
+          <div className="field"><label>Ear tag</label><input className="input" value={editForm.earTag} onChange={(e) => setEditForm({ ...editForm, earTag: e.target.value })} required /></div>
+          <div className="field"><label>Weight (kg)</label><input className="input" type="number" value={editForm.weightKg} onChange={(e) => setEditForm({ ...editForm, weightKg: e.target.value })} /></div>
+          <div className="field"><label>Photo</label>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleEditPhotoFile} />
+              </label>
+              {(editForm.photoUrl || editPhotoPreview) && <button type="button" className="btn ghost sm" onClick={() => { setEditForm((f) => ({ ...f, photoUrl: '' })); setEditPhotoPreview(null); }}><Trash2 size={14} /> Remove</button>}
+            </div>
+            {(editForm.photoUrl || editPhotoPreview) && <img src={(editForm.photoUrl || editPhotoPreview) as string} alt="Preview" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, background: 'var(--surface-2)' }} />}
+          </div>
+          <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isMilking} onChange={(e) => setEditForm({ ...editForm, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isPregnant} onChange={(e) => setEditForm({ ...editForm, isPregnant: e.target.checked })} /> Pregnant</label></div>
+          <div className="field mt"><label>Status</label><select className="select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="deceased">Deceased</option><option value="sold">Sold</option><option value="archived">Archived</option></select></div>
+          <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn ghost" onClick={() => { setEditOpen(false); setEditCow(null); }}>Cancel</button>
+            <button className="btn" type="submit" disabled={editSaving}><Save size={15} /> {editSaving ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
+      </Modal>}
+
+      {cameraOpen && <Modal title="Take photo" onClose={() => { setCameraOpen(false); stopCamera(); }}>
+        <video ref={videoRef} style={{ width: '100%', borderRadius: 8, background: '#000' }} playsInline muted />
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <div className="row mt" style={{ justifyContent: 'center', gap: 10 }}>
+          <button type="button" className="btn" onClick={capturePhoto}><Camera size={16} /> Capture</button>
+          <button type="button" className="btn ghost" onClick={() => { setCameraOpen(false); stopCamera(); }}>Cancel</button>
+        </div>
       </Modal>}
     </div>
   );

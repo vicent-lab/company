@@ -17,7 +17,7 @@ import {
   shiftAssignments, assignShift, deleteShiftAssignment,
   getFarmMembers, inviteToFarm,
 } from '../data';
-import { Plus, Trash2, Edit3, Save, X, Clock, CheckCircle, AlertCircle, User, Users, Briefcase, Mail, Phone, MapPin, Calendar, Award, TrendingUp, MessageSquare, Camera, Map, FileText, DollarSign, Send, UserPlus, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, Edit3, Save, X, Clock, CheckCircle, AlertCircle, User, Users, Briefcase, Mail, Phone, MapPin, Calendar, Award, TrendingUp, MessageSquare, Camera, Map, FileText, DollarSign, Send, UserPlus, ShieldCheck, FolderOpen } from 'lucide-react';
 import { fmt } from '../format';
 
 const EMP_EMPTY = { name: '', job_title: '', hired_on: '', base_salary: '', phone: '', email: '' };
@@ -173,6 +173,14 @@ function AttendanceTab({ farmId, user, empList, attList, faceList, loading, refr
   const [form, setForm] = useState({ employeeId: '', status: 'present', notes: '' });
   const [faceForm, setFaceForm] = useState({ employeeId: '', descriptor: '', photoUrl: '' });
   const [saving, setSaving] = useState(false);
+  const [faceSaving, setFaceSaving] = useState(false);
+  const [facePhotoPreview, setFacePhotoPreview] = useState<string | null>(null);
+  const [faceCameraOpen, setFaceCameraOpen] = useState(false);
+  const [faceStream, setFaceStream] = useState<MediaStream | null>(null);
+  const faceVideoRef = useRef<HTMLVideoElement>(null);
+  const faceCanvasRef = useRef<HTMLCanvasElement>(null);
+  const faceFileInputRef = useRef<HTMLInputElement>(null);
+  const [editingFaceId, setEditingFaceId] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -191,13 +199,78 @@ function AttendanceTab({ farmId, user, empList, attList, faceList, loading, refr
 
   const submitFace = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-    await registerFace(farmId, faceForm);
-    push('Face registered');
-    setFaceForm({ employeeId: '', descriptor: '', photoUrl: '' });
-    setFaceOpen(false);
+    setFaceSaving(true);
+    try {
+      await registerFace(farmId, faceForm);
+      push('Face registered');
+      setFaceForm({ employeeId: '', descriptor: '', photoUrl: '' });
+      setFacePhotoPreview(null);
+      setEditingFaceId(null);
+      setFaceOpen(false);
+      refresh();
+    } catch (err: any) {
+      push(err.message || 'Could not register face');
+    }
+    setFaceSaving(false);
+  };
+
+  const stopFaceCamera = () => {
+    if (faceStream) { faceStream.getTracks().forEach((t) => t.stop()); setFaceStream(null); }
+  };
+
+  const startFaceCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      setFaceStream(s);
+      setFaceCameraOpen(true);
+      setTimeout(() => { if (faceVideoRef.current) { faceVideoRef.current.srcObject = s; faceVideoRef.current.play(); } }, 100);
+    } catch (err) { push('Camera access denied'); }
+  };
+
+  const captureFacePhoto = () => {
+    if (!faceVideoRef.current || !faceCanvasRef.current) return;
+    const canvas = faceCanvasRef.current;
+    canvas.width = faceVideoRef.current.videoWidth || 640;
+    canvas.height = faceVideoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(faceVideoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      setFacePhotoPreview(dataUrl);
+      setFaceForm((f) => ({ ...f, photoUrl: dataUrl }));
+    }
+    stopFaceCamera();
+    setFaceCameraOpen(false);
+  };
+
+  const handleFacePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setFacePhotoPreview(dataUrl);
+      setFaceForm((f) => ({ ...f, photoUrl: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const openEditFace = (face: any) => {
+    setEditingFaceId(face.id);
+    setFaceForm({
+      employeeId: face.employee_id,
+      descriptor: face.descriptor || '',
+      photoUrl: face.photo_url || face.photoUrl || '',
+    });
+    setFacePhotoPreview(face.photo_url || face.photoUrl || null);
+    setFaceOpen(true);
+  };
+
+  const deleteFace = async (id: string) => {
+    if (!confirm('Delete this face registration?')) return;
+    await deleteFaceRegistration(id);
+    push('Face registration deleted');
     refresh();
-    setSaving(false);
   };
 
   const today = attList.filter((a: any) => a.attended_on === new Date().toISOString().slice(0, 10));
@@ -235,6 +308,36 @@ function AttendanceTab({ farmId, user, empList, attList, faceList, loading, refr
         </div>
       </div>
 
+      {faceList.length > 0 && (
+        <div className="card mt">
+          <div className="between mb">
+            <h3>Face registrations</h3>
+            <button className="btn sm" onClick={() => { setEditingFaceId(null); setFaceForm({ employeeId: '', descriptor: '', photoUrl: '' }); setFacePhotoPreview(null); setFaceOpen(true); }}><Plus size={14} /> Add face</button>
+          </div>
+          <div className="table-wrap">
+            <table><thead><tr><th>Employee</th><th>Photo</th><th>Registered</th><th style={{ width: 120 }}></th></tr></thead>
+              <tbody>{faceList.map((f: any) => (
+                <tr key={f.id}>
+                  <td>{f.employee_name || f.employee_id}</td>
+                  <td>
+                    {(f.photo_url || f.photoUrl) && (
+                      <img src={f.photo_url || f.photoUrl} alt="Face" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: '50%', background: 'var(--surface-2)' }} />
+                    )}
+                  </td>
+                  <td>{fmt.date(f.created_at)}</td>
+                  <td>
+                    <div className="row" style={{ gap: 4 }}>
+                      <button className="btn ghost sm" onClick={() => openEditFace(f)}><Edit3 size={14} /></button>
+                      <button className="btn ghost sm" onClick={() => deleteFace(f.id)}><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {open && <Modal title="Mark attendance" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
           <div className="field"><label>Employee</label>
@@ -256,7 +359,7 @@ function AttendanceTab({ farmId, user, empList, attList, faceList, loading, refr
         </form>
       </Modal>}
 
-      {faceOpen && <Modal title="Register face" onClose={() => setFaceOpen(false)}>
+      {faceOpen && <Modal title={editingFaceId ? 'Edit face registration' : 'Register face'} onClose={() => { setFaceOpen(false); setEditingFaceId(null); stopFaceCamera(); }}>
         <form onSubmit={submitFace}>
           <div className="field"><label>Employee</label>
             <select className="select" value={faceForm.employeeId} onChange={(e) => setFaceForm({ ...faceForm, employeeId: e.target.value })} required>
@@ -264,14 +367,30 @@ function AttendanceTab({ farmId, user, empList, attList, faceList, loading, refr
               {empList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
-          <div className="field"><label>Face descriptor (JSON)</label><textarea className="input" value={faceForm.descriptor} onChange={(e) => setFaceForm({ ...faceForm, descriptor: e.target.value })} placeholder='{"descriptor": [...]}' required /></div>
-          <div className="field"><label>Photo URL</label><input className="input" value={faceForm.photoUrl} onChange={(e) => setFaceForm({ ...faceForm, photoUrl: e.target.value })} placeholder="https://…" /></div>
-          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>Face descriptor is a JSON array of 128 floats. Use browser face-api or similar.</p>
+          <div className="field"><label>Photo</label>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload
+                <input ref={faceFileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFacePhotoFile} />
+              </label>
+              <button type="button" className="btn sm" onClick={startFaceCamera}><Camera size={14} /> Take photo</button>
+              {facePhotoPreview && <button type="button" className="btn ghost sm" onClick={() => { setFacePhotoPreview(null); setFaceForm((f) => ({ ...f, photoUrl: '' })); if (faceFileInputRef.current) faceFileInputRef.current.value = ''; }}><Trash2 size={14} /> Remove</button>}
+            </div>
+            {facePhotoPreview && <img src={facePhotoPreview} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, background: 'var(--surface-2)' }} />}
+          </div>
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
-            <button type="button" className="btn ghost" onClick={() => setFaceOpen(false)}>Cancel</button>
-            <button className="btn" type="submit" disabled={saving}>Register</button>
+            <button type="button" className="btn ghost" onClick={() => { setFaceOpen(false); setEditingFaceId(null); stopFaceCamera(); }}>Cancel</button>
+            <button className="btn" type="submit" disabled={faceSaving}>{editingFaceId ? <><Save size={15} /> Update</> : <><Camera size={15} /> Register</>}</button>
           </div>
         </form>
+      </Modal>}
+      {faceCameraOpen && <Modal title="Take photo" onClose={() => { setFaceCameraOpen(false); stopFaceCamera(); }}>
+        <video ref={faceVideoRef} style={{ width: '100%', borderRadius: 8, background: '#000' }} playsInline muted />
+        <canvas ref={faceCanvasRef} style={{ display: 'none' }} />
+        <div className="row mt" style={{ justifyContent: 'center', gap: 10 }}>
+          <button type="button" className="btn" onClick={captureFacePhoto}><Camera size={16} /> Capture</button>
+          <button type="button" className="btn ghost" onClick={() => { setFaceCameraOpen(false); stopFaceCamera(); }}>Cancel</button>
+        </div>
       </Modal>}
     </div>
   );

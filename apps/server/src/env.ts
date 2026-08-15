@@ -16,14 +16,24 @@ export const config = {
   env: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
   databaseUrl: required('DATABASE_URL', 'postgresql://dairy:local_dev_password@localhost:5432/dairy'),
-  jwtSecret: required('JWT_SECRET', 'development-only-secret-change-me'),
-  // Access tokens are now short-lived; a long-lived refresh token (below) is what keeps a
-  // session going, and can be revoked (logout, password reset) unlike the old 7-day JWT.
+  jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '30m',
   refreshTokenExpiresInDays: Number(process.env.REFRESH_TOKEN_EXPIRES_IN_DAYS ?? 30),
   isLive: Boolean(process.env.DATABASE_URL),
   learningCycleIntervalHours: Number(process.env.LEARNING_CYCLE_INTERVAL_HOURS ?? 6),
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY ?? '',
+  googleOAuthClientId: process.env.OAUTH_GOOGLE_CLIENT_ID ?? '',
+  googleOAuthClientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET ?? '',
+  googleOAuthCallbackUrl: process.env.OAUTH_GOOGLE_CALLBACK_URL ?? '',
+  microsoftOAuthClientId: process.env.OAUTH_MICROSOFT_CLIENT_ID ?? '',
+  microsoftOAuthClientSecret: process.env.OAUTH_MICROSOFT_CLIENT_SECRET ?? '',
+  microsoftOAuthCallbackUrl: process.env.OAUTH_MICROSOFT_CALLBACK_URL ?? '',
+  appleOAuthClientId: process.env.OAUTH_APPLE_CLIENT_ID ?? '',
+  appleOAuthTeamId: process.env.OAUTH_APPLE_TEAM_ID ?? '',
+  appleOAuthKeyId: process.env.OAUTH_APPLE_KEY_ID ?? '',
+  appleOAuthPrivateKey: process.env.OAUTH_APPLE_PRIVATE_KEY ?? '',
+  appleOAuthCallbackUrl: process.env.OAUTH_APPLE_CALLBACK_URL ?? '',
+  frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
 };
 
 export type AppConfig = typeof config;

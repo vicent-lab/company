@@ -8,6 +8,7 @@ import { Marketing } from './marketing';
 import { AppShell } from './app';
 import { ResetPasswordPage } from './pages/auth-flows';
 import { GetStarted, SignUp } from './pages/signup';
+import { OAuthCallback } from './auth';
 import './styles.css';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
@@ -24,6 +25,7 @@ function Root() {
   if (base === 'reset-password') return <ResetPasswordPage />;
   if (base === 'get-started') return <GetStarted />;
   if (base === 'signup') return <SignUp />;
+  if (base === 'oauth-callback') return <OAuthCallback />;
   if (base === 'app') return <AppShell />;
   return <Marketing />;
 }

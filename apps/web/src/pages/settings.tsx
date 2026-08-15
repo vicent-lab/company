@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useFarm } from '../app';
+import { useAuth } from '../auth';
 import { PageHeader, useToast, PasswordInput, Card, SectionHeader, Badge, EmptyState, IconWrap, FormField } from '../ui';
-import { Save, RotateCcw, Bell, Shield, Palette, Thermometer, Tractor, Droplets, Wheat, ShieldCheck, History, Laptop, Smartphone, Monitor, X } from 'lucide-react';
+import { Save, RotateCcw, Bell, Shield, Palette, Thermometer, Tractor, Droplets, Wheat, ShieldCheck, History, Laptop, Smartphone, Monitor, X, KeyRound, Phone } from 'lucide-react';
 import { isLive } from '../api';
 import {
   get2faStatus, setup2fa, enable2fa, disable2fa,
   getLoginHistory, LoginHistoryEntry,
   getSessions, revokeSession, revokeAllOtherSessions, DeviceSession,
+  getLinkedIdentities, unlinkIdentity, AuthMethod,
 } from '../data';
 import { useSettings, DEFAULT_SETTINGS } from '../lib/useSettings';
 
@@ -27,6 +29,7 @@ function loginFailureLabel(reason: string): string {
 
 function SecuritySection() {
   const { push } = useToast();
+  const { user } = useAuth();
   const [twoFaEnabled, setTwoFaEnabled] = useState<boolean | null>(null);
   const [setupData, setSetupData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [code, setCode] = useState('');
@@ -36,19 +39,40 @@ function SecuritySection() {
 
   const [history, setHistory] = useState<LoginHistoryEntry[]>([]);
   const [sessions, setSessions] = useState<DeviceSession[]>([]);
+  const [identities, setIdentities] = useState<AuthMethod[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const load = async () => {
     setLoadingData(true);
     try {
-      const [status, hist, sess] = await Promise.all([get2faStatus(), getLoginHistory(), getSessions()]);
+      const [status, hist, sess, idents] = await Promise.all([get2faStatus(), getLoginHistory(), getSessions(), getLinkedIdentities()]);
       setTwoFaEnabled(status.enabled);
       setHistory(hist.data);
       setSessions(sess.data);
+      setIdentities(idents.data);
     } catch { /* best-effort */ }
     finally { setLoadingData(false); }
   };
   useEffect(() => { if (isLive) load(); }, []);
+
+  const connectIdentity = (provider: string) => {
+    if (!user?.id) { push('You must be logged in to connect an account'); return; }
+    window.location.href = `/api/v1/auth/oauth/${provider}?linkUserId=${user.id}`;
+  };
+
+  const disconnectIdentity = async (provider: string, id: string) => {
+    const connected = identities.filter((i) => i.connected);
+    const remaining = connected.filter((i) => !(i.provider === provider && i.identity?.id === id));
+    if (remaining.length === 0) {
+      push('You must keep at least one sign-in method');
+      return;
+    }
+    try {
+      await unlinkIdentity(provider, id);
+      push('Account disconnected');
+      await load();
+    } catch (err: any) { push(err.message || 'Could not disconnect account'); }
+  };
 
   const startSetup = async () => {
     setBusy(true);
@@ -126,6 +150,51 @@ function SecuritySection() {
             <p className="muted" style={{ fontSize: 13 }}>Not enabled. Add a second step to sign-in using an authenticator app.</p>
             <button className="btn sm mt" onClick={startSetup} disabled={busy}>{busy ? 'Starting…' : 'Set up 2FA'}</button>
           </>
+        )}
+      </Card>
+
+      <Card padding="md">
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+          <IconWrap size={36}><ShieldCheck size={18} /></IconWrap>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Connected accounts</h3>
+        </div>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Manage the sign-in methods for this account.</p>
+        {loadingData ? <p className="muted" style={{ fontSize: 13 }}>Loading…</p> : (
+          <div>
+            {[
+              { provider: 'password', label: 'Password', icon: KeyRound },
+              { provider: 'phone', label: 'Phone', icon: Phone },
+              { provider: 'google', label: 'Google', icon: null },
+              { provider: 'microsoft', label: 'Microsoft', icon: null },
+              { provider: 'apple', label: 'Apple', icon: null },
+            ].map(({ provider, label, icon: Icon }) => {
+              const method = identities.find((i) => i.provider === provider);
+              const connected = !!method?.connected;
+              const isPassword = provider === 'password';
+              const isPhone = provider === 'phone';
+
+              return (
+                <div key={provider} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    {Icon ? <Icon size={16} color="var(--text-soft)" /> : <span style={{ width: 16, textAlign: 'center', fontSize: 11, fontWeight: 700 }}>{provider[0].toUpperCase()}</span>}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{connected ? (isPassword ? 'Set' : isPhone ? 'Verified' : 'Connected') : 'Not connected'}</div>
+                    </div>
+                  </div>
+                  {connected ? (
+                    <button className="btn ghost sm" onClick={() => {
+                      if (isPassword) { push('Use the password reset flow to change your password'); return; }
+                      if (isPhone) { push('Contact support to change your phone number'); return; }
+                      if (method.identity) disconnectIdentity(provider, method.identity.id);
+                    }}>Disconnect</button>
+                  ) : (
+                    <button className="btn sm" onClick={() => connectIdentity(provider)}>Connect</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </Card>
 

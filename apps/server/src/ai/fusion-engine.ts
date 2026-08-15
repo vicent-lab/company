@@ -551,7 +551,7 @@ export async function analyzeBusiness(farmId: string): Promise<IntelligenceSigna
       COUNT(*) AS total_services
     FROM breeding_records br
     JOIN cows c ON c.id = br.cow_id
-    WHERE c.farm_id = $1 AND br.serviced_on >= CURRENT_DATE - INTERVAL '180 days'
+    WHERE c.farm_id = $1 AND br.breeding_date >= CURRENT_DATE - INTERVAL '180 days'
   `, [farmId]);
 
   const rate = Number(conceptionRate.rows[0]?.conception_rate || 0);

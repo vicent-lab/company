@@ -1,16 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { PageHeader, Modal, Kpi, AnimatedCounter, useAsync, useToast } from '../ui';
 import { updateCow, deleteCow, updateMilkRecord, deleteMilkRecord, createMilkRecord, createFeedRecord, updateFeedRecord, deleteFeedRecord, createEmployee, updateEmployee, deleteEmployee, createGalleryItem, deleteGalleryItem, listFeedRecords, listMilkRecords, listCows, employees, gallery } from '../data';
-import { Plus, Trash2, Edit3, Save, X, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, Edit3, Save, X, ArrowLeft, Camera, FolderOpen } from 'lucide-react';
 import { BREEDS } from '../mock';
 import { fmt } from '../format';
 
 const MILK_EMPTY = { cowId: '', date: '', morning: '', afternoon: '', evening: '' };
 const FEED_EMPTY = { cowId: '', date: '', feed: '', kg: '' };
 const EMP_EMPTY = { name: '', job_title: '', hired_on: '', base_salary: '' };
-const GAL_EMPTY = { url: '', category: 'cows', is_primary: false };
+const GAL_EMPTY = { category: 'cows', is_primary: false, photoUrl: '' };
 
 export function DailyRecords() {
   const { farmId } = useFarm();
@@ -252,19 +252,67 @@ export function GalleryManagement() {
   const [list, setList] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(GAL_EMPTY);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (items) setList(items);
   }, [items]);
 
+  const stopCamera = () => {
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); setStream(null); }
+  };
+
+  const startCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setStream(s);
+      setCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); } }, 100);
+    } catch (err) { push('Camera access denied'); }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      setPhotoPreview(dataUrl);
+      setForm((f) => ({ ...f, photoUrl: dataUrl }));
+    }
+    stopCamera();
+    setCameraOpen(false);
+  };
+
+  const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setPhotoPreview(dataUrl);
+      setForm((f) => ({ ...f, photoUrl: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.url.trim()) { push('URL is required'); return; }
+    if (!form.photoUrl) { push('Photo is required'); return; }
     try {
-      const item = await createGalleryItem(farmId, { url: form.url.trim(), category: form.category, is_primary: form.is_primary });
+      const item = await createGalleryItem(farmId, { url: form.photoUrl, category: form.category, is_primary: form.is_primary });
       push('Gallery item added');
       setList((l) => [...l, item]);
       setForm(GAL_EMPTY);
+      setPhotoPreview(null);
       setOpen(false);
     } catch (err: any) { push(err.message); }
   };
@@ -279,20 +327,29 @@ export function GalleryManagement() {
   return (
     <div>
       <PageHeader eyebrow="MANAGEMENT" title="Gallery management" desc="Manage farm photos and media."
-        actions={<button className="btn sm" onClick={() => setOpen(true)}><Plus size={16} /> Add item</button>} />
+        actions={<button className="btn sm" onClick={() => { setForm(GAL_EMPTY); setPhotoPreview(null); setOpen(true); }}><Plus size={16} /> Add item</button>} />
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-wrap" style={{ border: 0, boxShadow: 'none' }}>
           <table>
-            <thead><tr><th>URL</th><th>Category</th><th>Primary</th><th style={{ width: 100 }}></th></tr></thead>
+            <thead><tr><th>Photo</th><th>Category</th><th>Primary</th><th style={{ width: 100 }}></th></tr></thead>
             <tbody>
-              {list.map((item: any) => (
-                <tr key={item.id}>
-                  <td style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.url || item.image_url || '—'}</td>
-                  <td><span className="tag">{item.category || 'general'}</span></td>
-                  <td>{item.is_primary ? <span className="pill healthy">Yes</span> : <span className="pill muted">No</span>}</td>
-                  <td><button className="btn ghost sm" onClick={() => remove(item.id)}><Trash2 size={14} /></button></td>
-                </tr>
-              ))}
+              {list.map((item: any) => {
+                const src = item.url || item.image_url;
+                return (
+                  <tr key={item.id}>
+                    <td style={{ maxWidth: 300 }}>
+                      {src && src.startsWith('data:image') ? (
+                        <img src={src} alt="Gallery" style={{ width: 120, height: 80, objectFit: 'cover', borderRadius: 8, background: 'var(--surface-2)' }} />
+                      ) : (
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src || '—'}</span>
+                      )}
+                    </td>
+                    <td><span className="tag">{item.category || 'general'}</span></td>
+                    <td>{item.is_primary ? <span className="pill healthy">Yes</span> : <span className="pill muted">No</span>}</td>
+                    <td><button className="btn ghost sm" onClick={() => remove(item.id)}><Trash2 size={14} /></button></td>
+                  </tr>
+                );
+              })}
               {!list.length && !loading && <tr><td colSpan={4} style={{ textAlign: 'center', padding: 40 }} className="muted">No gallery items yet. Add your first item above.</td></tr>}
             </tbody>
           </table>
@@ -300,7 +357,17 @@ export function GalleryManagement() {
       </div>
       {open && <Modal title="Add gallery item" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
-          <div className="field"><label>Image URL</label><input className="input" placeholder="https://…" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} required /></div>
+          <div className="field"><label>Photo</label>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <label className="btn sm" style={{ cursor: 'pointer' }}>
+                <FolderOpen size={14} /> Upload
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoFile} />
+              </label>
+              <button type="button" className="btn sm" onClick={startCamera}><Camera size={14} /> Take photo</button>
+              {photoPreview && <button type="button" className="btn ghost sm" onClick={() => { setPhotoPreview(null); setForm((f) => ({ ...f, photoUrl: '' })); if (fileInputRef.current) fileInputRef.current.value = ''; }}><Trash2 size={14} /> Remove</button>}
+            </div>
+            {photoPreview && <img src={photoPreview} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, background: 'var(--surface-2)' }} />}
+          </div>
           <div className="field"><label>Category</label>
             <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
               <option value="cows">Cows</option>
@@ -319,6 +386,14 @@ export function GalleryManagement() {
             <button className="btn" type="submit" disabled={loading}><Plus size={15} /> Add item</button>
           </div>
         </form>
+      </Modal>}
+      {cameraOpen && <Modal title="Take photo" onClose={() => { setCameraOpen(false); stopCamera(); }}>
+        <video ref={videoRef} style={{ width: '100%', borderRadius: 8, background: '#000' }} playsInline muted />
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <div className="row mt" style={{ justifyContent: 'center', gap: 10 }}>
+          <button type="button" className="btn" onClick={capturePhoto}><Camera size={16} /> Capture</button>
+          <button type="button" className="btn ghost" onClick={() => { setCameraOpen(false); stopCamera(); }}>Cancel</button>
+        </div>
       </Modal>}
     </div>
   );

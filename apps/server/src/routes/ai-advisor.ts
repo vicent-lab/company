@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db/index.js';
-import { requireAuth, resolveFarmId, audit } from '../middleware/auth.js';
+import { requireAuth, resolveFarmId, audit, requirePermission } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/errors.js';
 import { fuseIntelligence, FusedRecommendation } from '../ai/fusion-engine.js';
 import { generateDailyAdvice } from '../ai/daily-advice.js';
@@ -11,10 +11,14 @@ import { buildCommandCenter, executeCommandAction } from '../ai/command-center.j
 import {
   answerMilkDecline, answerCowsNeedingAttention, answerTomorrowPlan, answerCowProfitability,
   answerIncreaseProfit, answerPregnancyCandidates, answerFinancialReport, answerFeedCostIncrease,
+  answerFarmOverview, answerTodayMilk, answerTopProducers, answerUnvaccinatedCows,
+  answerCalvesBornThisMonth, answerYesterdayActivities, answerFarmRisks,
+  answerTodayPriorities, answerCalvingSoon, answerHerdCount, answerMonthlySpend, answerFeedStatus,
 } from '../ai/qa-answers.js';
+import { loadConversationContext, saveTurn, buildContextSummary } from '../ai/conversation/engine.js';
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requirePermission('ai:read'));
 
 // ---------- Types ----------
 interface InsightRow {
@@ -553,8 +557,20 @@ router.post('/learning/run-cycle', asyncHandler(async (req, res) => {
 // engine instead of the generic fallback text below — real numbers, no round-trip
 // through a fresh full analysis.
 const FAST_PATH: { test: RegExp; fn: (farmId: string) => Promise<string> }[] = [
-  { test: /milk.*(drop|declin|falling|down|decreas)|why.*milk.*(low|less)/, fn: answerMilkDecline },
-  { test: /which cows?.*(attention|check|today)|cows? need(s)?.*attention|any cows? (sick|at risk)/, fn: answerCowsNeedingAttention },
+  { test: /milk.*(drop|declin|falling|down|decreas|reduced|less)|why.*milk.*(low|less|dropped|fall)/, fn: answerMilkDecline },
+  { test: /which cows?.*(attention|check|today|sick|unwell|ill|health|risk)|cows? need(s)?.*attention|any cows? (sick|at risk|unwell|ill)|who.*(need|needs).*?(attention|check|vet|help|care)/, fn: answerCowsNeedingAttention },
+  { test: /how are (my|the) (cows|herd|cattle|farm) doing|how('s| is) (my|the) (herd|farm|cattle)|status of (my|the) (farm|herd|cows)|condition of (my|the) (herd|farm|cows)/, fn: answerFarmOverview },
+  { test: /what (should|must|needs?|has to|do i need to).*?(priority|priorit|focus|first|today|now|immediate|urgent)|priorit(?:y|ize|ise).*?(today|now|first|urgent)|focus.*?(today|now|urgent)|what.*?(first|urgent|immediate).*?(do|today)/, fn: answerTodayPriorities },
+  { test: /how many (cows|cattle|animals|head).*?(have|total|own|got|there)|count.*?(cows|cattle|animals|head|herd)|number of (cows|cattle|animals|head)/, fn: answerHerdCount },
+  { test: /how many (calves|calf).*?(born|delivered|this month|this week|this year)|calves.*?(born|delivered|this month|this week|this year)|calves born/, fn: answerCalvesBornThisMonth },
+  { test: /how much milk.*?(today|now|this morning|this evening|so far|got|receive|produce)|milk.*?(today|now|this morning|this evening|so far|got|receive|produce)|today('s| is) milk|milk production today/, fn: answerTodayMilk },
+  { test: /which cow.*?(produce|production|yield|most|top|highest|best|maximum)|top.*?(milk|producer|producer|yield)|most.*?(milk|production|yield)|best.*?(milk|producer|cow)/, fn: answerTopProducers },
+  { test: /do i have enough feed|is feed.*?(enough|sufficient|adequate|low|shortage)|feed.*?(stock|inventory|supply|remaining|left)|running low|what('s| is) running low|low stock/, fn: answerFeedStatus },
+  { test: /what happened.*?(yesterday|last night|previous day|day before|past 24|last 24)|yesterday.*?(happen|happened|going on|did|occur|activity|work|task|event)|what.*?(did|happen).*?(yesterday|last night)/, fn: answerYesterdayActivities },
+  { test: /biggest.*?(risk|danger|threat|problem|issue|warning|concern)|main.*?(risk|danger|threat|problem|issue)|key.*?(risk|danger|threat|problem|issue)|top.*?(risk|danger|threat|problem|issue)|what are my.*?(risk|danger|threat|problem|issue)|worst.*?(risk|danger|threat|problem|issue)/, fn: answerFarmRisks },
+  { test: /which cows?.*?(not|haven't|hasn't|never|missing|without|un).*?(vaccin|shot|immune|protected|covered)|not.*?(vaccin|shot|immune|protected|covered).*?(cow|cattle|animal)|unvaccinated|overdue.*?(vaccin|shot)/, fn: answerUnvaccinatedCows },
+  { test: /which cows?.*?(calv|due|expecting|birthing|birth|soon)|cows?.*?(due|expecting).*?(calv|birth)|about to calve|calving soon|due to calve/, fn: answerCalvingSoon },
+  { test: /how much.*?(spend|spent|expense|cost|pay|budget).*?(this month|this week|recently|currently|so far)|spend|spent|expense.*?(this month|this week|recently|currently|so far)|monthly.*?(spend|expense|cost|budget)/, fn: answerMonthlySpend },
   { test: /tomorrow|plan for (the )?day/, fn: answerTomorrowPlan },
   { test: /most profitable|profitability (by|per) cow|which cows?.*profit/, fn: answerCowProfitability },
   { test: /increase (my )?profit|improve profit|how (can|do) i (increase|improve|boost) (profit|margin)/, fn: answerIncreaseProfit },
@@ -565,15 +581,19 @@ const FAST_PATH: { test: RegExp; fn: (farmId: string) => Promise<string> }[] = [
 
 router.post('/chat', asyncHandler(async (req, res) => {
   const farmId = resolveFarmId(req);
-  const question = ((req.body && req.body.question) || '').trim();
-  if (!question) return res.status(400).json({ error: 'Question is required' });
+  const userId = req.user?.id ?? 'anonymous';
+  const rawQuestion = ((req.body && req.body.question) || '').trim();
+  if (!rawQuestion) return res.status(400).json({ error: 'Question is required' });
   const attachment = req.body?.attachment as { name?: string; type?: string; data?: string } | undefined;
   if (attachment?.data && attachment.data.length > 6_000_000) {
     return res.status(400).json({ error: 'Attachment too large (max ~4MB)' });
   }
 
-  // Log chat interaction for analytics
   await query(`INSERT INTO ai_analysis_logs (farm_id, analysis_type) VALUES ($1, 'chat')`, [farmId]);
+
+  const ctx = await loadConversationContext(farmId, userId, rawQuestion);
+  const question = ctx.expandedQuestion;
+  const contextSummary = buildContextSummary(ctx.turns);
 
   const lower = question.toLowerCase();
   const fastMatch = FAST_PATH.find((m) => m.test.test(lower));
@@ -605,7 +625,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
   } else {
     const { MasterOrchestrator } = await import('../intelligence/orchestrator.js');
     const orchestrator = new MasterOrchestrator(farmId);
-    const result = await orchestrator.orchestrate(question);
+    const result = await orchestrator.orchestrateWithContext(question, ctx);
     answer = result.master_answer;
   }
 
@@ -613,10 +633,13 @@ router.post('/chat', asyncHandler(async (req, res) => {
     answer = `📎 Noted the attached file "${attachment.name}" alongside your question — I can't yet read image or document contents directly, but it's saved with this conversation for your reference.\n\n${answer}`;
   }
 
+  await saveTurn(ctx.conversationId, farmId, 'user', rawQuestion, { expanded: question });
+  await saveTurn(ctx.conversationId, farmId, 'assistant', answer, { question: rawQuestion });
+
   const saved = await query(
     `INSERT INTO ai_chat_messages (farm_id, user_id, question, answer, attachment_name, attachment_type, attachment_data)
      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
-    [farmId, req.user?.id ?? null, question, answer, attachment?.name ?? null, attachment?.type ?? null, attachment?.data ?? null]
+    [farmId, req.user?.id ?? null, rawQuestion, answer, attachment?.name ?? null, attachment?.type ?? null, attachment?.data ?? null]
   );
 
   res.json({ id: saved.rows[0].id, created_at: saved.rows[0].created_at, answer, insights_count: insightsCount });

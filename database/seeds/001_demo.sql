@@ -140,7 +140,7 @@ BEGIN
 
       -- breeding for pregnant cows
       IF is_preg THEN
-        INSERT INTO breeding_records (cow_id, method, serviced_on, expected_calving_on, result)
+        INSERT INTO breeding_records (cow_id, method, breeding_date, expected_calving_on, result)
         SELECT c.id, (ARRAY['AI','Natural','ET'])[1+floor(random()*3)::int],
           current_date - (60+floor(random()*240))::int,
           current_date + (10+floor(random()*120))::int, 'Pregnant'

@@ -9,6 +9,10 @@ function q(params: Record<string, any>): string {
   return p ? `?${p}` : '';
 }
 
+function backendRequired(feature: string): Promise<never> {
+  return Promise.reject(new Error('I couldn\'t access your farm data right now. Please try again.'));
+}
+
 // ---------- Farms ----------
 export async function loadFarms(): Promise<{ id: string; name: string; location: string; cows: number }[]> {
   if (!isLive) return mock.FARMS.map((f) => ({ ...f, cows: mock.cowsByFarm(f.id).length }));
@@ -88,6 +92,13 @@ export const getSessions = () => apiGet<{ data: DeviceSession[] }>(`/security/se
 export const revokeSession = (id: string) => apiSend<{ message: string }>(`/security/sessions/${id}/revoke`, 'POST');
 export const revokeAllOtherSessions = () =>
   apiSend<{ message: string; count: number }>('/security/sessions/revoke-all-others', 'POST', { refreshToken: getRefreshToken() });
+
+export interface LinkedIdentity {
+  id: string; provider: string; providerAccountId: string; email: string; name: string | null; createdAt: string;
+}
+export interface AuthMethod { provider: string; connected: boolean; identity: LinkedIdentity | null; }
+export const getLinkedIdentities = () => apiGet<{ data: AuthMethod[] }>('/auth/identities');
+export const unlinkIdentity = (provider: string, id: string) => apiSend<{ ok: true }>(`/auth/identities/${provider}/${id}`, 'DELETE');
 
 // ---------- Dashboard ----------
 export const dashboardSummary = (farmId: string) =>
@@ -936,7 +947,7 @@ export interface DailyAdvice {
 }
 
 export const dailyAdvice = (farmId: string) =>
-  isLive ? apiGet<{ data: DailyAdvice }>(`/ai-advisor/daily-advice${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(mock.generateMockDailyAdvice(farmId));
+  isLive ? apiGet<{ data: DailyAdvice }>(`/ai-advisor/daily-advice${q({ farmId })}`).then((r: any) => r.data) : backendRequired('daily advice');
 
 export interface AiInsight {
   id: string;
@@ -994,10 +1005,10 @@ export interface FarmScoreHistoryPoint {
 }
 
 export const farmScore = (farmId: string) =>
-  isLive ? apiGet<{ data: FarmScoreResult }>(`/farm-score${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(mock.generateMockFarmScore(farmId));
+  isLive ? apiGet<{ data: FarmScoreResult }>(`/farm-score${q({ farmId })}`).then((r: any) => r.data) : backendRequired('farm score');
 
 export const farmScoreHistory = (farmId: string, days = 30) =>
-  isLive ? apiGet<{ data: FarmScoreHistoryPoint[] }>(`/farm-score/history${q({ farmId, days })}`).then((r: any) => r.data) : Promise.resolve(mock.generateMockFarmScoreHistory(farmId, days));
+  isLive ? apiGet<{ data: FarmScoreHistoryPoint[] }>(`/farm-score/history${q({ farmId, days })}`).then((r: any) => r.data) : backendRequired('farm score history');
 
 export const aiInsights = (farmId: string, filters: { type?: string; category?: string; severity?: string; status?: string; includeEvidence?: boolean } = {}) => {
   const params: any = { farmId };
@@ -1006,11 +1017,11 @@ export const aiInsights = (farmId: string, filters: { type?: string; category?: 
   if (filters.severity) params.severity = filters.severity;
   if (filters.status) params.status = filters.status;
   if (filters.includeEvidence) params.includeEvidence = 'true';
-  return isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights${q(params)}`).then((r: any) => r.data) : Promise.resolve(mock.generateMockInsights(farmId));
+  return isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights${q(params)}`).then((r: any) => r.data) : backendRequired('AI insights');
 };
 
 export const aiInsightHistory = (farmId: string, days = 30) =>
-  isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights/history${q({ farmId, days })}`).then((r: any) => r.data) : Promise.resolve(mock.generateMockInsights(farmId).sort((a: AiInsight, b: AiInsight) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20));
+  isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights/history${q({ farmId, days })}`).then((r: any) => r.data) : backendRequired('AI insight history');
 
 export interface TimelineEvent {
   at: string;
@@ -1023,25 +1034,25 @@ export interface TimelineEvent {
 // invent times that don't exist. Live mode shows exactly what's real; demo mode shows
 // an honest empty state instead of fake precision.
 export const aiTimeline = (farmId: string, date?: string) =>
-  isLive ? apiGet<{ data: TimelineEvent[] }>(`/ai-advisor/timeline${q({ farmId, date })}`).then((r: any) => r.data) : Promise.resolve([]);
+  isLive ? apiGet<{ data: TimelineEvent[] }>(`/ai-advisor/timeline${q({ farmId, date })}`).then((r: any) => r.data) : backendRequired('timeline');
 
 export const submitFeedback = (insightId: string, farmId: string, body: { helpful?: boolean; accurate?: boolean; urgent?: boolean; note?: string }) =>
-  isLive ? apiSend<any>(`/ai-advisor/insights/${insightId}/feedback${q({ farmId })}`, 'POST', body) : Promise.resolve({ ok: true });
+  isLive ? apiSend<any>(`/ai-advisor/insights/${insightId}/feedback${q({ farmId })}`, 'POST', body) : backendRequired('feedback');
 
 export const runAiAnalysis = (farmId: string) =>
-  isLive ? apiSend<any>(`/ai-advisor/analyze${q({ farmId })}`, 'POST') : Promise.resolve({ ok: true, created: 7, insights: mock.generateMockInsights(farmId) });
+  isLive ? apiSend<any>(`/ai-advisor/analyze${q({ farmId })}`, 'POST') : backendRequired('AI analysis');
 
 export const aiDailyActionPlan = (farmId: string) =>
-  isLive ? apiSend<any>(`/ai-advisor/daily-action-plan${q({ farmId })}`, 'POST') : Promise.resolve({ ok: true, plan: null, action_items: mock.generateMockInsights(farmId).slice(0, 5) });
+  isLive ? apiSend<any>(`/ai-advisor/daily-action-plan${q({ farmId })}`, 'POST') : backendRequired('daily action plan');
 
 export const updateAiInsight = (id: string, body: { status?: string }) =>
   isLive ? apiSend<any>(`/ai-advisor/insights/${id}`, 'PATCH', body) : Promise.resolve({ ...body, id });
 
 export const addAiAction = (insightId: string, farmId: string, body: { title: string; description?: string; assignedTo?: string; dueDate?: string }) =>
-  isLive ? apiSend<any>(`/ai-advisor/insights/${insightId}/actions${q({ farmId })}`, 'POST', body) : Promise.resolve({ ...body, id: 'mock-action-' + Date.now() });
+  isLive ? apiSend<any>(`/ai-advisor/insights/${insightId}/actions${q({ farmId })}`, 'POST', body) : backendRequired('add action');
 
 export const updateAiAction = (actionId: string, farmId: string, body: any) =>
-  isLive ? apiSend<any>(`/ai-advisor/actions/${actionId}${q({ farmId })}`, 'PATCH', body) : Promise.resolve({ ...body, id: actionId });
+  isLive ? apiSend<any>(`/ai-advisor/actions/${actionId}${q({ farmId })}`, 'PATCH', body) : backendRequired('update action');
 
 export interface AiChatAttachment { name: string; type: string; data: string }
 export interface AiChatMessage {
@@ -1053,31 +1064,31 @@ export interface AiChatMessage {
 export const aiChat = (question: string, farmId: string, attachment?: AiChatAttachment) =>
   isLive
     ? apiSend<{ id: string; answer: string; created_at: string }>(`/ai-advisor/chat${q({ farmId })}`, 'POST', { question, attachment })
-    : Promise.resolve({ id: `mock-${Date.now()}`, created_at: new Date().toISOString(), answer: 'I am analyzing your farm data. For live data insights, ensure the backend is connected. In mock mode, I can show general advice.' });
+    : backendRequired('AI chat');
 
 export const aiChatHistory = (farmId: string) =>
-  isLive ? apiGet<{ data: AiChatMessage[] }>(`/ai-advisor/chat/history${q({ farmId })}`).then((r) => r.data) : Promise.resolve([] as AiChatMessage[]);
+  isLive ? apiGet<{ data: AiChatMessage[] }>(`/ai-advisor/chat/history${q({ farmId })}`).then((r) => r.data) : backendRequired('chat history');
 
 export const deleteAiChatMessage = (id: string, farmId: string) =>
-  isLive ? apiSend<{ ok: boolean }>(`/ai-advisor/chat/history/${id}${q({ farmId })}`, 'DELETE') : Promise.resolve({ ok: true });
+  isLive ? apiSend<{ ok: boolean }>(`/ai-advisor/chat/history/${id}${q({ farmId })}`, 'DELETE') : backendRequired('delete message');
 
 export const clearAiChatHistory = (farmId: string) =>
-  isLive ? apiSend<{ ok: boolean }>(`/ai-advisor/chat/history${q({ farmId })}`, 'DELETE') : Promise.resolve({ ok: true });
+  isLive ? apiSend<{ ok: boolean }>(`/ai-advisor/chat/history${q({ farmId })}`, 'DELETE') : backendRequired('clear history');
 
 export const recordInsightOutcome = (insightId: string, farmId: string, body: { outcome: 'success' | 'failure' | 'partial' | 'unknown'; actualValue?: number; notes?: string }) =>
-  isLive ? apiSend<any>(`/ai-advisor/insights/${insightId}/outcome${q({ farmId })}`, 'POST', body) : Promise.resolve({ ok: true });
+  isLive ? apiSend<any>(`/ai-advisor/insights/${insightId}/outcome${q({ farmId })}`, 'POST', body) : backendRequired('outcome recording');
 
 export const runVerification = (farmId: string) =>
-  isLive ? apiSend<any>(`/ai-advisor/learning/verify${q({ farmId })}`, 'POST') : Promise.resolve({ ok: true });
+  isLive ? apiSend<any>(`/ai-advisor/learning/verify${q({ farmId })}`, 'POST') : backendRequired('outcome verification');
 
 export const getCalibration = (farmId: string, ruleId?: string) =>
-  isLive ? apiGet<any>(`/ai-advisor/learning/calibration${q({ farmId, ...(ruleId ? { ruleId } : {}) })}`).then((r: any) => r.data) : Promise.resolve([]);
+  isLive ? apiGet<any>(`/ai-advisor/learning/calibration${q({ farmId, ...(ruleId ? { ruleId } : {}) })}`).then((r: any) => r.data) : backendRequired('calibration');
 
 export const getLearningStats = (farmId: string) =>
-  isLive ? apiGet<any>(`/ai-advisor/learning/stats${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve({ totalRulesLearned: 0, averageAccuracy: 0.75, suppressedRules: 0, improvementsThisMonth: 0 });
+  isLive ? apiGet<any>(`/ai-advisor/learning/stats${q({ farmId })}`).then((r: any) => r.data) : backendRequired('learning stats');
 
 export const triggerRetrain = (farmId: string) =>
-  isLive ? apiSend<any>(`/ai-advisor/learning/retrain${q({ farmId })}`, 'POST') : Promise.resolve({ ok: true });
+  isLive ? apiSend<any>(`/ai-advisor/learning/retrain${q({ farmId })}`, 'POST') : backendRequired('retrain');
 
 export interface AutopilotRule {
   id: string;
@@ -1089,17 +1100,13 @@ export interface AutopilotRule {
 }
 
 export const autopilotRules = () =>
-  isLive ? apiGet<{ data: AutopilotRule[] }>(`/autopilot/autopilot-rules`).then((r: any) => r.data) : Promise.resolve([
-    { id: 'auto_reorder_feed', description: 'Reorders feed when stock is below reorder level for 2+ days', risk: 'low', maxAmountUGX: 5_000_000, allowedCategories: ['feed', 'inventory'], requiresApproval: false },
-    { id: 'auto_schedule_checkup', description: 'Schedules vet checkup for cows flagged as sick for 3+ days', risk: 'medium', maxAmountUGX: 2_000_000, allowedCategories: ['health'], requiresApproval: true },
-    { id: 'auto_acknowledge_low_risk', description: 'Acknowledges low-risk AI insights automatically', risk: 'low', maxAmountUGX: 0, allowedCategories: ['general', 'review'], requiresApproval: false },
-  ] as AutopilotRule[]);
+  isLive ? apiGet<{ data: AutopilotRule[] }>(`/autopilot/autopilot-rules`).then((r: any) => r.data) : backendRequired('autopilot rules');
 
 export const runAutopilot = (farmId: string) =>
-  isLive ? apiSend<{ processed: number; executed: number; results: any[] }>(`/autopilot/run${q({ farmId })}`, 'POST') : Promise.resolve({ processed: 3, executed: 1, results: [] });
+  isLive ? apiSend<{ processed: number; executed: number; results: any[] }>(`/autopilot/run${q({ farmId })}`, 'POST') : backendRequired('run autopilot');
 
 export const autopilotInsight = (insightId: string, farmId: string) =>
-  isLive ? apiSend<{ executed: boolean; reason: string }>(`/autopilot/insights/${insightId}/autopilot${q({ farmId })}`, 'POST') : Promise.resolve({ executed: false, reason: 'mock' });
+  isLive ? apiSend<{ executed: boolean; reason: string }>(`/autopilot/insights/${insightId}/autopilot${q({ farmId })}`, 'POST') : backendRequired('autopilot insight');
 
 export interface WhatIfScenario {
   id: string;
@@ -1119,26 +1126,10 @@ export interface WhatIfResult {
 }
 
 export const whatIfScenarios = () =>
-  isLive ? apiGet<{ data: WhatIfScenario[] }>(`/what-if/scenarios`).then((r: any) => r.data) : Promise.resolve([
-    { id: 'reduce_feed', label: 'Reduce feed', description: 'Cut concentrate or total feed by X%', params: ['reduction_pct'] },
-    { id: 'sell_cows', label: 'Sell cows', description: 'Sell N lowest-producing cows', params: ['count'] },
-    { id: 'delay_vaccination', label: 'Delay vaccination', description: 'Postpone vaccination by N days', params: ['delay_days'] },
-    { id: 'increase_feed', label: 'Increase feed', description: 'Boost feed to improve yield by X%', params: ['increase_pct'] },
-    { id: 'change_milking_schedule', label: 'Change milking schedule', description: 'Shift milking window by 1–2 hours', params: [] },
-  ] as WhatIfScenario[]);
+  isLive ? apiGet<{ data: WhatIfScenario[] }>(`/what-if/scenarios`).then((r: any) => r.data) : backendRequired('scenarios');
 
 export const runWhatIf = (farmId: string, body: { scenario: string; parameters: Record<string, any> }) =>
-  isLive ? apiSend<{ data: WhatIfResult }>(`/what-if/what-if${q({ farmId })}`, 'POST', body) : Promise.resolve({
-    data: {
-      scenario: body.scenario,
-      riskScore: 30,
-      estimatedImpactUGX: -120_000,
-      recommendations: ['Simulation: monitor impact.', 'Check quality metrics weekly.'],
-      affectedCows: 3,
-      timeline: '1–2 weeks',
-      confidence: 0.7,
-    },
-  });
+  isLive ? apiSend<{ data: WhatIfResult }>(`/what-if/what-if${q({ farmId })}`, 'POST', body) : backendRequired('simulation');
 
 
 export interface CommandCenterData {
@@ -1175,7 +1166,7 @@ export interface CommandAction {
 }
 
 export const commandCenter = (farmId: string) =>
-  isLive ? apiGet<{ data: CommandCenterData }>(`/ai-advisor/command-center${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(mock.generateMockCommandCenter(farmId));
+  isLive ? apiGet<{ data: CommandCenterData }>(`/ai-advisor/command-center${q({ farmId })}`).then((r: any) => r.data) : backendRequired('command center');
 
 export interface FarmSetupStep { key: string; label: string; done: boolean; }
 export const getFarmSetupStatus = (farmId: string) =>

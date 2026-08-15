@@ -8,7 +8,7 @@ export class BreedingAgent {
   async analyze(question: string): Promise<AgentResult> {
     const breeding = await this.knowledge.getBreedingAnalysis();
     const [pregnancyChecks, calvingRecords] = await Promise.all([
-      query(`SELECT pc.checked_on AS check_date, pc.is_pregnant, pc.veterinarian_id, br.cow_id, c.cow_code FROM pregnancy_checks pc JOIN breeding_records br ON br.id=pc.breeding_record_id JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 ORDER BY pc.checked_on DESC LIMIT 10`, [this.knowledge['farmId']]),
+      query(`SELECT p.confirmation_date AS check_date, p.status AS is_pregnant, p.expected_calving_date, br.cow_id, c.cow_code FROM pregnancies p JOIN breeding_records br ON br.id=p.breeding_id JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 ORDER BY p.confirmation_date DESC LIMIT 10`, [this.knowledge['farmId']]),
       query(`SELECT c.cow_code, cr.calving_date, cr.difficulty_score, cr.assistance_required FROM calving_records cr JOIN cows c ON c.id=cr.cow_id WHERE c.farm_id=$1 AND cr.calving_date >= CURRENT_DATE - INTERVAL '90 days' ORDER BY cr.calving_date DESC LIMIT 10`, [this.knowledge['farmId']]),
     ]);
 

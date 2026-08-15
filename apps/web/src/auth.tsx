@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { isLive, getToken, getRefreshToken, setTokens, clearTokens, setUnauthorizedHandler, apiGet, apiSend, ApiError } from './api';
+import { useHashRoute } from './router';
 
 export type AccountType =
   | 'farm_owner' | 'dairy_cooperative' | 'research_institution'
@@ -32,12 +33,48 @@ interface AuthCtx {
   logout: () => void;
   switchFarm: (farmId: string) => Promise<void>;
   refreshMe: () => Promise<void>;
+  oauthLogin: (token: string, refreshToken: string) => void;
 }
 const Ctx = createContext<AuthCtx>({
   user: null, farms: [], loading: false,
   login: async () => ({ mfaRequired: false }), completeMfaLogin: async () => {}, loginWithPhoneOtp: async () => {},
   register: async () => {}, logout: () => {}, switchFarm: async () => {}, refreshMe: async () => {},
+  oauthLogin: () => {},
 });
+export function OAuthCallback() {
+  const { oauthLogin } = useAuth();
+  const [, navigate] = useHashRoute();
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    const query = hash.split('?')[1] || '';
+    const params = new URLSearchParams(query);
+    const token = params.get('token');
+    const refreshToken = params.get('refreshToken');
+    const error = params.get('error');
+
+    if (error) {
+      navigate('/login?error=' + encodeURIComponent(error));
+      return;
+    }
+
+    if (token && refreshToken) {
+      oauthLogin(token, refreshToken);
+      navigate('/app');
+    } else {
+      navigate('/login?error=missing_tokens');
+    }
+  }, [navigate, oauthLogin]);
+
+  return (
+    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <div className="card" style={{ width: 360, maxWidth: '100%', textAlign: 'center' }}>
+        <div className="muted">Completing sign-in…</div>
+      </div>
+    </main>
+  );
+}
+
 export const useAuth = () => useContext(Ctx);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -125,8 +162,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applySession(res);
   };
 
+  const oauthLogin = (token: string, refreshToken: string) => {
+    setTokens(token, refreshToken);
+    refreshMe();
+  };
+
   return (
-    <Ctx.Provider value={{ user, farms, loading, login, completeMfaLogin, loginWithPhoneOtp, register, logout, switchFarm, refreshMe }}>
+    <Ctx.Provider value={{ user, farms, loading, login, completeMfaLogin, loginWithPhoneOtp, register, logout, switchFarm, refreshMe, oauthLogin }}>
       {children}
     </Ctx.Provider>
   );

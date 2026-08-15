@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import React from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { PageHeader, Modal, Kpi, useAsync, useToast, Skeleton } from '../ui';
@@ -9,13 +10,38 @@ import { fmt } from '../format';
 
 const q = (p: Record<string, any>) => '?' + new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]).reduce((a, [k, v]) => ({ ...a, [k]: v }), {} as Record<string, string>)).toString();
 
+function TabErrorBoundary({ name, children }: { name: string; children: React.ReactNode }) {
+  const [error, setError] = useState<string | null>(null);
+  if (error) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <p style={{ color: 'var(--danger)', marginBottom: 8 }}><b>{name} failed to load</b></p>
+        <p style={{ fontSize: 13, color: 'var(--text-soft)', marginBottom: 12 }}>{error}</p>
+        <button className="btn sm" onClick={() => { setError(null); window.location.reload(); }}>Retry</button>
+      </div>
+    );
+  }
+  return (
+    <ErrorBoundary onError={(e) => { console.error(`[Health/${name}]`, e); setError(e.message); }}>
+      {children}
+    </ErrorBoundary>
+  );
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode; onError: (e: Error) => void }, { hasError: boolean }> {
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: any) { this.props.onError(error); }
+  render() { if (this.state.hasError) return null; return this.props.children; }
+}
+
 // ---------- Health Records ----------
 const HEALTH_EMPTY = { cowId: '', recordedOn: '', healthStatus: 'healthy', bodyConditionScore: '', lamenessScore: '', aiDetectedDisease: '', aiConfidence: '', photoUrl: '', notes: '', veterinarianName: '' };
 
 function HealthRecords({ farmId }: { farmId: string }) {
   const { push } = useToast();
   const [key, setKey] = useState(0);
-  const { data: records, loading } = useAsync(() => isLive ? apiGet<any[]>(`/health/records${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]), [farmId, key]);
+  const { data: records, loading, error } = useAsync(() => isLive ? apiGet<any[]>(`/health/records${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]), [farmId, key]);
   const [cows, setCows] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(HEALTH_EMPTY);
@@ -57,7 +83,7 @@ function HealthRecords({ farmId }: { farmId: string }) {
         <h3>Health records</h3>
         <button className="btn sm" onClick={() => setOpen(true)}><Plus size={16} /> Add record</button>
       </div>
-      {loading ? <Skeleton h={180} /> : (
+      {loading ? <Skeleton h={180} /> : error ? <p style={{ color: 'var(--danger)', fontSize: 13 }}>Failed to load health records: {error}</p> : (
         <div className="table-wrap">
           <table><thead><tr><th>Date</th><th>Cow</th><th>Status</th><th>BCS</th><th>Lameness</th><th>AI Detection</th><th>Vet</th></tr></thead>
             <tbody>{(records || []).map((r: any) => (
@@ -67,8 +93,8 @@ function HealthRecords({ farmId }: { farmId: string }) {
                 <td>{r.ai_detected_disease ? `${r.ai_detected_disease} (${Math.round((r.ai_confidence || 0) * 100)}%)` : '—'}</td>
                 <td>{r.veterinarian_name || '—'}</td></tr>
             ))}</tbody></table>
-        </div>
-      )}
+          </div>
+        )}
       {open && <Modal title="Add health record" onClose={() => setOpen(false)}>
         <form onSubmit={submit}>
           <div className="field"><label>Cow</label><select className="select" value={form.cowId} onChange={(e) => setForm({ ...form, cowId: e.target.value })} required><option value="">Select cow</option>{(cows || []).map((c: any) => <option key={c.id} value={c.id}>{c.name || 'Unnamed'} ({c.cow_code || c.cowCode || '—'})</option>)}</select></div>
@@ -508,13 +534,13 @@ export function Health() {
       </div>
 
       <div className="card mt">
-        {tab === 'records' && <HealthRecords farmId={farmId} />}
-        {tab === 'medicines' && <MedicineInventory farmId={farmId} />}
-        {tab === 'lab' && <LabTests farmId={farmId} />}
-        {tab === 'parasite' && <ParasiteControl farmId={farmId} />}
-        {tab === 'quarantine' && <Quarantine farmId={farmId} />}
-        {tab === 'alerts' && <EmergencyAlerts farmId={farmId} />}
-        {tab === 'effectiveness' && <TreatmentEffectiveness farmId={farmId} />}
+        {tab === 'records' && <TabErrorBoundary name="Health records"><HealthRecords farmId={farmId} /></TabErrorBoundary>}
+        {tab === 'medicines' && <TabErrorBoundary name="Medicine inventory"><MedicineInventory farmId={farmId} /></TabErrorBoundary>}
+        {tab === 'lab' && <TabErrorBoundary name="Lab tests"><LabTests farmId={farmId} /></TabErrorBoundary>}
+        {tab === 'parasite' && <TabErrorBoundary name="Parasite control"><ParasiteControl farmId={farmId} /></TabErrorBoundary>}
+        {tab === 'quarantine' && <TabErrorBoundary name="Quarantine"><Quarantine farmId={farmId} /></TabErrorBoundary>}
+        {tab === 'alerts' && <TabErrorBoundary name="Emergency alerts"><EmergencyAlerts farmId={farmId} /></TabErrorBoundary>}
+        {tab === 'effectiveness' && <TabErrorBoundary name="Treatment reports"><TreatmentEffectiveness farmId={farmId} /></TabErrorBoundary>}
       </div>
     </div>
   );

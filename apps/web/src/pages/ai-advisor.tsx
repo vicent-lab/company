@@ -12,6 +12,26 @@ import { fmt, daysFromNow } from '../format';
 
 const PRIORITY_DOT: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
 
+interface SourcePill {
+  label: string;
+  count: number;
+  link: string;
+}
+
+function parseSourcePills(text: string): { body: string; pills: SourcePill[] } {
+  const match = text.match(/\n\n---\nSources: (.+)$/s);
+  if (!match) return { body: text, pills: [] };
+  const body = text.slice(0, match.index).trim();
+  const raw = match[1];
+  const pills: SourcePill[] = [];
+  const regex = /(.+?)\s*\[(\d+)\]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(raw)) !== null) {
+    pills.push({ label: m[1].trim(), count: Number(m[2]), link: m[3] });
+  }
+  return { body, pills };
+}
+
 function WeatherIcon({ title }: { title: string }) {
   if (title === 'Heat stress risk') return <Flame size={15} style={{ color: 'var(--danger)' }} />;
   if (title === 'Cold stress risk') return <Snowflake size={15} style={{ color: 'var(--info)' }} />;
@@ -89,6 +109,8 @@ export function AIAdvisor() {
   const [chat, setChat] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
+  const [retryAttachment, setRetryAttachment] = useState<AiChatAttachment | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [plan, setPlan] = useState<any>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -225,7 +247,7 @@ export function AIAdvisor() {
     if (!question && !attachment) return;
     const q = question || `Please take a look at the attached file: ${attachment?.name}`;
     const pendingAttachment = attachment;
-    setChat(''); setAttachment(null); setChatBusy(true); setChatError(null);
+    setChat(''); setAttachment(null); setChatBusy(true); setChatError(null); setRetryQuestion(null); setRetryAttachment(null);
     try {
       const res = await aiChat(q, farmId, pendingAttachment || undefined);
       setChatHistory((h) => [{
@@ -234,10 +256,20 @@ export function AIAdvisor() {
       }, ...h]);
       if (viaVoice) speak(res.id, res.answer);
     } catch (err: any) {
-      setChatError(err?.message || 'Chat failed');
+      const message = err?.message || 'I couldn\'t access your farm data right now. Please try again.';
+      setChatError(message);
+      setRetryQuestion(q);
+      setRetryAttachment(pendingAttachment || null);
     } finally {
       setChatBusy(false);
     }
+  };
+
+  const retryLast = async () => {
+    if (!retryQuestion && !retryAttachment) return;
+    const q = retryQuestion || `Please take a look at the attached file: ${retryAttachment?.name}`;
+    setChatError(null);
+    await sendChat(q, false);
   };
 
   const startVoiceInput = () => {
@@ -406,8 +438,24 @@ export function AIAdvisor() {
                   <Bot size={14} />
                 </div>
                 <div style={{ background: 'var(--surface-2)', padding: '10px 14px', borderRadius: 16, borderBottomRightRadius: 4, fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 }}>
-                  {m.answer}
-                </div>
+                {(() => {
+                  const { body, pills } = parseSourcePills(m.answer);
+                  return (
+                    <>
+                      <div>{body}</div>
+                      {pills.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                          {pills.map((p, i) => (
+                            <a key={i} href={p.link} className="btn ghost sm" style={{ borderRadius: 20, fontSize: 11, textDecoration: 'none', padding: '4px 10px' }}>
+                              {p.label} ({p.count})
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
                   <button className="btn ghost sm" title={speakingId === m.id ? 'Stop reading' : 'Read answer aloud'} onClick={() => speak(m.id, m.answer)} style={{ padding: 4, minHeight: 28 }}>
                     {speakingId === m.id ? <VolumeX size={13} /> : <Volume2 size={13} />}
@@ -426,15 +474,15 @@ export function AIAdvisor() {
               </div>
               <div style={{ background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 16, borderBottomRightRadius: 4, fontSize: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
                 <Loader2 size={14} className="spin" />
-                <span className="muted">AI is thinking…</span>
+                <span className="muted">Analyzing your farm data…</span>
               </div>
             </div>
           )}
           {chatError && (
             <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: 'var(--danger)', alignSelf: 'flex-start', maxWidth: '90%' }}>
-              <b>Something went wrong</b>
-              <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9 }}>{chatError}</p>
-              <button className="btn sm mt" style={{ marginTop: 8 }} onClick={() => setChatError(null)}>Try again</button>
+              <b>I couldn't access your farm data right now.</b>
+              <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9 }}>Please try again.</p>
+              <button className="btn sm mt" style={{ marginTop: 8 }} onClick={retryLast}>Retry</button>
             </div>
           )}
           <div ref={chatEndRef} />

@@ -47,13 +47,12 @@ export interface HealthRecord {
 export interface TreatmentRecord {
   id: string;
   cow_id: string;
-  disease: string | null;
-  treatment_type: string | null;
-  medicine_name: string | null;
-  dosage: string | null;
-  administered_on: string | null;
+  disease_id: string | null;
+  diagnosis: string | null;
+  treatment_plan: string | null;
   veterinarian_name: string | null;
-  notes: string | null;
+  diagnosed_on: string | null;
+  status: string;
   cow_code?: string;
 }
 
@@ -209,7 +208,7 @@ export class FarmKnowledgeEngine {
   }
 
   async getCowProfile(cowCodeOrId: string): Promise<CowProfile | null> {
-    const r = await query<CowProfile>(`SELECT c.*, b.name AS barn_name FROM cows c LEFT JOIN barns b ON b.id=c.barn_id WHERE c.farm_id=$1 AND (c.cow_code=$2 OR c.id=$2) LIMIT 1`, [this.farmId, cowCodeOrId]);
+    const r = await query<CowProfile>(`SELECT c.*, b.name AS barn_name FROM cows c LEFT JOIN barns b ON b.id=c.barn_id WHERE c.farm_id=$1 AND (c.cow_code=$2 OR c.id::text=$2) LIMIT 1`, [this.farmId, cowCodeOrId]);
     if (!r.rows.length) return null;
     return r.rows[0];
   }
@@ -218,10 +217,10 @@ export class FarmKnowledgeEngine {
     const [milk, health, treatments, vaccinations, breeding, calving] = await Promise.all([
       query(`SELECT recorded_on, morning_liters, afternoon_liters, evening_liters, (morning_liters+afternoon_liters+evening_liters) AS total, fat_percent, temperature_c FROM milk_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY recorded_on DESC LIMIT 30`, [this.farmId, cowId]),
       query(`SELECT recorded_on, health_status, body_condition_score, lameness_score, ai_detected_disease, notes FROM health_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY recorded_on DESC LIMIT 20`, [this.farmId, cowId]),
-      query(`SELECT t.diagnosed_on, t.disease, t.treatment_type, t.medicine_name, t.dosage, t.veterinarian_name, t.notes FROM treatments t WHERE t.farm_id=$1 AND t.cow_id=$2 ORDER BY t.diagnosed_on DESC LIMIT 20`, [this.farmId, cowId]),
-      query(`SELECT vaccine_name, administered_on, due_on, status FROM vaccinations WHERE farm_id=$1 AND cow_id=$2 ORDER BY due_on DESC LIMIT 20`, [this.farmId, cowId]),
-      query(`SELECT method, breeding_date, expected_calving_on, result FROM breeding_records WHERE cow_id=$1 ORDER BY breeding_date DESC LIMIT 10`, [this.farmId, cowId]),
-      query(`SELECT calved_on, calf_id, complications, notes FROM calving_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY calved_on DESC LIMIT 10`, [this.farmId, cowId]),
+      query(`SELECT t.diagnosed_on, t.disease_id, t.diagnosis, t.treatment_plan, t.veterinarian_name, t.status FROM treatments t JOIN cows c ON c.id=t.cow_id WHERE c.farm_id=$1 AND t.cow_id=$2 ORDER BY t.diagnosed_on DESC LIMIT 20`, [this.farmId, cowId]),
+      query(`SELECT vaccine_name, administered_on, due_on FROM vaccinations v JOIN cows c ON c.id=v.cow_id WHERE c.farm_id=$1 AND v.cow_id=$2 ORDER BY v.due_on DESC LIMIT 20`, [this.farmId, cowId]),
+      query(`SELECT method, breeding_date, expected_calving_on, result FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.cow_id=$2 ORDER BY br.breeding_date DESC LIMIT 10`, [this.farmId, cowId]),
+      query(`SELECT calving_date, calf_id, difficulty_score, assistance_required, notes FROM calving_records WHERE farm_id=$1 AND cow_id=$2 ORDER BY calving_date DESC LIMIT 10`, [this.farmId, cowId]),
     ]);
     return { milk: milk.rows, health: health.rows, treatments: treatments.rows, vaccinations: vaccinations.rows, breeding: breeding.rows, calving: calving.rows };
   }
@@ -305,7 +304,7 @@ export class FarmKnowledgeEngine {
   async getBreedingAnalysis() {
     const [pregnant, candidates, calvingSoon] = await Promise.all([
       query(`SELECT c.cow_code, c.name FROM cows c WHERE c.farm_id=$1 AND c.is_pregnant AND c.status='active'`, [this.farmId]),
-      query(`SELECT c.cow_code, c.name, br.serviced_on, br.method, (CURRENT_DATE - br.serviced_on) AS days_since FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.result IS NULL AND br.serviced_on BETWEEN CURRENT_DATE - INTERVAL '90 days' AND CURRENT_DATE - INTERVAL '30 days' AND NOT EXISTS (SELECT 1 FROM breeding_records br2 WHERE br2.cow_id=br.cow_id AND br2.serviced_on > br.serviced_on) ORDER BY br.serviced_on ASC`, [this.farmId]),
+      query(`SELECT c.cow_code, c.name, br.breeding_date, br.method, (CURRENT_DATE - br.breeding_date) AS days_since FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.result IS NULL AND br.breeding_date BETWEEN CURRENT_DATE - INTERVAL '90 days' AND CURRENT_DATE - INTERVAL '30 days' AND NOT EXISTS (SELECT 1 FROM breeding_records br2 WHERE br2.cow_id=br.cow_id AND br2.breeding_date > br.breeding_date) ORDER BY br.breeding_date ASC`, [this.farmId]),
       query(`SELECT c.cow_code, c.name, br.expected_calving_on FROM breeding_records br JOIN cows c ON c.id=br.cow_id WHERE c.farm_id=$1 AND br.expected_calving_on BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '14 days' ORDER BY br.expected_calving_on ASC`, [this.farmId]),
     ]);
     return { pregnant: pregnant.rows, candidates: candidates.rows, calvingSoon: calvingSoon.rows };
@@ -323,6 +322,46 @@ export class FarmKnowledgeEngine {
 
   async getTopExpenses() {
     const r = await query(`SELECT category, SUM(amount) AS total FROM expenses WHERE farm_id=$1 AND incurred_on >= date_trunc('month', current_date) GROUP BY category ORDER BY total DESC LIMIT 5`, [this.farmId]);
+    return r.rows;
+  }
+
+  async getNotifications(limit = 20) {
+    const r = await query(`SELECT id, type, title, body, read_at, created_at FROM notifications WHERE farm_id=$1 ORDER BY created_at DESC LIMIT $2`, [this.farmId, limit]);
+    return r.rows;
+  }
+
+  async getCriticalNotifications() {
+    const r = await query(`SELECT id, type, title, body, created_at FROM notifications WHERE farm_id=$1 AND type IN ('critical','emergency','alert') ORDER BY created_at DESC LIMIT 20`, [this.farmId]);
+    return r.rows;
+  }
+
+  async getFarmProfile() {
+    const r = await query(`SELECT f.*, (SELECT count(*)::int FROM barns WHERE farm_id=f.id) AS barn_count FROM farms f WHERE f.id=$1 LIMIT 1`, [this.farmId]);
+    return r.rows[0] || null;
+  }
+
+  async getTaskAnalysis() {
+    const [today, overdue, upcoming, completed] = await Promise.all([
+      query(`SELECT t.title, t.priority, t.due_date, t.status, u.name AS assigned_to FROM tasks t LEFT JOIN employees e ON e.id=t.assigned_to LEFT JOIN users u ON u.id=e.user_id WHERE t.farm_id=$1 AND t.due_date=CURRENT_DATE AND t.status NOT IN ('completed','cancelled') ORDER BY t.priority DESC LIMIT 20`, [this.farmId]),
+      query(`SELECT t.title, t.priority, t.due_date, t.status, u.name AS assigned_to FROM tasks t LEFT JOIN employees e ON e.id=t.assigned_to LEFT JOIN users u ON u.id=e.user_id WHERE t.farm_id=$1 AND t.due_date < CURRENT_DATE AND t.status NOT IN ('completed','cancelled') ORDER BY t.due_date ASC LIMIT 20`, [this.farmId]),
+      query(`SELECT t.title, t.priority, t.due_date, t.status, u.name AS assigned_to FROM tasks t LEFT JOIN employees e ON e.id=t.assigned_to LEFT JOIN users u ON u.id=e.user_id WHERE t.farm_id=$1 AND t.due_date > CURRENT_DATE AND t.status NOT IN ('completed','cancelled') ORDER BY t.due_date ASC LIMIT 20`, [this.farmId]),
+      query(`SELECT t.title, t.priority, t.due_date, t.status, u.name AS assigned_to, t.completed_at FROM tasks t LEFT JOIN employees e ON e.id=t.assigned_to LEFT JOIN users u ON u.id=e.user_id WHERE t.farm_id=$1 AND t.status='completed' ORDER BY t.completed_at DESC LIMIT 20`, [this.farmId]),
+    ]);
+    return { today: today.rows, overdue: overdue.rows, upcoming: upcoming.rows, completed: completed.rows };
+  }
+
+  async getEquipmentAnalysis() {
+    const r = await query(`SELECT item_name AS name, category, quantity, reorder_level, expiry_date FROM inventory WHERE farm_id=$1 ORDER BY expiry_date ASC NULLS LAST LIMIT 50`, [this.farmId]);
+    return r.rows;
+  }
+
+  async getMedicineAlerts() {
+    const r = await query(`SELECT name, category, quantity_on_hand, reorder_level, expiry_date FROM medicine_inventory WHERE farm_id=$1 AND (quantity_on_hand <= reorder_level OR expiry_date <= CURRENT_DATE + INTERVAL '30 days') ORDER BY expiry_date ASC LIMIT 50`, [this.farmId]);
+    return r.rows;
+  }
+
+  async getFeedConsumption() {
+    const r = await query(`SELECT ft.name, SUM(fc.quantity) AS total_consumed, COUNT(*) AS record_count FROM feed_consumption fc JOIN feed_types ft ON ft.id=fc.feed_type_id WHERE ft.farm_id=$1 AND fc.consumed_on >= CURRENT_DATE - INTERVAL '7 days' GROUP BY ft.name ORDER BY total_consumed DESC LIMIT 20`, [this.farmId]);
     return r.rows;
   }
 }

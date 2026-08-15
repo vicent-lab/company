@@ -10,8 +10,29 @@ import { requireAuth, audit } from '../middleware/auth.js';
 import { config } from '../env.js';
 import { ACCOUNT_TYPES, ACCOUNT_TYPE_CONFIG } from '../lib/account-types.js';
 import { provisionDemoFarm } from '../lib/provision-demo-farm.js';
+import crypto from 'crypto';
 
 const router = Router();
+
+// Simple in-memory rate limiter for sensitive auth endpoints. For production, replace
+// with Redis or a dedicated rate-limiting store so limits are shared across instances.
+interface RateLimitEntry { count: number; firstAttempt: number; }
+const rateLimits = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 10;
+
+function rateLimit(key: string): void {
+  const now = Date.now();
+  const entry = rateLimits.get(key);
+  if (!entry || now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) {
+    rateLimits.set(key, { count: 1, firstAttempt: now });
+    return;
+  }
+  entry.count += 1;
+  if (entry.count > RATE_LIMIT_MAX) {
+    throw new HttpError(429, 'Too many attempts. Please try again later.');
+  }
+}
 
 // Brute-force controls on password login: a challenge is demanded once too many attempts
 // have failed, and the account locks outright well before a script could exhaust a
@@ -165,6 +186,7 @@ const registerSchema = z.object({
 });
 
 router.post('/register', asyncHandler(async (req, res) => {
+  rateLimit(`register:${req.ip}`);
   const body = registerSchema.parse(req.body);
   const { rows: existing } = await query('SELECT id FROM users WHERE email = $1', [body.email]);
   if (existing.length) throw new HttpError(409, 'Email already registered');
@@ -256,6 +278,7 @@ const loginSchema = z.object({
 });
 
 router.post('/login', asyncHandler(async (req, res) => {
+  rateLimit(`login:${req.ip}`);
   const body = loginSchema.parse(req.body);
   const { rows } = await query<{
     id: string; email: string; name: string; password_hash: string; email_verified_at: Date | null; account_type: string | null;
@@ -337,6 +360,7 @@ router.get('/captcha', asyncHandler(async (_req, res) => {
 const mfaVerifySchema = z.object({ mfaToken: z.string().min(1), code: z.string().length(6) });
 
 router.post('/2fa/verify-login', asyncHandler(async (req, res) => {
+  rateLimit(`2fa-verify:${req.ip}`);
   const body = mfaVerifySchema.parse(req.body);
   let userId: string;
   try {
@@ -364,6 +388,7 @@ router.post('/2fa/verify-login', asyncHandler(async (req, res) => {
 const requestPhoneOtpSchema = z.object({ phone: z.string().min(1) });
 
 router.post('/phone/request-otp', asyncHandler(async (req, res) => {
+  rateLimit(`phone-otp:${req.ip}`);
   const { phone } = requestPhoneOtpSchema.parse(req.body);
   const { rows } = await query('SELECT id FROM users WHERE phone = $1 AND is_active = true', [phone]);
   let devOtpCode: string | undefined;
@@ -383,6 +408,7 @@ router.post('/phone/request-otp', asyncHandler(async (req, res) => {
 const verifyPhoneOtpSchema = z.object({ phone: z.string().min(1), code: z.string().length(6) });
 
 router.post('/phone/verify-otp', asyncHandler(async (req, res) => {
+  rateLimit(`phone-verify:${req.ip}`);
   const body = verifyPhoneOtpSchema.parse(req.body);
   const { rows } = await query(
     `SELECT po.id, u.id as user_id, u.email, u.name, u.account_type, u.email_verified_at, u.is_super_admin
@@ -398,7 +424,7 @@ router.post('/phone/verify-otp', asyncHandler(async (req, res) => {
   res.json(await finishLogin({ id: row.user_id, email: row.email, name: row.name, account_type: row.account_type, email_verified_at: row.email_verified_at, is_super_admin: row.is_super_admin }, req.header('user-agent')));
 }));
 
-// ---------- OAuth (Google / Microsoft / Apple) — scaffolded, inert until real credentials exist ----------
+// ---------- OAuth (Google / Microsoft / Apple) ----------
 
 const OAUTH_PROVIDERS = ['google', 'microsoft', 'apple'] as const;
 type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
@@ -407,23 +433,415 @@ function oauthClientId(provider: OAuthProvider): string | undefined {
   return process.env[`OAUTH_${provider.toUpperCase()}_CLIENT_ID`];
 }
 
+function oauthClientSecret(provider: OAuthProvider): string | undefined {
+  return process.env[`OAUTH_${provider.toUpperCase()}_CLIENT_SECRET`];
+}
+
+function oauthCallbackUrl(provider: OAuthProvider): string | undefined {
+  return process.env[`OAUTH_${provider.toUpperCase()}_CALLBACK_URL`];
+}
+
+// In-memory OAuth state store. For production, replace with Redis or database.
+interface OAuthState {
+  codeVerifier: string;
+  redirectUri: string;
+  createdAt: number;
+  linkingUserId?: string;
+}
+const oauthStates = new Map<string, OAuthState>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function generateOAuthState(redirectUri: string, linkingUserId?: string): string {
+  const state = generateToken();
+  const codeVerifier = generateToken();
+  oauthStates.set(state, { codeVerifier, redirectUri, createdAt: Date.now(), linkingUserId });
+  // Clean up expired states periodically
+  setTimeout(() => oauthStates.delete(state), OAUTH_STATE_TTL_MS);
+  return state;
+}
+
+function consumeOAuthState(state: string): OAuthState | undefined {
+  const entry = oauthStates.get(state);
+  if (!entry) return undefined;
+  oauthStates.delete(state);
+  if (Date.now() - entry.createdAt > OAUTH_STATE_TTL_MS) return undefined;
+  return entry;
+}
+
+function base64UrlEncode(buffer: Buffer): string {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function exchangeCodeForTokens(provider: OAuthProvider, code: string, codeVerifier: string): Promise<any> {
+  if (provider === 'google') {
+    const clientId = oauthClientId('google');
+    const clientSecret = oauthClientSecret('google');
+    const callbackUrl = oauthCallbackUrl('google');
+    if (!clientId || !clientSecret || !callbackUrl) throw new HttpError(500, 'Google OAuth is not configured on the server');
+
+    const params = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: callbackUrl,
+      grant_type: 'authorization_code',
+      code_verifier: codeVerifier,
+    });
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      throw new HttpError(400, `Google token exchange failed: ${text}`);
+    }
+
+    const tokens = await tokenRes.json() as any;
+    const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    if (!userinfoRes.ok) {
+      throw new HttpError(400, 'Failed to fetch Google user info');
+    }
+
+    const profile = await userinfoRes.json() as any;
+    return { profile, tokens };
+  }
+
+  if (provider === 'microsoft') {
+    const clientId = oauthClientId('microsoft');
+    const clientSecret = oauthClientSecret('microsoft');
+    const callbackUrl = oauthCallbackUrl('microsoft');
+    if (!clientId || !clientSecret || !callbackUrl) throw new HttpError(500, 'Microsoft OAuth is not configured on the server');
+
+    const params = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: callbackUrl,
+      grant_type: 'authorization_code',
+      code_verifier: codeVerifier,
+      scope: 'openid email profile offline_access',
+    });
+
+    const tokenRes = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      throw new HttpError(400, `Microsoft token exchange failed: ${text}`);
+    }
+
+    const tokens = await tokenRes.json() as any;
+    const userinfoRes = await fetch('https://graph.microsoft.com/oidc/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    if (!userinfoRes.ok) {
+      throw new HttpError(400, 'Failed to fetch Microsoft user info');
+    }
+
+    const profile = await userinfoRes.json() as any;
+    return { profile, tokens };
+  }
+
+  if (provider === 'apple') {
+    const clientId = oauthClientId('apple');
+    const teamId = process.env.OAUTH_APPLE_TEAM_ID;
+    const keyId = process.env.OAUTH_APPLE_KEY_ID;
+    const privateKey = process.env.OAUTH_APPLE_PRIVATE_KEY;
+    const callbackUrl = oauthCallbackUrl('apple');
+    if (!clientId || !teamId || !keyId || !privateKey || !callbackUrl) throw new HttpError(500, 'Apple OAuth is not configured on the server');
+
+    const clientSecret = generateAppleClientSecret(clientId, teamId, keyId, privateKey);
+
+    const params = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: callbackUrl,
+      grant_type: 'authorization_code',
+      code_verifier: codeVerifier,
+    });
+
+    const tokenRes = await fetch('https://appleid.apple.com/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      throw new HttpError(400, `Apple token exchange failed: ${text}`);
+    }
+
+    const tokens = await tokenRes.json() as any;
+    const idToken = tokens.id_token as string | undefined;
+    if (!idToken) throw new HttpError(400, 'Apple did not return an id_token');
+
+    const profile = decodeAppleIdToken(idToken);
+    return { profile, tokens };
+  }
+
+  throw new HttpError(501, `${provider} OAuth not implemented`);
+}
+
+function generateAppleClientSecret(clientId: string, teamId: string, keyId: string, privateKeyPem: string): string {
+  const privateKey = crypto.createPrivateKey(privateKeyPem);
+  const header = base64UrlEncode(Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId, typ: 'JWT' })));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64UrlEncode(Buffer.from(JSON.stringify({
+    iss: teamId,
+    iat: now,
+    exp: now + 1800,
+    aud: 'https://appleid.apple.com',
+    sub: clientId,
+  })));
+
+  const data = `${header}.${payload}`;
+  const sign = crypto.createSign('SHA256');
+  sign.update(data);
+  sign.end();
+  const signature = sign.sign(privateKey, 'base64');
+
+  // Convert DER signature to IEEE P1363 format for ES256
+  const derBuffer = Buffer.from(signature, 'base64');
+  const ieeeSignature = derToIeeeP1363(derBuffer, 32);
+  const signatureB64 = base64UrlEncode(ieeeSignature);
+
+  return `${data}.${signatureB64}`;
+}
+
+function derToIeeeP1363(der: Buffer, keySize: number): Buffer {
+  if (der[0] !== 0x30) throw new Error('Invalid DER signature');
+  const seqLen = der[1];
+  let offset = 2;
+
+  if (der[offset] !== 0x02) throw new Error('Invalid DER signature');
+  const rLen = der[offset + 1];
+  const r = der.slice(offset + 2, offset + 2 + rLen);
+  offset += 2 + rLen;
+
+  if (der[offset] !== 0x02) throw new Error('Invalid DER signature');
+  const sLen = der[offset + 1];
+  const s = der.slice(offset + 2, offset + 2 + sLen);
+
+  const paddedR = Buffer.alloc(keySize, 0);
+  const paddedS = Buffer.alloc(keySize, 0);
+  r.copy(paddedR, keySize - r.length);
+  s.copy(paddedS, keySize - s.length);
+
+  return Buffer.concat([paddedR, paddedS]);
+}
+
+function decodeAppleIdToken(idToken: string): any {
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw new HttpError(400, 'Invalid Apple id_token');
+  const payload = parts[1];
+  // Add padding if needed
+  const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4);
+  const decoded = Buffer.from(padded, 'base64').toString('utf8');
+  return JSON.parse(decoded);
+}
+
+async function findOrCreateOAuthUser(provider: OAuthProvider, profile: any, appleName?: string, linkingUserId?: string): Promise<{ userId: string; email: string; name: string; isNew: boolean; ambiguity?: boolean }> {
+  const { rows: existingLinks } = await query(
+    `SELECT user_id FROM oauth_accounts WHERE provider=$1 AND provider_account_id=$2`,
+    [provider, profile.sub]
+  );
+
+  if (existingLinks.length > 0) {
+    const linkedUserId = existingLinks[0].user_id;
+    if (linkingUserId && linkedUserId !== linkingUserId) {
+      return { userId: '', email: '', name: '', isNew: false, ambiguity: true };
+    }
+    const { rows: userRows } = await query(`SELECT email, name FROM users WHERE id=$1`, [linkedUserId]);
+    const user = userRows[0];
+    return { userId: linkedUserId, email: user.email, name: user.name, isNew: false };
+  }
+
+  if (linkingUserId) {
+    const { rows: existingUsers } = await query(`SELECT id FROM users WHERE email=$1`, [profile.email]);
+    if (existingUsers.length > 0 && existingUsers[0].id !== linkingUserId) {
+      return { userId: '', email: '', name: '', isNew: false, ambiguity: true };
+    }
+    const displayName = appleName || profile.name || profile.email || '';
+    const { rows: newLink } = await query(
+      `INSERT INTO oauth_accounts (user_id, provider, provider_account_id, email, name) VALUES ($1, $2, $3, $4, $5) RETURNING user_id`,
+      [linkingUserId, provider, profile.sub, profile.email, displayName]
+    );
+    const { rows: userRows } = await query(`SELECT email, name FROM users WHERE id=$1`, [linkingUserId]);
+    const user = userRows[0];
+    return { userId: linkingUserId, email: user.email, name: user.name, isNew: false };
+  }
+
+  let userId: string;
+  let isNew = false;
+
+  const emailVerified = profile.email_verified === true;
+
+  const { rows: existingUsers } = await query(`SELECT id FROM users WHERE email=$1`, [profile.email]);
+  if (existingUsers.length > 0) {
+    if (!emailVerified || linkingUserId) {
+      if (linkingUserId && existingUsers[0].id !== linkingUserId) {
+        return { userId: '', email: '', name: '', isNew: false, ambiguity: true };
+      }
+      if (!emailVerified && !linkingUserId) {
+        return { userId: '', email: '', name: '', isNew: false, ambiguity: true };
+      }
+    }
+    userId = existingUsers[0].id;
+  } else {
+    const displayName = appleName || profile.name || profile.email || '';
+    const { rows: newUser } = await query(
+      `INSERT INTO users (email, name, account_type, password_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [profile.email, displayName, 'farm_owner', '']
+    );
+    userId = newUser[0].id;
+    isNew = true;
+  }
+
+  await query(
+    `INSERT INTO oauth_accounts (user_id, provider, provider_account_id, email, name) VALUES ($1, $2, $3, $4, $5)`,
+    [userId, provider, profile.sub, profile.email, appleName || profile.name || null]
+  );
+
+  const { rows: userRows } = await query(`SELECT email, name FROM users WHERE id=$1`, [userId]);
+  const user = userRows[0];
+  return { userId, email: user.email, name: user.name, isNew };
+}
+
 router.get('/oauth/:provider', asyncHandler(async (req, res) => {
   const provider = req.params.provider as OAuthProvider;
   if (!OAUTH_PROVIDERS.includes(provider)) throw new HttpError(404, 'Unknown provider');
+
   const clientId = oauthClientId(provider);
-  if (!clientId) {
+  const callbackUrl = oauthCallbackUrl(provider);
+  if (!clientId || !callbackUrl) {
     return res.json({ enabled: false, message: `${provider[0].toUpperCase()}${provider.slice(1)} login isn't configured yet.` });
   }
-  // A configured provider would redirect to its consent screen here. No credentials are
-  // configured in this environment, so this branch is unreached — left correct-by-construction
-  // for whoever wires up real OAUTH_*_CLIENT_ID / OAUTH_*_CLIENT_SECRET env vars later.
-  throw new HttpError(501, 'OAuth redirect not implemented');
+
+  const linkingUserId = (req.query.linkUserId as string | undefined) || undefined;
+  const state = generateOAuthState(callbackUrl, linkingUserId);
+  const codeVerifier = oauthStates.get(state)!.codeVerifier;
+  const codeChallenge = base64UrlEncode(crypto.createHash('sha256').update(codeVerifier).digest());
+
+  let authUrl: string;
+  if (provider === 'google') {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      access_type: 'offline',
+      prompt: 'consent',
+    });
+    authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  } else if (provider === 'microsoft') {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      response_type: 'code',
+      scope: 'openid email profile offline_access',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      response_mode: 'query',
+    });
+    authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`;
+  } else {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      response_type: 'code',
+      scope: 'openid email name',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      response_mode: 'query',
+    });
+    authUrl = `https://appleid.apple.com/auth/authorize?${params.toString()}`;
+  }
+
+  res.redirect(authUrl);
 }));
 
 router.get('/oauth/:provider/callback', asyncHandler(async (req, res) => {
   const provider = req.params.provider as OAuthProvider;
-  if (!OAUTH_PROVIDERS.includes(provider) || !oauthClientId(provider)) throw new HttpError(404, 'Not configured');
-  throw new HttpError(501, 'OAuth callback not implemented');
+  if (provider !== 'google' && provider !== 'microsoft' && provider !== 'apple') throw new HttpError(404, 'Not configured');
+
+  const { code, state, error: oauthError, user: appleUser } = req.query as any;
+  if (oauthError) {
+    return res.redirect(`/#/login?error=oauth_denied`);
+  }
+  if (!code || !state) throw new HttpError(400, 'Missing code or state');
+
+  const stateEntry = consumeOAuthState(state as string);
+  if (!stateEntry) {
+    return res.redirect(`/#/login?error=invalid_state`);
+  }
+
+  const { profile } = await exchangeCodeForTokens(provider, code as string, stateEntry.codeVerifier);
+
+  // Apple may provide the user's name in the authorization response on first login.
+  // It is passed as a base64url-encoded JSON string in the `user` query param.
+  let appleName: string | undefined;
+  if (provider === 'apple' && appleUser) {
+    try {
+      const padded = (appleUser as string) + '='.repeat((4 - ((appleUser as string).length % 4)) % 4);
+      const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+      if (decoded.name) {
+        const firstName = decoded.name.firstName || '';
+        const lastName = decoded.name.lastName || '';
+        appleName = `${firstName} ${lastName}`.trim() || undefined;
+      }
+    } catch {
+      // ignore malformed user payload
+    }
+  }
+
+  const linkingUserId = stateEntry.linkingUserId;
+  const { userId, email, name, isNew, ambiguity } = await findOrCreateOAuthUser(provider, profile, appleName, linkingUserId);
+
+  if (ambiguity) {
+    return res.redirect(`/#/login?error=oauth_ambiguity&provider=${provider}`);
+  }
+
+  const { rows: lastFarmRows } = await query(
+    `SELECT farm_id FROM sessions WHERE user_id=$1 AND farm_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  );
+  const farms = await farmsForUser(userId);
+  const active = pickActiveFarm(farms, lastFarmRows[0]?.farm_id);
+  const permissions = active ? await permissionsForRole(active.role) : [];
+  const { token, refreshToken } = await issueSession({
+    userId,
+    email,
+    farmId: active?.farmId ?? null,
+    role: active?.role ?? null,
+    permissions,
+    userAgent: req.header('user-agent'),
+  });
+
+  await audit({ id: userId, email, name, farmId: active?.farmId ?? null, role: active?.role ?? null, permissions, isSuperAdmin: false }, 'login', 'oauth', userId, { provider, isNew, linking: !!linkingUserId });
+
+  const frontendBase = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/oauth-callback`;
+  const params = new URLSearchParams();
+  params.set('token', token);
+  params.set('refreshToken', refreshToken);
+  params.set('isNew', isNew ? 'true' : 'false');
+  params.set('linking', linkingUserId ? 'true' : 'false');
+  res.redirect(`${frontendBase}?${params.toString()}`);
 }));
 
 // ---------- refresh ----------
@@ -461,6 +879,79 @@ router.post('/logout', asyncHandler(async (req, res) => {
     await query(`UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`, [hashToken(refreshToken)]);
   }
   res.status(204).end();
+}));
+
+// ---------- account linking ----------
+
+interface LinkedIdentity {
+  id: string;
+  provider: string;
+  providerAccountId: string;
+  email: string;
+  name: string | null;
+  createdAt: string;
+}
+
+router.get('/identities', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `SELECT id, provider, provider_account_id, email, name, created_at FROM oauth_accounts WHERE user_id=$1 ORDER BY created_at`,
+    [req.user!.id]
+  );
+  const identities: LinkedIdentity[] = rows.map((r: any) => ({
+    id: r.id,
+    provider: r.provider,
+    providerAccountId: r.provider_account_id,
+    email: r.email,
+    name: r.name,
+    createdAt: r.created_at,
+  }));
+
+  const { rows: userRows } = await query(`SELECT password_hash, phone FROM users WHERE id=$1`, [req.user!.id]);
+  const user = userRows[0] as any;
+
+  const methods = [
+    ...identities.map((i) => ({ provider: i.provider, connected: true, identity: i })),
+    { provider: 'password', connected: !!user?.password_hash, identity: null as any },
+    { provider: 'phone', connected: !!user?.phone, identity: null as any },
+  ];
+
+  res.json({ data: methods });
+}));
+
+router.delete('/identities/:provider/:id', requireAuth, asyncHandler(async (req, res) => {
+  const { provider, id } = req.params as { provider: string; id: string };
+  if (!['google', 'microsoft', 'apple', 'phone'].includes(provider)) throw new HttpError(400, 'Invalid provider');
+
+  const { rows: identities } = await query(
+    `SELECT id FROM oauth_accounts WHERE id=$1 AND user_id=$2`,
+    [id, req.user!.id]
+  );
+  if (identities.length === 0) throw new HttpError(404, 'Identity not found');
+
+  const { rows: remaining } = await query(
+    `SELECT count(*) FROM oauth_accounts WHERE user_id=$1`,
+    [req.user!.id]
+  );
+  const oauthCount = Number(remaining[0]?.count ?? 0);
+
+  const { rows: userRows } = await query(`SELECT password_hash, phone FROM users WHERE id=$1`, [req.user!.id]);
+  const user = userRows[0] as any;
+  const hasPassword = !!user?.password_hash;
+  const hasPhone = !!user?.phone;
+
+  const isPhone = provider === 'phone';
+  const remainingMethods = (isPhone ? 0 : 1) + (hasPassword ? 1 : 0) + (hasPhone ? 1 : 0) + (oauthCount - 1);
+
+  if (remainingMethods === 0) throw new HttpError(400, 'You must have at least one sign-in method remaining');
+
+  if (isPhone) {
+    await query(`UPDATE users SET phone=NULL WHERE id=$1`, [req.user!.id]);
+  } else {
+    await query(`DELETE FROM oauth_accounts WHERE id=$1 AND user_id=$2`, [id, req.user!.id]);
+  }
+
+  await audit(req.user, 'unlink_identity', 'oauth', req.user!.id, { provider });
+  res.json({ ok: true });
 }));
 
 // ---------- switch farm ----------
@@ -501,6 +992,7 @@ router.get('/farms', requireAuth, asyncHandler(async (req, res) => {
 const forgotSchema = z.object({ email: z.string().email() });
 
 router.post('/forgot-password', asyncHandler(async (req, res) => {
+  rateLimit(`forgot-password:${req.ip}`);
   const { email } = forgotSchema.parse(req.body);
   const { rows } = await query('SELECT id FROM users WHERE email = $1 AND is_active = true', [email]);
   let devLink: string | undefined;
@@ -520,6 +1012,7 @@ router.post('/forgot-password', asyncHandler(async (req, res) => {
 const resetSchema = z.object({ token: z.string().min(1), newPassword: z.string().min(8) });
 
 router.post('/reset-password', asyncHandler(async (req, res) => {
+  rateLimit(`reset-password:${req.ip}`);
   const body = resetSchema.parse(req.body);
   const { rows } = await query(
     `SELECT id, user_id FROM password_reset_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`,

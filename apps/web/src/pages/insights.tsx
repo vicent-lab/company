@@ -8,6 +8,26 @@ import { Bot, Send, TrendingUp, TrendingDown, CloudSun, Droplets, Wind, Thermome
 import { fmt } from '../format';
 import { exportTable, exportPDF, exportReport, openReportWindow, toCSV, download } from '../export';
 
+interface SourcePill {
+  label: string;
+  count: number;
+  link: string;
+}
+
+function parseSourcePills(text: string): { body: string; pills: SourcePill[] } {
+  const match = text.match(/\n\n---\nSources: (.+)$/s);
+  if (!match) return { body: text, pills: [] };
+  const body = text.slice(0, match.index).trim();
+  const raw = match[1];
+  const pills: SourcePill[] = [];
+  const regex = /(.+?)\s*\[(\d+)\]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(raw)) !== null) {
+    pills.push({ label: m[1].trim(), count: Number(m[2]), link: m[3] });
+  }
+  return { body, pills };
+}
+
 // "write/generate/get me a report" (about the farm, in pdf, etc.) — distinguished from
 // a plain question that happens to mention "report" (e.g. "financial report for March")
 // by requiring an explicit request-to-produce-something verb alongside it.
@@ -80,7 +100,7 @@ export function AIAssistant() {
         setMsgs((m) => [...m, { q, a }]);
         setTyping(false);
       }).catch(() => {
-        setMsgs((m) => [...m, { q, a: 'Sorry, I could not generate the report right now.' }]);
+        setMsgs((m) => [...m, { q, a: 'I couldn\'t generate your farm report right now. Please try again.' }]);
         setTyping(false);
       });
       return;
@@ -89,7 +109,7 @@ export function AIAssistant() {
       setMsgs((m) => [...m, { q, a }]);
       setTyping(false);
     }).catch(() => {
-      setMsgs((m) => [...m, { q, a: 'Sorry, I could not reach the assistant.' }]);
+      setMsgs((m) => [...m, { q, a: 'I couldn\'t access your farm data right now. Please try again.' }]);
       setTyping(false);
     });
   };
@@ -126,11 +146,11 @@ export function AIAssistant() {
           {msgs.map((m, i) => (
             <div key={i} className="reveal" style={{ marginBottom: 16 }}>
               {m.a ? <><div className="row" style={{ justifyContent: 'flex-end' }}><div className="card" style={{ background: 'var(--primary)', color: '#fff', maxWidth: '75%', border: 0 }}>{m.q}</div></div>
-              <div className="row mt" style={{ marginTop: 10 }}><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ maxWidth: '80%', border: 0, background: 'var(--surface-2)', whiteSpace: 'pre-wrap' }}>{m.a}</div></div></>
+              <div className="row mt" style={{ marginTop: 10 }}><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ maxWidth: '80%', border: 0, background: 'var(--surface-2)', whiteSpace: 'pre-wrap' }}>{(() => { const s = parseSourcePills(m.a); return s.pills.length ? <><div>{s.body}</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>{s.pills.map((p, i) => <a key={i} href={p.link} className="btn ghost sm" style={{ borderRadius: 20, fontSize: 11, textDecoration: 'none', padding: '4px 10px' }}>{p.label} ({p.count})</a>)}</div></> : s.body; })()}</div></div></>
                 : <div className="row"><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ border: 0, background: 'var(--surface-2)', whiteSpace: 'pre-wrap' }}>{m.q}</div></div>}
             </div>
           ))}
-          {typing && <div className="row mt"><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ border: 0, background: 'var(--surface-2)' }}>Thinking…</div></div>}
+          {typing && <div className="row mt"><div className="icon" style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: 'var(--primary-soft)', color: 'var(--primary)' }}><Bot size={16} /></div><div className="card" style={{ border: 0, background: 'var(--surface-2)' }}>Analyzing your farm data…</div></div>}
           <div ref={endRef} />
         </div>
         <div className="row mt" style={{ flexWrap: 'wrap' }}>
