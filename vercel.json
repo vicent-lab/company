@@ -1,6 +1,5 @@
 {
+  "framework": "node",
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "framework": "node"
+  "installCommand": "npm install"
 }

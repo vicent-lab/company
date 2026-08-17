@@ -83,8 +83,6 @@ app.get('/health', async (_req, res) => {
   res.json({ status: 'ok', db: await healthCheck(), time: new Date().toISOString() });
 });
 
-app.get('/', (_req, res) => res.json({ name: 'Smart Dairy API', version: '0.1.0', docs: '/api/v1' }));
-
 const api = express.Router();
 api.get('/', (_req, res) => res.json({ name: 'Smart Dairy API', version: '0.1.0' }));
 api.use('/auth', authRoutes);
