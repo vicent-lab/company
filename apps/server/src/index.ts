@@ -167,23 +167,20 @@ if (hasWebApp) {
 app.use(notFound);
 app.use(errorHandler);
 
-const isVercel = process.env.VERCEL === '1';
+const port = config.port;
+app.listen(port, () => {
+  console.log(`🐄 Dairy API listening on http://localhost:${port} (env=${config.env})`);
 
-if (!isVercel) {
-  app.listen(config.port, () => {
-    console.log(`🐄 Dairy API listening on http://localhost:${config.port} (env=${config.env})`);
-
-    const runCycle = () => {
-      runContinuousLearningCycle()
-        .then((r) => console.log(`🧠 Continuous learning cycle: ${r.farms} farm(s), ${r.verified} predictions verified, ${r.followedUp} advice follow-ups checked`))
-        .catch((err) => console.error('Continuous learning cycle failed:', err));
-      snapshotAllFarmScores()
-        .then((r) => console.log(`📊 Farm score snapshot: ${r.farms} farm(s) scored`))
-        .catch((err) => console.error('Farm score snapshot failed:', err));
-    };
-    runCycle();
-    setInterval(runCycle, config.learningCycleIntervalHours * 60 * 60 * 1000);
-  });
-}
+  const runCycle = () => {
+    runContinuousLearningCycle()
+      .then((r) => console.log(`🧠 Continuous learning cycle: ${r.farms} farm(s), ${r.verified} predictions verified, ${r.followedUp} advice follow-ups checked`))
+      .catch((err) => console.error('Continuous learning cycle failed:', err));
+    snapshotAllFarmScores()
+      .then((r) => console.log(`📊 Farm score snapshot: ${r.farms} farm(s) scored`))
+      .catch((err) => console.error('Farm score snapshot failed:', err));
+  };
+  runCycle();
+  setInterval(runCycle, config.learningCycleIntervalHours * 60 * 60 * 1000);
+});
 
 export default app;

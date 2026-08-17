@@ -4,7 +4,7 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspace @dairy/web --if-present && npm run build --workspace @dairy/server --if-present && mkdir -p apps/server/dist/web && cp -r apps/web/dist/* apps/server/dist/web/ && cp -r apps/server/dist dist",
+    "build": "npm run build --workspace @dairy/web --if-present && npm run build --workspace @dairy/server --if-present && rm -rf dist && cp -r apps/server/dist dist && mkdir -p dist/web && cp -r apps/web/dist/* dist/web/",
     "start": "node dist/index.js",
     "test": "npm run test --workspaces --if-present"
   }
