@@ -146,6 +146,7 @@ app.use('/api/v1', api);
 const webDistPaths = [
   path.resolve(process.cwd(), 'apps/web/dist'),
   path.resolve(process.cwd(), 'dist/web'),
+  path.resolve(__dirname, 'web'),
 ];
 const webDist = webDistPaths.find((p) => fs.existsSync(p));
 const hasWebApp = Boolean(webDist);
