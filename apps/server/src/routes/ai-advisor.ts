@@ -597,7 +597,20 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
   await query(`INSERT INTO ai_analysis_logs (farm_id, analysis_type) VALUES ($1, 'chat')`, [farmId]);
 
-  const ctx = await loadConversationContext(farmId, userId, rawQuestion, req.body?.conversationId);
+  let ctx: any;
+  try {
+    ctx = await loadConversationContext(farmId, userId, rawQuestion, req.body?.conversationId);
+  } catch (err: any) {
+    // Chat answers should remain available while conversation history is being migrated
+    // or if its persistence tables are temporarily unavailable.
+    console.error('[ai-advisor] conversation context unavailable:', err.message);
+    ctx = {
+      conversationId: undefined,
+      turns: [],
+      entities: {},
+      expandedQuestion: rawQuestion,
+    };
+  }
   const question = ctx.expandedQuestion;
   const contextSummary = buildContextSummary(ctx.turns);
 
@@ -639,16 +652,26 @@ router.post('/chat', asyncHandler(async (req, res) => {
     answer = `📎 Noted the attached file "${attachment.name}" alongside your question — I can't yet read image or document contents directly, but it's saved with this conversation for your reference.\n\n${answer}`;
   }
 
-  await saveTurn(ctx.conversationId, farmId, 'user', rawQuestion, { expanded: question });
-  await saveTurn(ctx.conversationId, farmId, 'assistant', answer, { question: rawQuestion });
+  let id = `chat-${Date.now()}`;
+  let createdAt = new Date().toISOString();
+  try {
+    if (ctx.conversationId) {
+      await saveTurn(ctx.conversationId, farmId, 'user', rawQuestion, { expanded: question });
+      await saveTurn(ctx.conversationId, farmId, 'assistant', answer, { question: rawQuestion });
+    }
 
-  const saved = await query(
-    `INSERT INTO ai_chat_messages (farm_id, user_id, question, answer, attachment_name, attachment_type, attachment_data)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
-    [farmId, req.user?.id ?? null, rawQuestion, answer, attachment?.name ?? null, attachment?.type ?? null, attachment?.data ?? null]
-  );
+    const saved = await query(
+      `INSERT INTO ai_chat_messages (farm_id, user_id, question, answer, attachment_name, attachment_type, attachment_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
+      [farmId, req.user?.id ?? null, rawQuestion, answer, attachment?.name ?? null, attachment?.type ?? null, attachment?.data ?? null]
+    );
+    id = saved.rows[0].id;
+    createdAt = saved.rows[0].created_at;
+  } catch (err: any) {
+    console.error('[ai-advisor] chat persistence unavailable:', err.message);
+  }
 
-  res.json({ id: saved.rows[0].id, created_at: saved.rows[0].created_at, answer, insights_count: insightsCount, conversation_id: ctx.conversationId });
+  res.json({ id, created_at: createdAt, answer, insights_count: insightsCount, conversation_id: ctx.conversationId });
 }));
 
 router.get('/chat/history', asyncHandler(async (req, res) => {
