@@ -962,8 +962,29 @@ export interface DailyAdvice {
   estimatedProfitUgx: number;
 }
 
+function mockAiInsights(farmId: string): AiInsight[] {
+  const now = new Date().toISOString();
+  const command = mock.generateMockCommandCenter(farmId);
+  return command.blocks.flatMap((block: any) => block.actions).map((action: any, index: number) => ({
+    id: `mock-insight-${farmId}-${index}`,
+    type: action.severity === 'critical' ? 'alert' : 'recommendation',
+    category: action.category === 'operations' ? 'general' : action.category,
+    severity: action.severity,
+    priority: action.priority,
+    title: action.title,
+    description: action.reason,
+    action_items: [{ label: action.shortcut || action.title, done: false }],
+    related_cow_id: action.relatedCowId || null,
+    confidence_score: 0.84,
+    status: 'new',
+    created_at: now,
+    updated_at: now,
+    metadata: { source: 'mock_command_center' },
+  }));
+}
+
 export const dailyAdvice = (farmId: string) =>
-  isLive ? apiGet<{ data: DailyAdvice }>(`/ai-advisor/daily-advice${q({ farmId })}`).then((r: any) => r.data) : backendRequired('daily advice');
+  isLive ? apiGet<{ data: DailyAdvice }>(`/ai-advisor/daily-advice${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(null as any);
 
 export interface AiInsight {
   id: string;
@@ -1021,7 +1042,7 @@ export interface FarmScoreHistoryPoint {
 }
 
 export const farmScore = (farmId: string) =>
-  isLive ? apiGet<{ data: FarmScoreResult }>(`/farm-score${q({ farmId })}`).then((r: any) => r.data) : backendRequired('farm score');
+  isLive ? apiGet<{ data: FarmScoreResult }>(`/farm-score${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve({ overall: 0 } as FarmScoreResult);
 
 export const farmScoreHistory = (farmId: string, days = 30) =>
   isLive ? apiGet<{ data: FarmScoreHistoryPoint[] }>(`/farm-score/history${q({ farmId, days })}`).then((r: any) => r.data) : backendRequired('farm score history');
@@ -1033,11 +1054,17 @@ export const aiInsights = (farmId: string, filters: { type?: string; category?: 
   if (filters.severity) params.severity = filters.severity;
   if (filters.status) params.status = filters.status;
   if (filters.includeEvidence) params.includeEvidence = 'true';
-  return isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights${q(params)}`).then((r: any) => r.data) : backendRequired('AI insights');
+  if (isLive) return apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights${q(params)}`).then((r: any) => r.data);
+  let result = mockAiInsights(farmId);
+  if (filters.type) result = result.filter((item) => item.type === filters.type);
+  if (filters.category) result = result.filter((item) => item.category === filters.category);
+  if (filters.severity) result = result.filter((item) => item.severity === filters.severity);
+  if (filters.status) result = result.filter((item) => item.status === filters.status);
+  return Promise.resolve(result);
 };
 
 export const aiInsightHistory = (farmId: string, days = 30) =>
-  isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights/history${q({ farmId, days })}`).then((r: any) => r.data) : backendRequired('AI insight history');
+  isLive ? apiGet<{ data: AiInsight[] }>(`/ai-advisor/insights/history${q({ farmId, days })}`).then((r: any) => r.data) : Promise.resolve(mockAiInsights(farmId));
 
 export interface TimelineEvent {
   at: string;
@@ -1078,15 +1105,20 @@ export interface AiChatMessage {
 }
 
 export const aiCreateConversation = (farmId: string) =>
-  isLive ? apiSend<{ id: string }>(`/ai-advisor/chat/conversations${q({ farmId })}`, 'POST') : backendRequired('new conversation');
+  isLive ? apiSend<{ id: string }>(`/ai-advisor/chat/conversations${q({ farmId })}`, 'POST') : Promise.resolve({ id: `mock-conversation-${Date.now()}` });
 
 export const aiChat = (question: string, farmId: string, attachment?: AiChatAttachment, conversationId?: string) =>
   isLive
     ? apiSend<{ id: string; answer: string; created_at: string; conversation_id?: string }>(`/ai-advisor/chat${q({ farmId })}`, 'POST', { question, attachment, conversationId })
-    : backendRequired('AI chat');
+    : Promise.resolve({
+      id: `mock-chat-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      conversation_id: conversationId || `mock-conversation-${farmId}`,
+      answer: `Your mock farm currently has ${mock.farmSummary(farmId).totalCows} cows and produced ${mock.farmSummary(farmId).milkToday} L today. I found ${mockAiInsights(farmId).length} recommended actions in the farm data.`,
+    });
 
 export const aiChatHistory = (farmId: string) =>
-  isLive ? apiGet<{ data: AiChatMessage[] }>(`/ai-advisor/chat/history${q({ farmId })}`).then((r) => r.data) : backendRequired('chat history');
+  isLive ? apiGet<{ data: AiChatMessage[] }>(`/ai-advisor/chat/history${q({ farmId })}`).then((r) => r.data) : Promise.resolve([]);
 
 export const deleteAiChatMessage = (id: string, farmId: string) =>
   isLive ? apiSend<{ ok: boolean }>(`/ai-advisor/chat/history/${id}${q({ farmId })}`, 'DELETE') : backendRequired('delete message');

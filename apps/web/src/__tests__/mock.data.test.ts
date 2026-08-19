@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analytics, finance, farmSummary, mockPedigreeNode, mockOffspringFor, mockBreedingAnalytics, mockBreedingAssistant } from '../mock';
-import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring, getPedigree, getOffspring, getBreedingAnalytics, getBreedingAssistant, commandCenter } from '../data';
+import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring, getPedigree, getOffspring, getBreedingAnalytics, getBreedingAssistant, commandCenter, aiInsights, aiChat } from '../data';
 
 describe('mock data fixes', () => {
   it('finance includes incomeTotal and expenseTotal', async () => {
@@ -27,6 +27,14 @@ describe('mock data fixes', () => {
     const result = await commandCenter('f1');
     expect(result.blocks.length).toBeGreaterThan(0);
     expect(result.meta.totalActions).toBeGreaterThan(0);
+  });
+
+  it('AI insights and chat load in mock mode', async () => {
+    const insights = await aiInsights('f1', { includeEvidence: true });
+    expect(insights.length).toBeGreaterThan(0);
+    expect(insights[0]).toHaveProperty('title');
+    const chat = await aiChat('What needs attention today?', 'f1');
+    expect(chat.answer).toContain('cows');
   });
 
   it('mapNodes returns barns in mock mode', async () => {
