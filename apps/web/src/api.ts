@@ -1,4 +1,7 @@
-const API = (import.meta.env.VITE_API_URL as string | undefined) || '';
+const configuredApi = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '';
+const API = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(configuredApi)
+  ? ''
+  : configuredApi;
 
 export const isLive = Boolean(API);
 const TOKEN_KEY = 'dairy-token';
