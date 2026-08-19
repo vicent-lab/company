@@ -56,11 +56,11 @@ router.get('/:cowId', asyncHandler(async (req, res) => {
   const fatherNode = await buildAncestor(cow.father_id, generations - 1);
 
   const offspringRes = await query(
-    `SELECT c.id, c.cow_code, c.name, c.breed, c.gender, c.date_of_birth, c.status, c.health, c.photo_url, c.mother_id, c.father_id
-     FROM offspring o
-     JOIN cows c ON c.id = o.animal_id
-     WHERE o.mother_id=$1 OR o.father_id=$1`,
-    [cowId]
+    `SELECT id, cow_code, name, breed, gender, date_of_birth, status, health, photo_url, mother_id, father_id
+     FROM cows
+     WHERE farm_id=$1 AND (mother_id=$2 OR father_id=$2)
+     ORDER BY date_of_birth DESC`,
+    [farmId, cowId]
   );
 
   const offspringList = offspringRes.rows.map((c: any) => ({
@@ -93,12 +93,11 @@ router.get('/offspring/:cowId', asyncHandler(async (req, res) => {
   if (cowRes.rows[0].farm_id !== farmId) throw new HttpError(403, 'Access denied');
 
   const { rows } = await query(
-    `SELECT c.id, c.cow_code, c.name, c.breed, c.gender, c.date_of_birth, c.status, c.health, c.photo_url, c.mother_id, c.father_id
-     FROM offspring o
-     JOIN cows c ON c.id = o.animal_id
-     WHERE o.mother_id=$1 OR o.father_id=$1
-     ORDER BY c.date_of_birth DESC`,
-    [cowId, cowId]
+    `SELECT id, cow_code, name, breed, gender, date_of_birth, status, health, photo_url, mother_id, father_id
+     FROM cows
+     WHERE farm_id=$1 AND (mother_id=$2 OR father_id=$2)
+     ORDER BY date_of_birth DESC`,
+    [farmId, cowId]
   );
 
   const offspring = rows.map((c: any) => ({

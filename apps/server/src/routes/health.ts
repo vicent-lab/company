@@ -44,7 +44,7 @@ router.post('/records', requirePermission('health:manage'), asyncHandler(async (
      RETURNING *`,
     [farmId, b.cowId, b.recordedOn || new Date().toISOString().slice(0, 10), b.healthStatus, b.bodyConditionScore ?? null, b.lamenessScore ?? null, b.aiDetectedDisease ?? null, b.aiConfidence ?? null, b.photoUrl ?? null, b.notes ?? null, b.veterinarianName ?? null]
   );
-  await audit(req.user, 'create', 'health_record', rows[0].id);
+  await audit(req.user, 'create', 'health_record', rows[0].id, { cowId: b.cowId, healthStatus: b.healthStatus });
   res.status(201).json(rows[0]);
 }));
 
@@ -78,6 +78,35 @@ router.delete('/records/:id', requirePermission('health:manage'), asyncHandler(a
   await query('DELETE FROM health_records WHERE id=$1', [req.params.id]);
   await audit(req.user, 'delete', 'health_record', req.params.id);
   res.status(204).end();
+}));
+
+// Vaccinations are stored on the cow record model. This read endpoint keeps the
+// Health dashboard farm-scoped without requiring one profile request per cow.
+router.get('/vaccinations', asyncHandler(async (req, res) => {
+  const farmId = resolveFarmId(req);
+  const { rows } = await query(
+    `SELECT v.id, v.cow_id, c.cow_code, c.name AS cow_name, v.vaccine_name,
+            v.due_on, v.administered_on, v.veterinarian_id, u.name AS veterinarian_name
+     FROM vaccinations v
+     JOIN cows c ON c.id=v.cow_id
+     LEFT JOIN users u ON u.id=v.veterinarian_id
+     WHERE c.farm_id=$1
+     ORDER BY COALESCE(v.due_on, v.administered_on) ASC LIMIT 500`, [farmId]
+  );
+  res.json({ data: rows, count: rows.length });
+}));
+
+const vaccinationSchema = z.object({
+  cowId: z.string().uuid(), vaccineName: z.string().min(1), dueOn: z.string(), administeredOn: z.string().optional(), veterinarianId: z.string().uuid().optional(),
+});
+router.post('/vaccinations', requirePermission('health:manage'), asyncHandler(async (req, res) => {
+  const b = vaccinationSchema.parse(req.body);
+  const farmId = resolveFarmId(req);
+  const cow = await query('SELECT id FROM cows WHERE id=$1 AND farm_id=$2', [b.cowId, farmId]);
+  if (!cow.rows[0]) throw new HttpError(404, 'Animal not found');
+  const { rows } = await query(`INSERT INTO vaccinations (cow_id, vaccine_name, due_on, administered_on, veterinarian_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`, [b.cowId, b.vaccineName, b.dueOn, b.administeredOn ?? null, b.veterinarianId ?? null]);
+  await audit(req.user, 'create', 'vaccination', rows[0].id, { cowId: b.cowId });
+  res.status(201).json(rows[0]);
 }));
 
 // Medicine inventory

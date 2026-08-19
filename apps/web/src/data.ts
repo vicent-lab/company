@@ -1,4 +1,5 @@
 import * as mock from './mock';
+import { generateMockCommandCenter } from './mock';
 import { isLive, apiGet, apiSend, getRefreshToken } from './api';
 import { sendOrQueue } from './lib/offline-queue';
 import { mockPregnancies, mockOffspring } from './mock';
@@ -29,8 +30,8 @@ export interface InvitePreview { email: string; farmName: string; role: string; 
 export const getInvitePreview = (token: string) => apiGet<InvitePreview>(`/auth/invitations/${token}`);
 
 export interface AccountTypeInfo {
-  id: string; flow: 'owner' | 'team_member' | 'demo'; label: string; framing: string;
-  hintRole?: 'administrator' | 'farm_manager' | 'veterinarian' | 'worker' | 'accountant';
+  id: string; flow: 'owner' | 'team_member'; label: string; framing: string;
+  hintRole?: 'administrator' | 'farm_manager' | 'veterinarian' | 'worker';
 }
 export const getAccountTypes = () => apiGet<{ data: AccountTypeInfo[] }>('/auth/account-types').then((r) => r.data);
 
@@ -137,6 +138,7 @@ export interface CowSummary {
   gender: string; health: string; isMilking: boolean; isPregnant: boolean;
   weightKg: number; color: string; avgDailyMilk: number; waterIntakeLiters: number;
   status: string; photoUrl?: string | null; barnId?: string; dob?: string;
+  motherId?: string | null; fatherId?: string | null;
 }
 export interface CowDetail extends CowSummary {
   dob: string; barnId?: string; motherId?: string; fatherId?: string;
@@ -148,6 +150,7 @@ export interface CowDetail extends CowSummary {
   feed: { id: string; feed: string; date: string; kg: number }[];
   productivityScore: number;
   deathDate?: string; deathCause?: string; deathNotes?: string;
+  healthRecords?: any[]; pregnancies?: any[]; calvings?: any[]; family?: any; auditHistory?: any[];
 }
 
 function normalizeSummary(c: any): CowSummary {
@@ -162,6 +165,8 @@ function normalizeSummary(c: any): CowSummary {
     photoUrl: c.photo_url ?? c.photoUrl ?? null,
     barnId: c.barn_id ?? c.barnId ?? undefined,
     dob: c.date_of_birth ?? c.dob ?? undefined,
+    motherId: c.mother_id ?? c.motherId ?? null,
+    fatherId: c.father_id ?? c.fatherId ?? null,
   };
 }
 
@@ -209,9 +214,13 @@ export async function getCow(id: string): Promise<CowDetail | null> {
       feed: (c.feed || []).map((f: any) => ({ id: f.id, feed: f.feed_type_id, date: f.consumed_on, kg: Number(f.quantity) })),
       weights: [], productivityScore: Math.min(99, Math.round(40 + avg * 1.5)),
       deathDate: c.death_date, deathCause: c.death_cause, deathNotes: c.death_notes,
+      healthRecords: c.healthRecords || [], pregnancies: c.pregnancies || [], calvings: c.calvings || [], family: c.family || null, auditHistory: c.auditHistory || [],
     };
   } catch (e) {
-    return null;
+    // Preserve the API error for the profile's error state instead of mislabelling a
+    // database/network failure as a missing animal during development.
+    console.error('[cow-profile] failed to load selected cow', { id, error: e });
+    throw e;
   }
 }
 
@@ -232,6 +241,8 @@ function toCamel(body: any) {
     deathDate: body.death_date || body.deathDate,
     deathCause: body.death_cause || body.deathCause,
     deathNotes: body.death_notes || body.deathNotes,
+    motherId: body.mother_id !== undefined ? body.mother_id : body.motherId,
+    fatherId: body.father_id !== undefined ? body.father_id : body.fatherId,
     status: body.status,
     photoUrl: body.photo_url ?? body.photoUrl,
   };
@@ -418,6 +429,11 @@ export const deleteQuarantineRecord = (id: string) =>
 
 export const emergencyAlerts = (farmId: string) =>
   isLive ? apiGet<any[]>(`/health/alerts${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve([]);
+
+export const farmTreatments = (farmId: string) =>
+  isLive ? apiGet<{ data: any[] }>(`/treatments${q({ farmId, limit: 500 })}`).then((r) => r.data) : Promise.resolve([]);
+export const farmVaccinations = (farmId: string) =>
+  isLive ? apiGet<{ data: any[] }>(`/health/vaccinations${q({ farmId })}`).then((r) => r.data) : Promise.resolve([]);
 export const createEmergencyAlert = (body: any) =>
   isLive ? apiSend('/health/alerts', 'POST', body) : Promise.resolve({ ...body, id: 'mock-alt-' + Date.now() });
 export const updateEmergencyAlert = (id: string, body: any) =>
@@ -1061,9 +1077,12 @@ export interface AiChatMessage {
   created_at: string;
 }
 
-export const aiChat = (question: string, farmId: string, attachment?: AiChatAttachment) =>
+export const aiCreateConversation = (farmId: string) =>
+  isLive ? apiSend<{ id: string }>(`/ai-advisor/chat/conversations${q({ farmId })}`, 'POST') : backendRequired('new conversation');
+
+export const aiChat = (question: string, farmId: string, attachment?: AiChatAttachment, conversationId?: string) =>
   isLive
-    ? apiSend<{ id: string; answer: string; created_at: string }>(`/ai-advisor/chat${q({ farmId })}`, 'POST', { question, attachment })
+    ? apiSend<{ id: string; answer: string; created_at: string; conversation_id?: string }>(`/ai-advisor/chat${q({ farmId })}`, 'POST', { question, attachment, conversationId })
     : backendRequired('AI chat');
 
 export const aiChatHistory = (farmId: string) =>
@@ -1166,7 +1185,7 @@ export interface CommandAction {
 }
 
 export const commandCenter = (farmId: string) =>
-  isLive ? apiGet<{ data: CommandCenterData }>(`/ai-advisor/command-center${q({ farmId })}`).then((r: any) => r.data) : backendRequired('command center');
+  isLive ? apiGet<{ data: CommandCenterData }>(`/ai-advisor/command-center${q({ farmId })}`).then((r: any) => r.data) : Promise.resolve(generateMockCommandCenter(farmId) as CommandCenterData);
 
 export interface FarmSetupStep { key: string; label: string; done: boolean; }
 export const getFarmSetupStatus = (farmId: string) =>

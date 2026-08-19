@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analytics, finance, farmSummary, mockPedigreeNode, mockOffspringFor, mockBreedingAnalytics, mockBreedingAssistant } from '../mock';
-import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring, getPedigree, getOffspring, getBreedingAnalytics, getBreedingAssistant } from '../data';
+import { listCows, mapNodes, createCow, listFarmMapObjects, createFarmMapObject, updateFarmMapObject, deleteFarmMapObject, moveFarmMapObject, saveDraft, getDraft, undoChange, redoChange, getFarmLocation, updateFarmLocation, createFarmBoundary, listFarmBoundaries, deleteFarmBoundary, listFarmPastures, createFarmPasture, updateFarmPasture, deleteFarmPasture, createMapMeasurement, listMapMeasurements, deleteMapMeasurement, mapAiQuery, loadGoogleMapsScript, formatHectares, formatAcres, formatMeters, formatMeasurementValue, pregnancies, createPregnancy, updatePregnancy, deletePregnancy, offspring, createOffspring, deleteOffspring, getPedigree, getOffspring, getBreedingAnalytics, getBreedingAssistant, commandCenter } from '../data';
 
 describe('mock data fixes', () => {
   it('finance includes incomeTotal and expenseTotal', async () => {
@@ -21,6 +21,12 @@ describe('mock data fixes', () => {
     const s1 = farmSummary('f1');
     const s2 = farmSummary('f1');
     expect(s1).toBe(s2);
+  });
+
+  it('command center loads in mock mode', async () => {
+    const result = await commandCenter('f1');
+    expect(result.blocks.length).toBeGreaterThan(0);
+    expect(result.meta.totalActions).toBeGreaterThan(0);
   });
 
   it('mapNodes returns barns in mock mode', async () => {

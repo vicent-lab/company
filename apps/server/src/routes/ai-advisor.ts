@@ -15,7 +15,7 @@ import {
   answerCalvesBornThisMonth, answerYesterdayActivities, answerFarmRisks,
   answerTodayPriorities, answerCalvingSoon, answerHerdCount, answerMonthlySpend, answerFeedStatus,
 } from '../ai/qa-answers.js';
-import { loadConversationContext, saveTurn, buildContextSummary } from '../ai/conversation/engine.js';
+import { loadConversationContext, saveTurn, buildContextSummary, createConversation } from '../ai/conversation/engine.js';
 
 const router = Router();
 router.use(requireAuth, requirePermission('ai:read'));
@@ -579,6 +579,12 @@ const FAST_PATH: { test: RegExp; fn: (farmId: string) => Promise<string> }[] = [
   { test: /feed cost|why (is|are) feed/, fn: answerFeedCostIncrease },
 ];
 
+router.post('/chat/conversations', asyncHandler(async (req, res) => {
+  const farmId = resolveFarmId(req);
+  const conversationId = await createConversation(farmId, req.user?.id ?? 'anonymous');
+  res.status(201).json({ id: conversationId });
+}));
+
 router.post('/chat', asyncHandler(async (req, res) => {
   const farmId = resolveFarmId(req);
   const userId = req.user?.id ?? 'anonymous';
@@ -591,7 +597,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
   await query(`INSERT INTO ai_analysis_logs (farm_id, analysis_type) VALUES ($1, 'chat')`, [farmId]);
 
-  const ctx = await loadConversationContext(farmId, userId, rawQuestion);
+  const ctx = await loadConversationContext(farmId, userId, rawQuestion, req.body?.conversationId);
   const question = ctx.expandedQuestion;
   const contextSummary = buildContextSummary(ctx.turns);
 
@@ -642,7 +648,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
     [farmId, req.user?.id ?? null, rawQuestion, answer, attachment?.name ?? null, attachment?.type ?? null, attachment?.data ?? null]
   );
 
-  res.json({ id: saved.rows[0].id, created_at: saved.rows[0].created_at, answer, insights_count: insightsCount });
+  res.json({ id: saved.rows[0].id, created_at: saved.rows[0].created_at, answer, insights_count: insightsCount, conversation_id: ctx.conversationId });
 }));
 
 router.get('/chat/history', asyncHandler(async (req, res) => {

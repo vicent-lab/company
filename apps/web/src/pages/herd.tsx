@@ -9,7 +9,7 @@ import { BREEDS, BARNS } from '../mock';
 
 const EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', isMilking: true, isPregnant: false, photoUrl: '' };
 
-const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '', photoUrl: '' };
+const EDIT_EMPTY = { name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', deathDate: '', deathCause: '', deathNotes: '', photoUrl: '', motherId: null as string | null, fatherId: null as string | null };
 
 type AnimalFilter = 'all' | 'cows' | 'bulls' | 'calves' | 'groups';
 
@@ -23,7 +23,7 @@ function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (pat
     <div style={{ marginLeft: Math.min(depth * 24, 120), marginTop: 6, borderLeft: '2px solid var(--border)', paddingLeft: 10 }}>
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
         <div
-          onClick={() => navigate('/app/cow/' + c.id)}
+          onClick={() => navigate('/animals/' + c.id)}
           style={{
             width: 28, height: 28, borderRadius: '50%', background: genderColor, color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, cursor: 'pointer',
@@ -44,7 +44,7 @@ function PedigreeNode({ node, navigate, depth = 0 }: { node: any; navigate: (pat
         <div style={{ marginLeft: Math.min(depth * 24, 120), marginTop: 4 }}>
           {node.offspring.map((o: any) => (
             <div key={o.id} className="row" style={{ gap: 8, alignItems: 'center', marginTop: 4, fontSize: 12 }}
-              onClick={() => navigate('/app/cow/' + o.id)}>
+              onClick={() => navigate('/animals/' + o.id)}>
               <div style={{ width: 20, height: 20, borderRadius: '50%', background: o.gender === 'male' ? '#3b82f6' : o.gender === 'female' ? '#ec4899' : '#9ca3af', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
                 {(o.name || o.cowCode || '?').split(' ').map((s: string) => s[0]).slice(0, 2).join('').toUpperCase()}
               </div>
@@ -89,6 +89,18 @@ function AnimalCard({ animal, onClick, onEdit }: { animal: any; onClick: () => v
   );
 }
 
+function ParentSelect({ label, value, onChange, candidates, gender, currentId }: { label: string; value: string | null; onChange: (value: string | null) => void; candidates: any[]; gender: 'female' | 'male'; currentId: string }) {
+  return <div className="field">
+    <label>{label}</label>
+    <select className="select" value={value || ''} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">Not recorded</option>
+      {candidates.filter((candidate) => candidate.id !== currentId && candidate.gender === gender).map((candidate) => (
+        <option key={candidate.id} value={candidate.id}>{candidate.name || candidate.cowCode} · {candidate.cowCode}</option>
+      ))}
+    </select>
+  </div>;
+}
+
 export function Herd() {
   const { farmId } = useFarm();
   const [, navigate] = useHashRoute();
@@ -98,6 +110,7 @@ export function Herd() {
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [listKey, setListKey] = useState(0);
   const { data: cows, loading } = useAsync(() => listCows(farmId, { search: q, gender: filter === 'cows' ? 'female' : filter === 'bulls' ? 'male' : undefined }), [farmId, q, filter, listKey]);
+  const { data: parentCandidates } = useAsync(() => listCows(farmId), [farmId, listKey]);
   const { data: barnsData } = useAsync(() => mapNodes(farmId), [farmId]);
   const barns = (barnsData as any)?.barns || BARNS;
   const list = cows || [];
@@ -110,7 +123,7 @@ export function Herd() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editCow, setEditCow] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', photoUrl: '' });
+  const [editForm, setEditForm] = useState({ name: '', breed: BREEDS[0], earTag: '', weightKg: '', waterIntakeLiters: '', isMilking: true, isPregnant: false, status: 'active', photoUrl: '', motherId: null as string | null, fatherId: null as string | null });
   const [editSaving, setEditSaving] = useState(false);
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -213,6 +226,8 @@ export function Herd() {
       isPregnant: animal.isPregnant ?? false,
       status: animal.status || 'active',
       photoUrl: animal.photoUrl || '',
+      motherId: animal.motherId || null,
+      fatherId: animal.fatherId || null,
     });
     setEditPhotoPreview(animal.photoUrl || null);
     setEditOpen(true);
@@ -245,6 +260,8 @@ export function Herd() {
         is_pregnant: editForm.isPregnant,
         status: editForm.status,
         photo_url: editForm.photoUrl || null,
+        mother_id: editForm.motherId,
+        father_id: editForm.fatherId,
       });
       push('Cow updated');
       setEditOpen(false);
@@ -306,7 +323,7 @@ export function Herd() {
           </div>
         ) : (
           filteredList.map((animal: any) => (
-            <AnimalCard key={animal.id} animal={animal} onClick={() => navigate('/app/cow/' + animal.id)} onEdit={() => openEdit(animal)} />
+            <AnimalCard key={animal.id} animal={animal} onClick={() => navigate('/animals/' + animal.id)} onEdit={() => openEdit(animal)} />
           ))
         )}
       </div>
@@ -349,6 +366,10 @@ export function Herd() {
           </div>
           <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isMilking} onChange={(e) => setEditForm({ ...editForm, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isPregnant} onChange={(e) => setEditForm({ ...editForm, isPregnant: e.target.checked })} /> Pregnant</label></div>
           <div className="field mt"><label>Status</label><select className="select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="deceased">Deceased</option><option value="sold">Sold</option><option value="archived">Archived</option></select></div>
+          <h3 className="mt">Family</h3>
+          <p className="muted" style={{ fontSize: 12 }}>Record the biological parents to build the family tree and monitor inbreeding.</p>
+          <ParentSelect label="Mother" value={editForm.motherId} onChange={(motherId) => setEditForm({ ...editForm, motherId })} candidates={parentCandidates || []} gender="female" currentId={editCow?.id || ''} />
+          <ParentSelect label="Father" value={editForm.fatherId} onChange={(fatherId) => setEditForm({ ...editForm, fatherId })} candidates={parentCandidates || []} gender="male" currentId={editCow?.id || ''} />
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
             <button type="button" className="btn ghost" onClick={() => { setEditOpen(false); setEditCow(null); }}>Cancel</button>
             <button className="btn" type="submit" disabled={editSaving}><Save size={15} /> {editSaving ? 'Saving…' : 'Save'}</button>
@@ -371,10 +392,12 @@ export function Herd() {
 type ProfileTab = 'overview' | 'health' | 'milk' | 'breeding' | 'pregnancy' | 'family' | 'treatments' | 'documents' | 'activity';
 
 export function CowProfile({ id }: { id: string }) {
+  const { farmId } = useFarm();
   const [, navigate] = useHashRoute();
   const { push } = useToast();
   const [cowKey, setCowKey] = useState(0);
-  const { data: cow, loading } = useAsync(() => getCow(id), [id, cowKey]);
+  const { data: cow, loading, error } = useAsync(() => getCow(id), [id, cowKey]);
+  const { data: parentCandidates } = useAsync(() => listCows(farmId), [farmId, cowKey]);
   const [qr, setQr] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(EDIT_EMPTY);
@@ -391,17 +414,27 @@ export function CowProfile({ id }: { id: string }) {
   const [offspringList, setOffspringList] = useState<any[]>([]);
   const [pedigreeLoading, setPedigreeLoading] = useState(false);
   const [tab, setTab] = useState<ProfileTab>('overview');
-  if (loading) return <div className="card"><Skeleton h={200} /></div>;
-  if (!cow) return <div className="card">Cow not found.</div>;
 
   useEffect(() => {
     let cancelled = false;
     setPedigreeLoading(true);
-    getPedigree(id, 2).then((t) => { if (!cancelled) setPedigree(t); });
-    getOffspring(id).then((o) => { if (!cancelled) setOffspringList(o); });
-    setPedigreeLoading(false);
+    Promise.all([getPedigree(id, 2), getOffspring(id)])
+      .then(([tree, offspring]) => {
+        if (!cancelled) {
+          setPedigree(tree);
+          setOffspringList(offspring);
+        }
+      })
+      .catch((err) => console.error('[cow-profile] failed to load related records', { id, error: err }))
+      .finally(() => {
+        if (!cancelled) setPedigreeLoading(false);
+      });
     return () => { cancelled = true; };
   }, [id]);
+
+  if (loading) return <div className="card"><Skeleton h={200} /></div>;
+  if (error) return <div className="card" style={{ padding: 24 }}><h3>Unable to load this animal</h3><p className="muted">{error}</p><button className="btn sm mt" onClick={() => navigate('/animals')}>Back to Animals</button></div>;
+  if (!cow) return <div className="card">Animal not found</div>;
 
   const milkTotal = cow.milk.reduce((s, m) => s + m.morning + m.afternoon + m.evening, 0);
   const lastMilk = cow.milk[0];
@@ -472,10 +505,10 @@ export function CowProfile({ id }: { id: string }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <PageHeader eyebrow="ANIMAL PROFILE" title={cow.name}
             desc={`${cow.cowCode} · ${cow.earTag} · ${cow.breed}${age ? ` · ${age} years` : ''}`}
-            back={() => navigate('/app/cows')}
+            back={() => navigate('/animals')}
             actions={
               <div className="row">
-                <button className="btn ghost sm" onClick={() => { setEditForm({ name: cow.name, breed: cow.breed, earTag: cow.earTag, weightKg: String(cow.weightKg), waterIntakeLiters: String(cow.waterIntakeLiters ?? 0), isMilking: cow.isMilking, isPregnant: cow.isPregnant, status: cow.status, deathDate: cow.deathDate ?? '', deathCause: cow.deathCause ?? '', deathNotes: cow.deathNotes ?? '', photoUrl: cow.photoUrl ?? '' }); setEditOpen(true); }}><Edit3 size={15} /> Edit</button>
+                <button className="btn ghost sm" onClick={() => { setEditForm({ name: cow.name, breed: cow.breed, earTag: cow.earTag, weightKg: String(cow.weightKg), waterIntakeLiters: String(cow.waterIntakeLiters ?? 0), isMilking: cow.isMilking, isPregnant: cow.isPregnant, status: cow.status, deathDate: cow.deathDate ?? '', deathCause: cow.deathCause ?? '', deathNotes: cow.deathNotes ?? '', photoUrl: cow.photoUrl ?? '', motherId: cow.motherId ?? null, fatherId: cow.fatherId ?? null }); setEditOpen(true); }}><Edit3 size={15} /> Edit</button>
                 <button className="btn ghost sm" onClick={() => setQr(true)}><QrIc size={15} /> QR</button>
                 <button className="btn ghost sm" onClick={() => push('Profile exported', <Download size={15} />)}><Download size={15} /> Export</button>
                 <button className="btn ghost sm" onClick={() => window.print()}><Printer size={15} /> Print</button>
@@ -525,7 +558,7 @@ export function CowProfile({ id }: { id: string }) {
 
       {tab === 'health' && (
         <div className="card mt" style={{ padding: 16 }}>
-          <h3>Health status</h3>
+          <div className="between"><h3>Health history</h3><button className="btn sm" onClick={() => setTreatOpen(true)}><Plus size={14} /> Record treatment</button></div>
           <div className="row mt" style={{ gap: 10 }}>
             <span className={`pill ${cow.health}`}>{cow.health.replace('_', ' ')}</span>
             {cow.isMilking && <span className="pill info">Milking</span>}
@@ -539,6 +572,14 @@ export function CowProfile({ id }: { id: string }) {
               <span className="row">{fmt.shortDate(v.due)}{v.done ? <span className="pill healthy">done</span> : <span className="pill warn">due</span>}</span>
             </div>
           ))}
+          {(cow.healthRecords || []).length ? <>
+            <h3 className="mt">Recorded health events</h3>
+            {(cow.healthRecords || []).map((r: any) => <div key={r.id} className="card mt" style={{ padding: 12 }}>
+              <div className="between"><b>{r.health_status?.replace('_', ' ') || 'Health record'}</b><span className="muted">{fmt.date(r.recorded_on)}</span></div>
+              {r.ai_detected_disease && <div className="muted mt" style={{ fontSize: 13 }}>Recorded condition: {r.ai_detected_disease}</div>}
+              {r.notes && <div className="muted mt" style={{ fontSize: 13 }}>{r.notes}</div>}
+              <div className="muted mt" style={{ fontSize: 12 }}>BCS: {r.body_condition_score ?? '—'} · Lameness: {r.lameness_score ?? '—'} · Veterinarian: {r.veterinarian_name || '—'}</div>
+            </div>)}</> : <p className="muted mt">No health records yet.</p>}
         </div>
       )}
 
@@ -582,6 +623,14 @@ export function CowProfile({ id }: { id: string }) {
               <span className="pill warn">{b.result}</span>
             </div>
           ))}
+          {(cow.pregnancies || []).map((p: any) => <div key={p.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+            <div><b>{p.status}</b><div className="muted" style={{ fontSize: 12 }}>Confirmed {fmt.date(p.confirmation_date)} · Expected calving {fmt.date(p.expected_calving_date)}</div></div>
+          </div>)}
+          <h3 className="mt">Calving history</h3>
+          {(cow.calvings || []).length ? (cow.calvings || []).map((c: any) => <div key={c.id} className="between mt" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+            <div><b>{fmt.date(c.calving_date)}</b><div className="muted" style={{ fontSize: 12 }}>Calf: {c.calf_name || c.calf_code || 'Not recorded'} · {c.calf_gender || '—'} · Difficulty: {c.difficulty_score ?? '—'}/5</div></div>
+            {c.assistance_required && <span className="pill warn">Assistance</span>}
+          </div>) : <p className="muted mt">No calving history.</p>}
         </div>
       )}
 
@@ -603,7 +652,7 @@ export function CowProfile({ id }: { id: string }) {
             <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
               <table><thead><tr><th>Code</th><th>Name</th><th>Sex</th><th>Breed</th><th>Status</th></tr></thead>
                 <tbody>{offspringList.slice(0, 10).map((o: any) => (
-                  <tr key={o.id} onClick={() => navigate('/app/cow/' + o.id)} style={{ cursor: 'pointer' }}>
+                  <tr key={o.id} onClick={() => navigate('/animals/' + o.id)} style={{ cursor: 'pointer' }}>
                     <td>{o.cowCode}</td><td>{o.name}</td><td>{o.gender}</td><td>{o.breed}</td><td>{o.status}</td>
                   </tr>
                 ))}</tbody>
@@ -639,7 +688,11 @@ export function CowProfile({ id }: { id: string }) {
 
       {tab === 'activity' && (
         <div className="card mt" style={{ padding: 16 }}>
-          <h3>Feeding records</h3>
+          <h3>Activity timeline</h3>
+          {(cow.auditHistory || []).length ? (cow.auditHistory || []).map((a: any) => <div key={a.id} className="row mt" style={{ gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+            <ActivityIcon size={16} color="var(--primary)" /><div><b>{a.action} {a.entity_type?.replace('_', ' ')}</b><div className="muted" style={{ fontSize: 12 }}>{a.user_name || 'System'} · {fmt.date(a.created_at)}</div></div>
+          </div>) : <p className="muted mt">No recorded profile activity yet.</p>}
+          <h3 className="mt">Feeding records</h3>
           <div className="table-wrap mt" style={{ border: 0, boxShadow: 'none' }}>
             <table><thead><tr><th>Date</th><th>Feed</th><th>Amount</th></tr></thead>
               <tbody>{(cow.feed || []).map((f) => <tr key={f.id}><td>{fmt.date(f.date)}</td><td>{f.feed}</td><td>{fmt.kg(f.kg)}</td></tr>)}</tbody>
@@ -678,6 +731,8 @@ export function CowProfile({ id }: { id: string }) {
               death_cause: editForm.deathCause || null,
               death_notes: editForm.deathNotes || null,
               photo_url: editForm.photoUrl || null,
+              mother_id: editForm.motherId,
+              father_id: editForm.fatherId,
             });
             push('Cow updated');
             setCowKey(k => k + 1);
@@ -704,6 +759,10 @@ export function CowProfile({ id }: { id: string }) {
           </div>
           <div className="row mt"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isMilking} onChange={(e) => setEditForm({ ...editForm, isMilking: e.target.checked })} /> Milking</label><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={editForm.isPregnant} onChange={(e) => setEditForm({ ...editForm, isPregnant: e.target.checked })} /> Pregnant</label></div>
           <div className="field mt"><label>Status</label><select className="select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="deceased">Deceased</option><option value="sold">Sold</option><option value="archived">Archived</option></select></div>
+          <h3 className="mt">Family</h3>
+          <p className="muted" style={{ fontSize: 12 }}>Record the biological parents to build the family tree and monitor inbreeding.</p>
+          <ParentSelect label="Mother" value={editForm.motherId} onChange={(motherId) => setEditForm({ ...editForm, motherId })} candidates={parentCandidates || []} gender="female" currentId={id} />
+          <ParentSelect label="Father" value={editForm.fatherId} onChange={(fatherId) => setEditForm({ ...editForm, fatherId })} candidates={parentCandidates || []} gender="male" currentId={id} />
           {editForm.status === 'deceased' && <><div className="field mt"><label>Death date</label><input className="input" type="date" value={editForm.deathDate} onChange={(e) => setEditForm({ ...editForm, deathDate: e.target.value })} /></div><div className="field mt"><label>Death cause</label><input className="input" value={editForm.deathCause} onChange={(e) => setEditForm({ ...editForm, deathCause: e.target.value })} /></div><div className="field mt"><label>Death notes</label><textarea className="input" value={editForm.deathNotes} onChange={(e) => setEditForm({ ...editForm, deathNotes: e.target.value })} /></div></>}
           <div className="row mt" style={{ justifyContent: 'flex-end', gap: 10 }}>
             <button type="button" className="btn ghost" onClick={() => setEditOpen(false)}>Cancel</button>

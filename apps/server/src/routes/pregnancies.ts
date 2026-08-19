@@ -38,7 +38,7 @@ router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) 
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
     [farmId, b.cowId, b.breedingId, b.confirmationDate, b.status, b.expectedCalvingDate]
   );
-  await audit(req.user, 'create', 'pregnancy', rows[0].id);
+  await audit(req.user, 'create', 'pregnancy', rows[0].id, { cowId: b.cowId, status: b.status });
   res.status(201).json(rows[0]);
 }));
 

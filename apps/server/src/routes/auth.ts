@@ -9,7 +9,6 @@ import { HttpError, asyncHandler } from '../lib/errors.js';
 import { requireAuth, audit } from '../middleware/auth.js';
 import { config } from '../env.js';
 import { ACCOUNT_TYPES, ACCOUNT_TYPE_CONFIG } from '../lib/account-types.js';
-import { provisionDemoFarm } from '../lib/provision-demo-farm.js';
 import crypto from 'crypto';
 
 const router = Router();
@@ -230,19 +229,6 @@ router.post('/register', asyncHandler(async (req, res) => {
       role = invitation.role_name;
     }
     await client.query('COMMIT');
-
-    // Auto-provision a populated sandbox for demo signups, once the user row is safely
-    // committed. This runs on separate connections from the transaction above (it's a
-    // couple dozen small inserts) — best-effort, not something that needs to be atomic
-    // with account creation.
-    if (!invitation && ACCOUNT_TYPE_CONFIG[body.accountType as keyof typeof ACCOUNT_TYPE_CONFIG].flow === 'demo') {
-      const demo = await provisionDemoFarm(user.first_name);
-      const adminRole = await query<{ id: string }>(`SELECT id FROM roles WHERE name='administrator'`);
-      await query(`INSERT INTO user_farms (user_id, farm_id, role_id, is_default) VALUES ($1,$2,$3,true)`, [user.id, demo.farmId, adminRole.rows[0].id]);
-      await query(`UPDATE users SET farm_id=$1, role_id=$2 WHERE id=$3`, [demo.farmId, adminRole.rows[0].id, user.id]);
-      farmId = demo.farmId;
-      role = 'administrator';
-    }
 
     const permissions = role ? await permissionsForRole(role) : [];
     const { token, refreshToken } = await issueSession({ userId: user.id, email: user.email, farmId, role, permissions, userAgent: req.header('user-agent') });

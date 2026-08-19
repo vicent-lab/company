@@ -172,8 +172,9 @@ const TCtx = createContext<ToastCtx>({ push: () => {} });
 export const useToast = () => useContext(TCtx);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<{ id: number; msg: string; icon?: ReactNode }[]>([]);
+  const nextToastId = useRef(0);
   const push = (msg: string, icon?: ReactNode) => {
-    const id = Date.now();
+    const id = ++nextToastId.current;
     setToasts((t) => [...t, { id, msg, icon }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   };

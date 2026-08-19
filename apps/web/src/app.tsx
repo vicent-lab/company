@@ -713,6 +713,7 @@ export function AppShell() {
       alerts: 'alerts', predict: 'predict', analytics: 'analytics', finance: 'finance',
       weather: 'weather', sustainability: 'sustainability', gallery: 'gallery',
       customers: 'customers', team: 'team', tasks: 'tasks', schedule: 'schedule', search: 'search', gamification: 'gamification', management: 'management',
+      breeding: 'breeding', health: 'health', settings: 'settings', 'farm-score': 'farm-score',
     };
     const feature = featureMap[sub];
     const content = (() => {

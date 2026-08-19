@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tractor, ArrowRight, CheckCircle2, Building2, FlaskConical, UserCog, Syringe, HardHat, Calculator, GraduationCap } from 'lucide-react';
+import { Tractor, ArrowRight, CheckCircle2, UserCog, Syringe, HardHat } from 'lucide-react';
 import logoImg from '../assets/logo.png';
 import { useAuth, AccountType } from '../auth';
 import { getInvitePreview, getAccountTypes, InvitePreview, AccountTypeInfo } from '../data';
@@ -29,37 +29,27 @@ function AuthCard({ children, wide }: { children: React.ReactNode; wide?: boolea
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
   farm_owner: <Tractor size={18} />,
-  dairy_cooperative: <Building2 size={18} />,
-  research_institution: <FlaskConical size={18} />,
   farm_manager: <UserCog size={18} />,
   veterinarian: <Syringe size={18} />,
   farm_worker: <HardHat size={18} />,
-  accountant: <Calculator size={18} />,
-  student_demo: <GraduationCap size={18} />,
 };
 const TYPE_BLURB: Record<string, string> = {
   farm_owner: 'Set up your farm and invite your team.',
-  dairy_cooperative: 'Manage multiple member farms under one account.',
-  research_institution: 'Set up a site to track herds for research.',
   farm_manager: "You'll get manager access once a farm invites you.",
   veterinarian: "You'll get vet access once a farm invites you.",
   farm_worker: "You'll get worker access once a farm invites you.",
-  accountant: "You'll get financial access once a farm invites you.",
-  student_demo: 'Jump straight into a pre-populated sample farm to explore.',
 };
 
 // Fallback list so this still renders (without live data) if the account-types
-// endpoint can't be reached — same 8 ids/labels the backend serves.
+// endpoint can't be reached — the same four ids/labels the backend serves.
 const FALLBACK_TYPES: AccountTypeInfo[] = [
   { id: 'farm_owner', flow: 'owner', label: 'Farm Owner', framing: 'farm' },
-  { id: 'dairy_cooperative', flow: 'owner', label: 'Dairy Cooperative', framing: 'cooperative' },
-  { id: 'research_institution', flow: 'owner', label: 'Research Institution', framing: 'research site' },
   { id: 'farm_manager', flow: 'team_member', label: 'Farm Manager', framing: 'farm', hintRole: 'farm_manager' },
   { id: 'veterinarian', flow: 'team_member', label: 'Veterinarian', framing: 'farm', hintRole: 'veterinarian' },
   { id: 'farm_worker', flow: 'team_member', label: 'Farm Worker', framing: 'farm', hintRole: 'worker' },
-  { id: 'accountant', flow: 'team_member', label: 'Accountant', framing: 'farm', hintRole: 'accountant' },
-  { id: 'student_demo', flow: 'demo', label: 'Student / Demo User', framing: 'demo farm' },
 ];
+const SUPPORTED_TYPE_IDS = new Set(FALLBACK_TYPES.map((type) => type.id));
+const supportedTypes = (types: AccountTypeInfo[]) => types.filter((type) => SUPPORTED_TYPE_IDS.has(type.id));
 
 export function GetStarted() {
   const [types, setTypes] = useState<AccountTypeInfo[]>(FALLBACK_TYPES);
@@ -67,7 +57,7 @@ export function GetStarted() {
 
   useEffect(() => {
     if (!isLive) return;
-    getAccountTypes().then(setTypes).catch(() => {});
+    getAccountTypes().then((data) => setTypes(supportedTypes(data))).catch(() => {});
   }, []);
 
   return (
@@ -107,7 +97,7 @@ export function SignUp() {
   const typeParam = params.get('type') || 'farm_owner';
 
   const [types, setTypes] = useState<AccountTypeInfo[]>(FALLBACK_TYPES);
-  useEffect(() => { if (isLive) getAccountTypes().then(setTypes).catch(() => {}); }, []);
+  useEffect(() => { if (isLive) getAccountTypes().then((data) => setTypes(supportedTypes(data))).catch(() => {}); }, []);
   const accountType = types.find((t) => t.id === typeParam) ?? FALLBACK_TYPES.find((t) => t.id === typeParam) ?? FALLBACK_TYPES[0];
 
   const [invite, setInvite] = useState<InvitePreview | null>(null);
@@ -157,18 +147,13 @@ export function SignUp() {
     <AuthCard>
       <div className="eyebrow" style={{ textAlign: 'center' }}>CREATE ACCOUNT</div>
       <h1 style={{ fontSize: 22, textAlign: 'center' }}>
-        {invite ? `Join ${invite.farmName}` : accountType.flow === 'owner' ? `Set up your ${accountType.framing}` : accountType.flow === 'demo' ? 'Create your sandbox account' : 'Create your account'}
+        {invite ? `Join ${invite.farmName}` : accountType.flow === 'owner' ? `Set up your ${accountType.framing}` : 'Create your account'}
       </h1>
       {invite && (
         <div className="card" style={{ background: 'var(--primary-soft)', borderColor: 'transparent', marginTop: 10 }}>
           <div className="row" style={{ gap: 6 }}><CheckCircle2 size={15} color="var(--primary)" />
             <span style={{ fontSize: 13 }}>{invite.invitedBy || 'A farm administrator'} invited you to join <b>{invite.farmName}</b> as <b>{invite.role.replace('_', ' ')}</b>.</span>
           </div>
-        </div>
-      )}
-      {!invite && accountType.flow === 'demo' && (
-        <div className="card" style={{ background: 'var(--primary-soft)', borderColor: 'transparent', marginTop: 10 }}>
-          <p style={{ fontSize: 13 }}>We'll generate a sample farm — real cows, milk records, and breeding data — so you can explore DairyOS immediately.</p>
         </div>
       )}
       <form onSubmit={submit}>

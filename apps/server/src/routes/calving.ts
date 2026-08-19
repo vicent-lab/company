@@ -80,7 +80,7 @@ router.post('/', requirePermission('cow:manage'), asyncHandler(async (req, res) 
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
      [farmId, b.cowId, b.pregnancyId || null, b.calvingDate, b.difficultyScore ?? null, b.assistanceRequired, b.assistanceType || null, b.veterinarianName || null, calfId, b.notes || null]
   );
-  await audit(req.user, 'create', 'calving_record', rows[0].id, { calfId });
+  await audit(req.user, 'create', 'calving_record', rows[0].id, { cowId: b.cowId, calfId });
   res.status(201).json(rows[0]);
 }));
 

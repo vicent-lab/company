@@ -47,6 +47,11 @@ export async function getOrCreateConversation(farmId: string, userId: string, ti
   return row.rows[0].id;
 }
 
+export async function createConversation(farmId: string, userId: string, title = 'New conversation'): Promise<string> {
+  const row = await query(`INSERT INTO ai_conversations (farm_id, user_id, title, context) VALUES ($1,$2,$3,$4) RETURNING id`, [farmId, userId, title, JSON.stringify({ turns: 0, topics: [] })]);
+  return row.rows[0].id;
+}
+
 export async function loadConversationMessages(conversationId: string, farmId: string, limit = 50) {
   const rows = await query(
     `SELECT id, role, content, attachments, metadata, created_at FROM ai_messages WHERE conversation_id=$1 AND farm_id=$2 ORDER BY created_at ASC LIMIT $3`,
@@ -64,8 +69,13 @@ export async function appendMessage(conversationId: string, farmId: string, role
   return row.rows[0];
 }
 
-export async function loadConversationContext(farmId: string, userId: string, currentQuestion: string): Promise<ResolvedContext> {
-  const conversationId = await getOrCreateConversation(farmId, userId);
+export async function loadConversationContext(farmId: string, userId: string, currentQuestion: string, requestedConversationId?: string): Promise<ResolvedContext> {
+  let conversationId = requestedConversationId;
+  if (conversationId) {
+    const owned = await query(`SELECT id FROM ai_conversations WHERE id=$1 AND farm_id=$2 AND user_id=$3`, [conversationId, farmId, userId]);
+    if (!owned.rows.length) conversationId = undefined;
+  }
+  conversationId = conversationId || await getOrCreateConversation(farmId, userId);
   const turns = await loadRecentTurns(conversationId, farmId, MAX_TURNS);
   const entities = extractEntities(turns);
   const expandedQuestion = resolvePronouns(currentQuestion, entities);

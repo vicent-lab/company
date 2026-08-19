@@ -567,9 +567,9 @@ function InviteEmployeesStep({ farm, onDone }: { farm: CreatedFarm; onDone: () =
 // Mirrors apps/server/src/lib/account-types.ts's flow/hintRole mapping — duplicated here
 // (rather than fetched) because Onboarding needs to decide its mode synchronously, before
 // any network round-trip, to avoid a flash of the wrong screen.
-const OWNER_TYPES = new Set(['farm_owner', 'dairy_cooperative', 'research_institution']);
+const OWNER_TYPES = new Set(['farm_owner']);
 const HINT_ROLE_LABEL: Record<string, string> = {
-  farm_manager: 'Farm Manager', veterinarian: 'Veterinarian', farm_worker: 'Farm Worker', accountant: 'Accountant',
+  farm_manager: 'Farm Manager', veterinarian: 'Veterinarian', farm_worker: 'Farm Worker',
 };
 
 function WaitingForInvite({ onCreateFarmInstead }: { onCreateFarmInstead: () => void }) {

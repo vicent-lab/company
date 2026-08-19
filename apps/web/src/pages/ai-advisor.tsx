@@ -3,11 +3,11 @@ import { useFarm } from '../app';
 import { useHashRoute } from '../router';
 import { PageHeader, Kpi, AnimatedCounter, Modal, useToast } from '../ui';
 import {
-  aiInsights, runAiAnalysis, aiDailyActionPlan, updateAiInsight, addAiAction, updateAiAction, AiInsight, aiChat, submitFeedback,
+  aiInsights, runAiAnalysis, aiDailyActionPlan, updateAiInsight, addAiAction, updateAiAction, AiInsight, aiChat, aiCreateConversation, submitFeedback,
   getLearningStats, recordInsightOutcome, aiChatHistory, deleteAiChatMessage, clearAiChatHistory, AiChatMessage, AiChatAttachment,
   aiInsightHistory, dailyAdvice, DailyAdvice, farmScore, FarmScoreResult,
 } from '../data';
-import { Sparkles, AlertTriangle, TrendingUp, Activity, Zap, Send, Filter, CheckCircle2, X, ChevronDown, ChevronUp, RefreshCw, ClipboardList, ArrowRight, Mic, Paperclip, Volume2, VolumeX, Trash2, Bot, Loader2, Flame, Snowflake, CloudSun, DollarSign, Stethoscope } from 'lucide-react';
+import { Sparkles, AlertTriangle, TrendingUp, Activity, Zap, Send, Filter, CheckCircle2, X, ChevronDown, ChevronUp, RefreshCw, ClipboardList, ArrowRight, Mic, Paperclip, Volume2, VolumeX, Trash2, Bot, Loader2, Flame, Snowflake, CloudSun, DollarSign, Stethoscope, Plus, Copy, RotateCcw } from 'lucide-react';
 import { fmt, daysFromNow } from '../format';
 
 const PRIORITY_DOT: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
@@ -30,6 +30,70 @@ function parseSourcePills(text: string): { body: string; pills: SourcePill[] } {
     pills.push({ label: m[1].trim(), count: Number(m[2]), link: m[3] });
   }
   return { body, pills };
+}
+
+function inlineMarkdown(text: string): React.ReactNode[] {
+  const formatted = text.replace(/\b\d{5,}\b/g, (value) => Number(value).toLocaleString('en-US'));
+  return formatted.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith('**') && part.endsWith('**')
+    ? <strong key={index}>{part.slice(2, -2)}</strong>
+    : <span key={index}>{part}</span>);
+}
+
+function RichAnswer({ text }: { text: string }) {
+  let displayText = text;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') {
+      displayText = Object.entries(parsed).map(([key, value]) => `${key.replace(/[_-]/g, ' ')}: ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n');
+    }
+  } catch { /* normal assistant prose is not JSON */ }
+  const lines = displayText.split(/\r?\n/);
+  const blocks: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
+    if (/^#{1,3}\s/.test(line)) {
+      const level = Math.min(3, line.match(/^#+/)?.[0].length || 3) as 1 | 2 | 3;
+      const Heading = (`h${level}`) as keyof JSX.IntrinsicElements;
+      blocks.push(<Heading key={i} className="ai-answer-heading">{inlineMarkdown(line.replace(/^#{1,3}\s+/, ''))}</Heading>);
+      i++; continue;
+    }
+    if (/^\|/.test(line) && i + 1 < lines.length && /^\|?\s*:?-{3,}/.test(lines[i + 1].trim())) {
+      const rows: string[][] = [];
+      while (i < lines.length && /^\|/.test(lines[i].trim())) {
+        if (!/^\|?\s*:?-{3,}/.test(lines[i].trim())) rows.push(lines[i].split('|').slice(1, -1).map((cell) => cell.trim()));
+        i++;
+      }
+      blocks.push(<div key={`table-${i}`} className="ai-answer-table-wrap"><table className="ai-answer-table"><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => rowIndex === 0 ? <th key={cellIndex}>{inlineMarkdown(cell)}</th> : <td key={cellIndex}>{inlineMarkdown(cell)}</td>)}</tr>)}</tbody></table></div>);
+      continue;
+    }
+    if (/^(?:[-*•])\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^(?:[-*•])\s+/.test(lines[i].trim())) { items.push(lines[i].trim().replace(/^(?:[-*•])\s+/, '')); i++; }
+      blocks.push(<ul key={`ul-${i}`} className="ai-answer-list">{items.map((item, index) => <li key={index}>{inlineMarkdown(item)}</li>)}</ul>);
+      continue;
+    }
+    if (/^\d+[.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) { items.push(lines[i].trim().replace(/^\d+[.)]\s+/, '')); i++; }
+      blocks.push(<ol key={`ol-${i}`} className="ai-answer-list">{items.map((item, index) => <li key={index}>{inlineMarkdown(item)}</li>)}</ol>);
+      continue;
+    }
+    if (/^(CRITICAL|HIGH PRIORITY|WARNING|RECOMMENDATION|STATUS):?/i.test(line)) {
+      blocks.push(<div key={i} className={`ai-answer-status ${line.toLowerCase().startsWith('critical') || line.toLowerCase().startsWith('warning') ? 'danger' : 'info'}`}><AlertTriangle size={14} />{inlineMarkdown(line)}</div>);
+      i++; continue;
+    }
+    const paragraph: string[] = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() && !/^#{1,3}\s|^(?:[-*•])\s+|^\d+[.)]\s+|^\|/.test(lines[i].trim())) { paragraph.push(lines[i].trim()); i++; }
+    blocks.push(<p key={i} className="ai-answer-paragraph">{inlineMarkdown(paragraph.join(' '))}</p>);
+  }
+  return <div className="ai-answer-content">{blocks}</div>;
+}
+
+function chatDate(value: string) {
+  return new Date(value).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function WeatherIcon({ title }: { title: string }) {
@@ -116,6 +180,8 @@ export function AIAdvisor() {
   const [planLoading, setPlanLoading] = useState(false);
   const [detail, setDetail] = useState<AiInsight | null>(null);
   const [chatHistory, setChatHistory] = useState<AiChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [processingStage, setProcessingStage] = useState('Analyzing your farm data…');
   const [historyLoading, setHistoryLoading] = useState(true);
   const [attachment, setAttachment] = useState<AiChatAttachment | null>(null);
   const [listening, setListening] = useState(false);
@@ -169,6 +235,10 @@ export function AIAdvisor() {
   };
   useEffect(() => { loadHistory(); /* eslint-disable-next-line */ }, [farmId]);
   useEffect(() => { loadInsightHistory(); /* eslint-disable-next-line */ }, [farmId, insightHistoryDays]);
+  useEffect(() => {
+    const prefill = localStorage.getItem('dairyos:ai-prefill');
+    if (prefill) { setChat(prefill); localStorage.removeItem('dairyos:ai-prefill'); }
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -242,18 +312,22 @@ export function AIAdvisor() {
     }
   };
 
-  const sendChat = async (override?: string, viaVoice = false) => {
+  const sendChat = async (override?: string, viaVoice = false, regenerateMessage?: AiChatMessage) => {
     const question = (override ?? chat).trim();
     if (!question && !attachment) return;
     const q = question || `Please take a look at the attached file: ${attachment?.name}`;
     const pendingAttachment = attachment;
     setChat(''); setAttachment(null); setChatBusy(true); setChatError(null); setRetryQuestion(null); setRetryAttachment(null);
+    setProcessingStage('Checking animal records…');
+    const stageTimer = window.setTimeout(() => setProcessingStage('Analyzing milk production…'), 900);
+    const stageTimer2 = window.setTimeout(() => setProcessingStage('Reviewing health records…'), 1800);
     try {
-      const res = await aiChat(q, farmId, pendingAttachment || undefined);
+      const res = await aiChat(q, farmId, pendingAttachment || undefined, conversationId || undefined);
+      if (res.conversation_id) setConversationId(res.conversation_id);
       setChatHistory((h) => [{
         id: res.id, question: q, answer: res.answer, created_at: res.created_at,
         attachment_name: pendingAttachment?.name, attachment_type: pendingAttachment?.type, attachment_data: pendingAttachment?.data,
-      }, ...h]);
+      }, ...h.filter((message) => !regenerateMessage || message.id !== regenerateMessage.id)]);
       if (viaVoice) speak(res.id, res.answer);
     } catch (err: any) {
       const message = err?.message || 'I couldn\'t access your farm data right now. Please try again.';
@@ -261,7 +335,9 @@ export function AIAdvisor() {
       setRetryQuestion(q);
       setRetryAttachment(pendingAttachment || null);
     } finally {
+      window.clearTimeout(stageTimer); window.clearTimeout(stageTimer2);
       setChatBusy(false);
+      setProcessingStage('Analyzing your farm data…');
     }
   };
 
@@ -312,6 +388,24 @@ export function AIAdvisor() {
     const prev = chatHistory;
     setChatHistory([]);
     try { await clearAiChatHistory(farmId); push('Chat history cleared', <Trash2 size={14} />); } catch { push('Failed to clear history'); setChatHistory(prev); }
+  };
+
+  const newConversation = async () => {
+    try {
+      const created = await aiCreateConversation(farmId);
+      setConversationId(created.id);
+      setChatHistory([]); setChatError(null); setRetryQuestion(null); setRetryAttachment(null); setChat('');
+      push('New conversation started', <Plus size={14} />);
+    } catch { push('Could not start a new conversation'); }
+  };
+
+  const regenerate = (message: AiChatMessage) => {
+    if (!chatBusy) sendChat(message.question, false, message);
+  };
+
+  const copyAnswer = async (answer: string) => {
+    try { await navigator.clipboard.writeText(parseSourcePills(answer).body); push('Answer copied', <Copy size={14} />); }
+    catch { push('Could not copy answer'); }
   };
 
   const [feedback, setFeedback] = useState<{ [insightId: string]: { helpful?: boolean; accurate?: boolean; urgent?: boolean; note: string } }>({});
@@ -375,24 +469,22 @@ export function AIAdvisor() {
       </div>
 
       {/* Chat Section - Primary Focus */}
-      <div ref={chatSectionRef} className="card mt" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+      <div ref={chatSectionRef} className="ai-workspace mt">
+        <div className="ai-chat-header">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <Bot size={18} style={{ color: 'var(--primary)' }} />
-              <b style={{ fontSize: 15 }}>AI Assistant</b>
-              {chatBusy && <span className="muted" style={{ fontSize: 12 }}>Thinking…</span>}
+              <div className="ai-avatar ai-avatar-large"><Bot size={20} /></div>
+              <div><b style={{ fontSize: 16 }}>AI Farm Assistant</b><div className="muted" style={{ fontSize: 12 }}>{chatBusy ? processingStage : `Online · ${farmName || 'Current farm'}`}</div></div>
             </div>
-            {chatHistory.length > 0 && (
-              <button className="btn ghost sm" style={{ color: 'var(--text-soft)' }} onClick={clearHistory}>
-                <Trash2 size={13} /> Clear
-              </button>
-            )}
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn ghost sm" onClick={newConversation}><Plus size={14} /> New conversation</button>
+              {chatHistory.length > 0 && <button className="btn ghost sm" title="Clear all saved chat history" onClick={clearHistory}><Trash2 size={13} /> Clear</button>}
+            </div>
           </div>
         </div>
 
         {/* Messages */}
-        <div ref={chatContainerRef} style={{ padding: '16px 16px 8px', minHeight: 200, maxHeight: '50vh', overflowY: 'auto', background: 'var(--surface)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div ref={chatContainerRef} className="ai-chat-scroll">
           {historyLoading && (
             <div style={{ textAlign: 'center', padding: 20 }}>
               <div className="skeleton" style={{ height: 16, width: 180, margin: '0 auto' }}>Loading conversation…</div>
@@ -418,66 +510,34 @@ export function AIAdvisor() {
               </div>
             </div>
           )}
-          {chatHistory.map((m) => (
-            <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: '85%', alignSelf: 'flex-start' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-soft)', marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>You · {fmt.shortDate(m.created_at)}</div>
-              <div style={{ background: 'var(--primary)', color: '#fff', padding: '10px 14px', borderRadius: 16, borderBottomLeftRadius: 4, fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {m.attachment_name && (
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 6, opacity: 0.9, alignItems: 'center' }}>
-                    {m.attachment_type?.startsWith('image/') && m.attachment_data
-                      ? <img src={m.attachment_data} alt={m.attachment_name} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 6 }} />
-                      : <Paperclip size={14} />}
-                    <span style={{ fontSize: 12 }}>{m.attachment_name}</span>
-                  </div>
-                )}
-                {m.question}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-soft)', marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Assistant</div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--primary-soft)', color: 'var(--primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <Bot size={14} />
+          {chatHistory.slice().reverse().map((m) => (
+            <div key={m.id} className="ai-exchange">
+              <div className="ai-message ai-user-message">
+                <div className="ai-message-meta">You · {chatDate(m.created_at)}</div>
+                <div className="ai-user-bubble">
+                  {m.attachment_name && <div className="ai-attachment"><Paperclip size={14} /> {m.attachment_name}</div>}
+                  {m.question}
                 </div>
-                <div style={{ background: 'var(--surface-2)', padding: '10px 14px', borderRadius: 16, borderBottomRightRadius: 4, fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 }}>
-                {(() => {
-                  const { body, pills } = parseSourcePills(m.answer);
-                  return (
-                    <>
-                      <div>{body}</div>
-                      {pills.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                          {pills.map((p, i) => (
-                            <a key={i} href={p.link} className="btn ghost sm" style={{ borderRadius: 20, fontSize: 11, textDecoration: 'none', padding: '4px 10px' }}>
-                              {p.label} ({p.count})
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+                <div className="ai-user-avatar">You</div>
               </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                  <button className="btn ghost sm" title={speakingId === m.id ? 'Stop reading' : 'Read answer aloud'} onClick={() => speak(m.id, m.answer)} style={{ padding: 4, minHeight: 28 }}>
-                    {speakingId === m.id ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                  </button>
-                  <button className="btn ghost sm" title="Delete this exchange" style={{ color: 'var(--text-soft)', padding: 4, minHeight: 28 }} onClick={() => deleteMessage(m.id)}>
-                    <Trash2 size={13} />
-                  </button>
+              <div className="ai-message ai-assistant-message">
+                <div className="ai-avatar"><Bot size={15} /></div>
+                <div className="ai-assistant-body">
+                  <div className="ai-message-meta">AI Assistant · {chatDate(m.created_at)}</div>
+                  <div className="ai-assistant-bubble">
+                    {(() => { const { body, pills } = parseSourcePills(m.answer); return <><RichAnswer text={body} />{pills.length > 0 && <details className="ai-sources"><summary>Sources ({fmt.num(pills.length)})</summary><div className="ai-source-pills">{pills.map((p, i) => <a key={i} href={p.link} className="btn ghost sm">{p.label} ({fmt.num(p.count)})</a>)}</div></details>}</>; })()}
+                  </div>
+                  <div className="ai-message-actions">
+                    <button className="btn ghost sm" title="Copy answer" onClick={() => copyAnswer(m.answer)}><Copy size={13} /> Copy</button>
+                    <button className="btn ghost sm" title="Regenerate answer" onClick={() => regenerate(m)} disabled={chatBusy}><RotateCcw size={13} /> Regenerate</button>
+                    <button className="btn ghost sm" title={speakingId === m.id ? 'Stop reading' : 'Read answer aloud'} onClick={() => speak(m.id, m.answer)}>{speakingId === m.id ? <VolumeX size={13} /> : <Volume2 size={13} />} Read aloud</button>
+                    <button className="btn ghost sm" title="Delete this exchange" onClick={() => deleteMessage(m.id)}><Trash2 size={13} /> Delete</button>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
-          {chatBusy && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', alignSelf: 'flex-start' }}>
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--primary-soft)', color: 'var(--primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                <Bot size={14} />
-              </div>
-              <div style={{ background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 16, borderBottomRightRadius: 4, fontSize: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
-                <Loader2 size={14} className="spin" />
-                <span className="muted">Analyzing your farm data…</span>
-              </div>
-            </div>
-          )}
+          {chatBusy && <div className="ai-processing"><div className="ai-avatar"><Bot size={15} /></div><div><div className="ai-message-meta">AI Assistant</div><div className="ai-assistant-bubble"><Loader2 size={14} className="spin" /> {processingStage}</div></div></div>}
           {chatError && (
             <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: 'var(--danger)', alignSelf: 'flex-start', maxWidth: '90%' }}>
               <b>I couldn't access your farm data right now.</b>
@@ -509,7 +569,7 @@ export function AIAdvisor() {
         )}
 
         {/* Input Area */}
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div className="ai-composer">
           {attachment && (
             <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', background: 'var(--surface-2)', padding: 8, borderRadius: 8 }}>
               {attachment.type.startsWith('image/')
@@ -519,10 +579,10 @@ export function AIAdvisor() {
               <button className="btn ghost sm" onClick={() => setAttachment(null)}><X size={13} /></button>
             </div>
           )}
-          <div className="row" style={{ gap: 8 }}>
+          <div className="ai-composer-row">
             <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.csv,.xlsx" style={{ display: 'none' }}
               onChange={(e) => onAttachFile(e.target.files?.[0])} />
-            <button className="btn ghost sm" title="Attach a file or photo" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button>
+            <button className="btn ghost sm ai-icon-button" title="Attach a file or photo" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /><span className="sr-only">Attach file</span></button>
             <input
               className="input"
               placeholder="Ask about your farm…"
@@ -531,10 +591,10 @@ export function AIAdvisor() {
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendChat()}
               style={{ flex: 1, minHeight: 44 }}
             />
-            <button className="btn ghost sm" title="Voice input" onClick={startVoiceInput} disabled={chatBusy} style={{ color: listening ? 'var(--danger)' : undefined }}>
+            <button className="btn ghost sm ai-icon-button" title="Voice input" onClick={startVoiceInput} disabled={chatBusy} style={{ color: listening ? 'var(--danger)' : undefined }}>
               <Mic size={16} />
             </button>
-            <button className="btn" onClick={() => sendChat()} disabled={chatBusy || (!chat.trim() && !attachment)} style={{ minHeight: 44 }}>
+            <button className="btn ai-send-button" onClick={() => sendChat()} disabled={chatBusy || (!chat.trim() && !attachment)} style={{ minHeight: 44 }}>
               {chatBusy ? <><Loader2 size={14} className="spin" /> Sending…</> : <><Send size={14} /> Send</>}
             </button>
           </div>

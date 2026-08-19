@@ -23,6 +23,9 @@ export function errorHandler(err: any, req: any, res: any, _next: any) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details });
   }
+  if (err?.name === 'ZodError') {
+    return res.status(400).json({ error: 'Invalid request', details: err.issues });
+  }
   if (err?.code === '22P02') {
     return res.status(400).json({ error: 'Invalid id format' });
   }

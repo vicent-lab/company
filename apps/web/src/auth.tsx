@@ -3,9 +3,7 @@ import { isLive, getToken, getRefreshToken, setTokens, clearTokens, setUnauthori
 import { useHashRoute } from './router';
 
 export type AccountType =
-  | 'farm_owner' | 'dairy_cooperative' | 'research_institution'
-  | 'farm_manager' | 'veterinarian' | 'farm_worker' | 'accountant'
-  | 'student_demo';
+  | 'farm_owner' | 'farm_manager' | 'veterinarian' | 'farm_worker';
 export interface FarmMembership { farmId: string; farmName: string; role: string; isDefault: boolean; isActive: boolean; }
 interface AuthUser {
   id: string; name: string; email: string;

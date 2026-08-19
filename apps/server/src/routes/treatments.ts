@@ -7,6 +7,21 @@ import { HttpError, asyncHandler } from '../lib/errors.js';
 const router = Router();
 router.use(requireAuth);
 
+router.get('/', asyncHandler(async (req, res) => {
+  const farmId = resolveFarmId(req);
+  const limit = Math.min(Number(req.query.limit) || 200, 500);
+  const { rows } = await query(
+    `SELECT t.id, t.cow_id, c.cow_code, c.name AS cow_name, d.name AS disease_name,
+            t.diagnosis, t.treatment_plan, t.veterinarian_name, t.status, t.diagnosed_on
+     FROM treatments t
+     JOIN cows c ON c.id=t.cow_id
+     LEFT JOIN diseases d ON d.id=t.disease_id
+     WHERE c.farm_id=$1
+     ORDER BY t.diagnosed_on DESC LIMIT $2`, [farmId, limit]
+  );
+  res.json({ data: rows, count: rows.length });
+}));
+
 const schema = z.object({
   cowId: z.string().min(1),
   diseaseId: z.string().optional(),

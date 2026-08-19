@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
 import { useFarm } from '../app';
 import { useHashRoute } from '../router';
-import { PageHeader, Modal, Kpi, useAsync, useToast, Skeleton } from '../ui';
+import { PageHeader, Modal, Kpi, useAsync, useToast, Skeleton, CowPhoto, ChartCard } from '../ui';
 import { isLive } from '../api';
 import { apiGet, apiSend } from '../api';
 import { Plus, Trash2, Edit3, Save, X, Activity, Pill, FlaskConical, Bug, ShieldAlert, AlertTriangle, RefreshCw } from 'lucide-react';
 import { fmt } from '../format';
+import { farmTreatments, farmVaccinations, createTreatment } from '../data';
 
 const q = (p: Record<string, any>) => '?' + new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]).reduce((a, [k, v]) => ({ ...a, [k]: v }), {} as Record<string, string>)).toString();
 
@@ -51,6 +52,11 @@ function HealthRecords({ farmId }: { farmId: string }) {
     if (!isLive) return;
     apiGet<{ data: any[] }>(`/cows${q({ farmId, pageSize: 200 })}`).then((r: any) => setCows(r.data || [])).catch(() => {});
   }, [farmId]);
+  useEffect(() => {
+    const openForm = () => setOpen(true);
+    window.addEventListener('dairyos:health:add-record', openForm);
+    return () => window.removeEventListener('dairyos:health:add-record', openForm);
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -508,17 +514,136 @@ function TreatmentEffectiveness({ farmId }: { farmId: string }) {
   );
 }
 
+type HealthBundle = { cows: any[]; records: any[]; alerts: any[]; labs: any[]; parasite: any[]; quarantine: any[]; treatments: any[]; vaccinations: any[] };
+
+function HealthDashboard({ farmId, onAddRecord }: { farmId: string; onAddRecord: () => void }) {
+  const [, navigate] = useHashRoute();
+  const { push } = useToast();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
+  const [treatmentOpen, setTreatmentOpen] = useState(false);
+  const [vaccinationOpen, setVaccinationOpen] = useState(false);
+  const [savingAction, setSavingAction] = useState(false);
+  const [treatmentForm, setTreatmentForm] = useState({ cowId: '', diseaseName: '', diagnosis: '', treatmentPlan: '', veterinarianName: '' });
+  const [vaccinationForm, setVaccinationForm] = useState({ cowId: '', vaccineName: '', dueOn: '', administeredOn: '' });
+  const { data, loading, error } = useAsync<HealthBundle>(async () => {
+    if (!isLive) return { cows: [], records: [], alerts: [], labs: [], parasite: [], quarantine: [], treatments: [], vaccinations: [] };
+    const [cows, records, alerts, labs, parasite, quarantine, treatments, vaccinations] = await Promise.all([
+      apiGet<{ data: any[] }>(`/cows${q({ farmId, pageSize: 200 })}`).then((r) => r.data || []),
+      apiGet<{ data: any[] }>(`/health/records${q({ farmId })}`).then((r) => r.data || []),
+      apiGet<{ data: any[] }>(`/health/alerts${q({ farmId })}`).then((r) => r.data || []),
+      apiGet<{ data: any[] }>(`/health/lab-tests${q({ farmId })}`).then((r) => r.data || []),
+      apiGet<{ data: any[] }>(`/health/parasite-control${q({ farmId })}`).then((r) => r.data || []),
+      apiGet<{ data: any[] }>(`/health/quarantine${q({ farmId })}`).then((r) => r.data || []),
+      farmTreatments(farmId), farmVaccinations(farmId),
+    ]);
+    return { cows, records, alerts, labs, parasite, quarantine, treatments, vaccinations };
+  }, [farmId, refreshKey]);
+
+  const bundle = data || { cows: [], records: [], alerts: [], labs: [], parasite: [], quarantine: [], treatments: [], vaccinations: [] };
+  const cowById = useMemo(() => new Map(bundle.cows.map((cow) => [cow.id, cow])), [bundle.cows]);
+  const today = new Date();
+  const cutoff = dateFilter === '7' ? 7 : dateFilter === '30' ? 30 : dateFilter === '90' ? 90 : 0;
+  const inDateRange = (value?: string) => !cutoff || (value ? (today.getTime() - new Date(value).getTime()) / 86400000 <= cutoff : false);
+  const activeTreatments = bundle.treatments.filter((t) => !['resolved', 'completed', 'closed'].includes(String(t.status || '').toLowerCase()));
+  const openAlerts = bundle.alerts.filter((a) => !a.resolved);
+  const attentionCows = new Set([...activeTreatments.map((t) => t.cow_id), ...bundle.records.filter((r) => r.health_status !== 'healthy').map((r) => r.cow_id), ...openAlerts.map((a) => a.cow_id)].filter(Boolean));
+  const criticalAlerts = openAlerts.filter((a) => a.severity === 'critical');
+  const upcomingVaccinations = bundle.vaccinations.filter((v) => v.due_on && new Date(v.due_on) >= today && !v.administered_on).sort((a, b) => new Date(a.due_on).getTime() - new Date(b.due_on).getTime());
+  const overdueVaccinations = bundle.vaccinations.filter((v) => v.due_on && new Date(v.due_on) < today && !v.administered_on);
+  const filteredCows = bundle.cows.filter((cow) => {
+    const text = `${cow.name || ''} ${cow.cow_code || ''} ${cow.ear_tag || ''} ${cow.breed || ''}`.toLowerCase();
+    const matchesSearch = !search || text.includes(search.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || cow.health === statusFilter;
+    const matchesSeverity = severityFilter === 'all' || bundle.alerts.some((a) => a.cow_id === cow.id && a.severity === severityFilter && !a.resolved);
+    return matchesSearch && matchesStatus && matchesSeverity;
+  });
+  const recentRecords = bundle.records.filter((r) => inDateRange(r.recorded_on)).sort((a, b) => new Date(b.recorded_on).getTime() - new Date(a.recorded_on).getTime());
+  const diseaseCounts = bundle.records.reduce((acc: Record<string, number>, record) => { const disease = record.ai_detected_disease || record.health_status || 'Unspecified'; acc[disease] = (acc[disease] || 0) + 1; return acc; }, {});
+  const statusCounts = bundle.cows.reduce((acc: Record<string, number>, cow) => { const status = cow.health || 'unknown'; acc[status] = (acc[status] || 0) + 1; return acc; }, {});
+  const maxDisease = Math.max(1, ...Object.values(diseaseCounts));
+  const maxStatus = Math.max(1, ...Object.values(statusCounts));
+  const age = (date?: string) => date ? Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / (365.25 * 86400000))) : null;
+  const statusTone = (status: string) => status === 'healthy' ? 'healthy' : status === 'critical' ? 'danger' : 'warn';
+  const severityLabel = (severity: string) => severity === 'critical' ? '🔴 Critical' : severity === 'high' ? '🟠 High' : severity === 'medium' ? '🟡 Moderate' : '🟢 Normal';
+  const alertRank = (severity: string) => ({ critical: 0, high: 1, medium: 2, low: 3 } as Record<string, number>)[severity] ?? 4;
+  const retry = () => setRefreshKey((key) => key + 1);
+  const askAi = (cow: any) => {
+    localStorage.setItem('dairyos:ai-prefill', `Tell me about ${cow.name || cow.cow_code} (${cow.cow_code || cow.id}) health: current status, treatment, vaccinations, risks, and what should I monitor.`);
+    navigate('/app/ai-advisor');
+  };
+  const saveTreatment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSavingAction(true);
+    try { await createTreatment(treatmentForm); setTreatmentOpen(false); setTreatmentForm({ cowId: '', diseaseName: '', diagnosis: '', treatmentPlan: '', veterinarianName: '' }); retry(); }
+    catch (err: any) { push(err.message || 'Could not save treatment'); }
+    setSavingAction(false);
+  };
+  const saveVaccination = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSavingAction(true);
+    try { await apiSend('/health/vaccinations', 'POST', vaccinationForm); setVaccinationOpen(false); setVaccinationForm({ cowId: '', vaccineName: '', dueOn: '', administeredOn: '' }); retry(); }
+    catch (err: any) { push(err.message || 'Could not save vaccination'); }
+    setSavingAction(false);
+  };
+
+  if (loading) return <div className="health-dashboard-loading"><Skeleton h={120} /><Skeleton h={280} /><Skeleton h={220} /></div>;
+  if (error) return <div className="health-error"><AlertTriangle size={28} /><h3>Health data could not be loaded</h3><p>{error}</p><button className="btn" onClick={retry}><RefreshCw size={15} /> Retry</button></div>;
+
+  return <div className="health-dashboard">
+    <div className="health-dashboard-head">
+      <div><span className="eyebrow">CLINICAL OVERVIEW</span><h2>Herd health at a glance</h2><p className="muted">Real health records, treatments, alerts, laboratory results, and vaccination schedules for {bundle.cows.length} animals.</p></div>
+      <button className="btn" onClick={onAddRecord}><Plus size={16} /> Add Health Record</button>
+    </div>
+    {!isLive && <div className="health-empty"><Activity size={22} /><p>No health records have been recorded for this farm yet.</p><button className="btn sm" onClick={onAddRecord}><Plus size={14} /> Add Health Record</button></div>}
+    <div className="four health-kpis">
+      <Kpi icon={<Activity size={18} />} label="Total animals" value={fmt.num(bundle.cows.length)} />
+      <Kpi icon={<Activity size={18} />} label="Healthy animals" value={fmt.num(bundle.cows.filter((c) => c.health === 'healthy').length)} />
+      <Kpi icon={<Pill size={18} />} label="Under treatment" value={fmt.num(activeTreatments.length)} tone="down" />
+      <Kpi icon={<AlertTriangle size={18} />} label="Requiring attention" value={fmt.num(attentionCows.size)} tone="down" />
+      <Kpi icon={<ShieldAlert size={18} />} label="Critical alerts" value={fmt.num(criticalAlerts.length)} tone="down" />
+      <Kpi icon={<Activity size={18} />} label="Recent incidents" value={fmt.num(recentRecords.length)} />
+      <Kpi icon={<RefreshCw size={18} />} label="Health follow-ups" value={fmt.num(upcomingVaccinations.length)} />
+    </div>
+
+    <section className="health-section"><div className="health-section-title"><div><h3>Health alerts</h3><p className="muted">Highest-severity issues first</p></div><button className="btn ghost sm" onClick={() => navigate('/app/ai-advisor')}>Ask AI about the herd</button></div>
+      {openAlerts.length === 0 ? <div className="health-empty"><p>No open health alerts.</p></div> : <div className="health-alert-grid">{openAlerts.sort((a, b) => alertRank(a.severity) - alertRank(b.severity)).slice(0, 12).map((alert) => <div className={`health-alert-card ${alert.severity}`} key={alert.id}><div className="between"><b>{alert.cow_name || 'Herd-wide'} <span className="muted">{alert.cow_code ? `· ${alert.cow_code}` : ''}</span></b><span>{severityLabel(alert.severity)}</span></div><p>{alert.alert_type}: {alert.message}</p><small className="muted">Detected {fmt.date(alert.created_at)} · {alert.resolved ? 'Resolved' : alert.acknowledged ? 'Acknowledged' : 'Open'}</small><div className="muted" style={{ marginTop: 7, fontSize: 12 }}>Recommended action: review the record and assign follow-up.</div></div>)}</div>}
+    </section>
+
+    <section className="health-section"><div className="health-section-title"><div><h3>Animal health list</h3><p className="muted">Select an animal to open its complete health profile.</p></div><div className="health-filters"><input className="input" placeholder="Search name or animal ID" value={search} onChange={(e) => setSearch(e.target.value)} /><select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="healthy">Healthy</option><option value="sick">Sick</option><option value="under_treatment">Under treatment</option><option value="critical">Critical</option></select><select className="select" value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}><option value="all">All severity</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Moderate</option></select><select className="select" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}><option value="all">All dates</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></div></div>
+      {filteredCows.length === 0 ? <div className="health-empty"><p>No animals match these health filters.</p></div> : <div className="health-animal-list">{filteredCows.map((cow) => { const treatment = activeTreatments.find((t) => t.cow_id === cow.id); const cowRecords = bundle.records.filter((r) => r.cow_id === cow.id).sort((a, b) => new Date(b.recorded_on).getTime() - new Date(a.recorded_on).getTime()); const vaccine = bundle.vaccinations.find((v) => v.cow_id === cow.id && !v.administered_on); return <div className="health-animal-row" role="button" tabIndex={0} key={cow.id} onClick={() => navigate(`/animals/${cow.id}`)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/animals/${cow.id}`); }}><CowPhoto name={cow.name} color="#6fa27c" size={48} photoUrl={cow.photo_url} /><div className="health-animal-main"><b>{cow.name || 'Unnamed animal'}</b><span className="muted">{cow.cow_code || cow.id} · {cow.breed || 'Breed not recorded'} · {age(cow.date_of_birth) !== null ? `${age(cow.date_of_birth)} years` : 'Age not recorded'}</span></div><span className={`pill ${statusTone(cow.health)}`}>{String(cow.health || 'unknown').replace('_', ' ')}</span><div className="health-animal-meta"><span>Last check: {cowRecords[0] ? fmt.date(cowRecords[0].recorded_on) : 'Not recorded'}</span><span>{treatment ? `Treatment: ${treatment.disease_name || treatment.diagnosis || 'Active'}` : 'No active treatment'}</span><span>{vaccine ? `Next vaccine: ${fmt.date(vaccine.due_on)}` : 'Vaccinations up to date'}</span></div><button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); askAi(cow); }}>Ask AI</button></div>; })}</div>}
+    </section>
+
+    <div className="health-two-col"><section className="health-section"><div className="health-section-title"><div><h3>Health history</h3><p className="muted">Chronological examinations, diagnoses, and notes</p></div></div>{recentRecords.length === 0 ? <div className="health-empty"><p>No health records have been recorded for this farm yet.</p><button className="btn sm" onClick={onAddRecord}><Plus size={14} /> Add Health Record</button></div> : <div className="health-history-list">{recentRecords.slice(0, 20).map((record) => <div className="health-history-item" key={record.id}><span className="health-timeline-dot" /><div><b>{record.cow_name || cowById.get(record.cow_id)?.name || 'Animal'} · {record.health_status}</b><div className="muted">{fmt.date(record.recorded_on)}{record.ai_detected_disease ? ` · ${record.ai_detected_disease}` : ''}{record.veterinarian_name ? ` · Vet: ${record.veterinarian_name}` : ''}</div>{record.notes && <p>{record.notes}</p>}</div></div>)}</div>}</section>
+      <section className="health-section"><div className="health-section-title"><div><h3>Treatments & vaccinations</h3><p className="muted">Current care and upcoming protection</p></div><div className="row"><button className="btn ghost sm" onClick={() => setTreatmentOpen(true)}><Plus size={14} /> Add treatment</button><button className="btn ghost sm" onClick={() => setVaccinationOpen(true)}><Plus size={14} /> Record vaccination</button></div></div><h4>Active treatments</h4>{activeTreatments.length === 0 ? <p className="muted">No active treatments.</p> : activeTreatments.slice(0, 8).map((t) => <div className="health-mini-row" key={t.id}><b>{t.cow_name || t.cow_code}</b><span>{t.disease_name || t.diagnosis || 'Condition not recorded'}</span><small>{t.veterinarian_name || 'Veterinarian not recorded'} · {fmt.date(t.diagnosed_on)}</small></div>)}<h4 className="mt">Upcoming vaccinations</h4>{upcomingVaccinations.slice(0, 8).map((v) => <div className="health-mini-row" key={v.id}><b>{v.cow_name || v.cow_code}</b><span>{v.vaccine_name}</span><small>Due {fmt.date(v.due_on)} · {v.veterinarian_name || 'Vet not recorded'}</small></div>)}{overdueVaccinations.length > 0 && <p className="health-overdue">{fmt.num(overdueVaccinations.length)} overdue vaccination{overdueVaccinations.length === 1 ? '' : 's'}</p>}</section></div>
+
+    <section className="health-section"><div className="health-section-title"><div><h3>Health analytics</h3><p className="muted">Computed from current farm records</p></div></div><div className="health-analytics-grid"><div><b>Health status distribution</b>{Object.entries(statusCounts).map(([label, count]) => <div className="health-bar-row" key={label}><span>{label.replace('_', ' ')}</span><div><i style={{ width: `${(count / maxStatus) * 100}%` }} /></div><strong>{fmt.num(count)}</strong></div>)}</div><div><b>Incidents by type</b>{Object.entries(diseaseCounts).slice(0, 8).map(([label, count]) => <div className="health-bar-row" key={label}><span>{label}</span><div><i style={{ width: `${(count / maxDisease) * 100}%` }} /></div><strong>{fmt.num(count)}</strong></div>)}</div><div><b>Clinical data coverage</b><div className="health-coverage"><span><strong>{fmt.num(bundle.labs.length)}</strong> lab tests</span><span><strong>{fmt.num(bundle.quarantine.length)}</strong> quarantine records</span><span><strong>{fmt.num(bundle.parasite.length)}</strong> parasite schedules</span><span><strong>{fmt.num(bundle.vaccinations.filter((v) => v.administered_on).length)}</strong> administered vaccines</span></div></div></div></section>
+
+    <section className="health-section"><div className="health-section-title"><div><h3>Veterinary records</h3><p className="muted">The database has no separate veterinary-visits table yet.</p></div></div><div className="health-empty"><p>Veterinary visit records are not available in the current schema. Veterinarian details from health records, treatments, lab tests, and vaccinations are shown above.</p></div></section>
+    {treatmentOpen && <Modal title="Add treatment" onClose={() => setTreatmentOpen(false)}><form onSubmit={saveTreatment}><div className="field"><label>Animal</label><select className="select" value={treatmentForm.cowId} onChange={(e) => setTreatmentForm({ ...treatmentForm, cowId: e.target.value })} required><option value="">Select animal</option>{bundle.cows.map((cow) => <option key={cow.id} value={cow.id}>{cow.name || cow.cow_code} · {cow.cow_code}</option>)}</select></div><div className="field"><label>Condition</label><input className="input" value={treatmentForm.diseaseName} onChange={(e) => setTreatmentForm({ ...treatmentForm, diseaseName: e.target.value })} required /></div><div className="field"><label>Diagnosis</label><input className="input" value={treatmentForm.diagnosis} onChange={(e) => setTreatmentForm({ ...treatmentForm, diagnosis: e.target.value })} /></div><div className="field"><label>Treatment / medication plan</label><textarea className="input" value={treatmentForm.treatmentPlan} onChange={(e) => setTreatmentForm({ ...treatmentForm, treatmentPlan: e.target.value })} /></div><div className="field"><label>Veterinarian</label><input className="input" value={treatmentForm.veterinarianName} onChange={(e) => setTreatmentForm({ ...treatmentForm, veterinarianName: e.target.value })} /></div><div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}><button type="button" className="btn ghost" onClick={() => setTreatmentOpen(false)}>Cancel</button><button className="btn" disabled={savingAction}><Save size={14} /> Save treatment</button></div></form></Modal>}
+    {vaccinationOpen && <Modal title="Record vaccination" onClose={() => setVaccinationOpen(false)}><form onSubmit={saveVaccination}><div className="field"><label>Animal</label><select className="select" value={vaccinationForm.cowId} onChange={(e) => setVaccinationForm({ ...vaccinationForm, cowId: e.target.value })} required><option value="">Select animal</option>{bundle.cows.map((cow) => <option key={cow.id} value={cow.id}>{cow.name || cow.cow_code} · {cow.cow_code}</option>)}</select></div><div className="field"><label>Vaccine</label><input className="input" value={vaccinationForm.vaccineName} onChange={(e) => setVaccinationForm({ ...vaccinationForm, vaccineName: e.target.value })} required /></div><div className="row" style={{ gap: 8 }}><div className="field"><label>Next vaccination date</label><input className="input" type="date" value={vaccinationForm.dueOn} onChange={(e) => setVaccinationForm({ ...vaccinationForm, dueOn: e.target.value })} required /></div><div className="field"><label>Administered date</label><input className="input" type="date" value={vaccinationForm.administeredOn} onChange={(e) => setVaccinationForm({ ...vaccinationForm, administeredOn: e.target.value })} /></div></div><div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}><button type="button" className="btn ghost" onClick={() => setVaccinationOpen(false)}>Cancel</button><button className="btn" disabled={savingAction}><Save size={14} /> Save vaccination</button></div></form></Modal>}
+  </div>;
+}
+
 // ---------- Main Health Page ----------
 export function Health() {
   const { farmId } = useFarm();
   const { push } = useToast();
   const [tab, setTab] = useState<'records' | 'medicines' | 'lab' | 'parasite' | 'quarantine' | 'alerts' | 'effectiveness'>('records');
+  const [showTools, setShowTools] = useState(false);
 
   return (
     <div>
-      <PageHeader eyebrow="HEALTH" title="Health & Veterinary" desc="Disease detection, medicine inventory, lab tests, parasite control, quarantine, and emergency alerts"
-        actions={<button className="btn sm" onClick={() => push('Feature ready', <Activity size={15} />)}><Activity size={15} /> Quick check</button>} />
+      <PageHeader eyebrow="HEALTH" title="Health & Veterinary" desc="A complete view of herd health, clinical records, treatment, vaccination, and risk."
+        actions={<button className="btn sm" onClick={() => { setShowTools(true); setTab('records'); }}><Activity size={15} /> Clinical tools</button>} />
 
+      <HealthDashboard farmId={farmId} onAddRecord={() => { setShowTools(true); setTab('records'); setTimeout(() => window.dispatchEvent(new Event('dairyos:health:add-record')), 0); }} />
+
+      {showTools && <>
+      <div className="between mt" style={{ marginBottom: 8 }}><div><h3>Clinical tools</h3><p className="muted" style={{ fontSize: 13 }}>Manage the detailed records behind the dashboard.</p></div><button className="btn ghost sm" onClick={() => setShowTools(false)}>Hide tools</button></div>
       <div className="card reveal mt" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: 0, marginBottom: 0, overflowX: 'auto', flexWrap: 'nowrap' }}>
         {[
           { key: 'records', label: 'Health records', icon: Activity },
@@ -542,6 +667,7 @@ export function Health() {
         {tab === 'alerts' && <TabErrorBoundary name="Emergency alerts"><EmergencyAlerts farmId={farmId} /></TabErrorBoundary>}
         {tab === 'effectiveness' && <TabErrorBoundary name="Treatment reports"><TreatmentEffectiveness farmId={farmId} /></TabErrorBoundary>}
       </div>
+      </>}
     </div>
   );
 }

@@ -32,7 +32,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const { rows: countRows } = await query(`SELECT count(*)::int AS n FROM cows WHERE ${where.join(' AND ')}`, params);
   const total = countRows[0].n;
   const { rows } = await query(
-    `SELECT id, cow_code, ear_tag, name, breed, gender, date_of_birth, weight_kg, health, is_milking, is_pregnant, water_intake_liters, barn_id, photo_url
+    `SELECT id, cow_code, ear_tag, name, breed, gender, date_of_birth, weight_kg, health, is_milking, is_pregnant, water_intake_liters, barn_id, photo_url, mother_id, father_id
      FROM cows WHERE ${where.join(' AND ')} ORDER BY cow_code LIMIT $${i} OFFSET $${i + 1}`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
@@ -108,19 +108,27 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const params = isSuperAdmin(req) ? [req.params.id] : [req.params.id, req.user!.farmId];
   const { rows } = await query(sql, params);
   if (!rows[0]) throw new HttpError(404, 'Cow not found');
-  // enrich with related records
-  const milk = await query(
+  // This profile endpoint is deliberately scoped to the one verified cow above.  It
+  // never falls back to a farm-wide fetch, so an id guessed from another farm returns 404.
+  const [milk, vacc, treat, breed, feed, health, pregnancy, calving, parents, audits] = await Promise.all([
+  query(
     `SELECT recorded_on, morning_liters, afternoon_liters, evening_liters FROM milk_records WHERE cow_id=$1 ORDER BY recorded_on DESC LIMIT 30`, [req.params.id]
-  );
-  const vacc = await query(`SELECT id, vaccine_name, due_on, administered_on FROM vaccinations WHERE cow_id=$1 ORDER BY due_on`, [req.params.id]);
-  const treat = await query(
+  ),
+  query(`SELECT id, vaccine_name, due_on, administered_on, veterinarian_id FROM vaccinations WHERE cow_id=$1 ORDER BY due_on DESC LIMIT 100`, [req.params.id]),
+  query(
     `SELECT t.id, t.disease_id, d.name AS disease_name, t.diagnosis, t.diagnosed_on, t.veterinarian_name, t.status
      FROM treatments t LEFT JOIN diseases d ON d.id = t.disease_id
      WHERE t.cow_id=$1 ORDER BY t.diagnosed_on DESC`, [req.params.id]
-  );
-  const breed = await query(`SELECT id, method, breeding_date, expected_calving_on, result, sire_id, technician FROM breeding_records WHERE cow_id=$1 ORDER BY breeding_date DESC`, [req.params.id]);
-  const feed = await query(`SELECT id, feed_type_id, consumed_on, quantity FROM feed_consumption WHERE cow_id=$1 ORDER BY consumed_on DESC LIMIT 10`, [req.params.id]);
-  res.json({ ...rows[0], milk: milk.rows, vaccinations: vacc.rows, treatments: treat.rows, breedings: breed.rows, feed: feed.rows });
+  ),
+  query(`SELECT id, method, breeding_date, expected_calving_on, result, sire_id, technician FROM breeding_records WHERE cow_id=$1 ORDER BY breeding_date DESC LIMIT 100`, [req.params.id]),
+  query(`SELECT fc.id, ft.name AS feed_name, fc.consumed_on, fc.quantity FROM feed_consumption fc JOIN feed_types ft ON ft.id=fc.feed_type_id WHERE fc.cow_id=$1 ORDER BY fc.consumed_on DESC LIMIT 100`, [req.params.id]),
+  query(`SELECT id, recorded_on, health_status, body_condition_score, lameness_score, ai_detected_disease, notes, veterinarian_name FROM health_records WHERE cow_id=$1 ORDER BY recorded_on DESC LIMIT 100`, [req.params.id]),
+  query(`SELECT id, confirmation_date, status, expected_calving_date FROM pregnancies WHERE cow_id=$1 ORDER BY confirmation_date DESC LIMIT 50`, [req.params.id]),
+  query(`SELECT cr.id, cr.calving_date, cr.difficulty_score, cr.assistance_required, cr.veterinarian_name, cr.notes, c.id AS calf_id, c.name AS calf_name, c.cow_code AS calf_code, c.gender AS calf_gender FROM calving_records cr LEFT JOIN cows c ON c.id=cr.calf_id WHERE cr.cow_id=$1 ORDER BY cr.calving_date DESC LIMIT 100`, [req.params.id]),
+  query(`SELECT m.id AS mother_id, m.name AS mother_name, m.cow_code AS mother_code, f.id AS father_id, f.name AS father_name, f.cow_code AS father_code FROM cows c LEFT JOIN cows m ON m.id=c.mother_id LEFT JOIN cows f ON f.id=c.father_id WHERE c.id=$1`, [req.params.id]),
+  query(`SELECT a.id, a.action, a.entity_type, a.entity_id, a.metadata, a.created_at, u.name AS user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.farm_id=$1 AND (a.entity_id=$2 OR a.metadata->>'cowId'=$3) ORDER BY a.created_at DESC LIMIT 100`, [rows[0].farm_id, req.params.id, req.params.id]),
+  ]);
+  res.json({ ...rows[0], milk: milk.rows, vaccinations: vacc.rows, treatments: treat.rows, breedings: breed.rows, feed: feed.rows, healthRecords: health.rows, pregnancies: pregnancy.rows, calvings: calving.rows, family: parents.rows[0] || null, auditHistory: audits.rows });
 }));
 
 const patchSchema = createSchema.partial().extend({
@@ -130,6 +138,8 @@ const patchSchema = createSchema.partial().extend({
   deathNotes: z.string().optional(),
   status: z.enum(['active', 'sold', 'deceased', 'archived']).optional(),
   photoUrl: z.string().optional(),
+  motherId: z.string().uuid().nullable().optional(),
+  fatherId: z.string().uuid().nullable().optional(),
 });
 router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, res) => {
   const b = patchSchema.parse(req.body);
@@ -137,6 +147,17 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
   if (!existing.rows[0]) throw new HttpError(404, 'Cow not found');
   if (!req.user!.isSuperAdmin && existing.rows[0].farm_id !== req.user!.farmId)
     throw new HttpError(403, 'Access denied');
+  const parentIds = [b.motherId, b.fatherId].filter((value): value is string => Boolean(value));
+  if (parentIds.length) {
+    const { rows: parents } = await query('SELECT id, farm_id, gender FROM cows WHERE id = ANY($1::uuid[])', [parentIds]);
+    if (parents.length !== parentIds.length || parents.some((parent) => parent.farm_id !== existing.rows[0].farm_id))
+      throw new HttpError(400, 'Parents must belong to the same farm');
+    if (b.motherId && !parents.some((parent) => parent.id === b.motherId && parent.gender === 'female'))
+      throw new HttpError(400, 'Mother must be a female animal');
+    if (b.fatherId && !parents.some((parent) => parent.id === b.fatherId && parent.gender === 'male'))
+      throw new HttpError(400, 'Father must be a male animal');
+    if (parentIds.includes(req.params.id)) throw new HttpError(400, 'An animal cannot be its own parent');
+  }
   const sets: string[] = [];
   const params: any[] = [];
   let i = 1;
@@ -145,6 +166,7 @@ router.patch('/:id', requirePermission('cow:manage'), asyncHandler(async (req, r
     dateOfBirth: 'date_of_birth', weightKg: 'weight_kg', waterIntakeLiters: 'water_intake_liters',
     barnId: 'barn_id', health: 'health', isMilking: 'is_milking', isPregnant: 'is_pregnant',
     deathCause: 'death_cause', deathNotes: 'death_notes', status: 'status', photoUrl: 'photo_url',
+    motherId: 'mother_id', fatherId: 'father_id',
   };
   for (const [k, col] of Object.entries(map)) {
     if ((b as any)[k] !== undefined) {

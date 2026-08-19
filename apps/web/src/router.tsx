@@ -9,6 +9,12 @@ function parse(hash: string): Route {
   const clean = hash.replace(/^#\/?/, '');
   const parts = clean.split('/').filter(Boolean);
   if (parts.length === 0) return { segments: ['landing'] };
+  // Public-facing animal URLs use the database UUID. Internally they render through
+  // the existing authenticated app shell, so direct refreshes keep the same security
+  // and selected-farm context as navigation from the Animals list.
+  if (parts[0] === 'animals') {
+    return parts[1] ? { segments: ['app', 'cow'], param: parts[1] } : { segments: ['app', 'cows'] };
+  }
   if (parts[0] === 'app' && parts.length >= 2) {
     const sub = parts[1];
     if ((sub === 'cow' || sub === 'gallery') && parts[2]) {

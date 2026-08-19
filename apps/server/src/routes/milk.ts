@@ -45,7 +45,7 @@ router.post('/', requirePermission('milk:write'), asyncHandler(async (req, res) 
      RETURNING *`,
     [farmId, b.cowId, b.recordedOn, b.morningLiters, b.afternoonLiters, b.eveningLiters, b.fatPercent ?? null, b.snfPercent ?? null]
   );
-  await audit(req.user, 'create', 'milk_record', rows[0].id);
+  await audit(req.user, 'create', 'milk_record', rows[0].id, { cowId: b.cowId, recordedOn: b.recordedOn });
   res.status(201).json(rows[0]);
 }));
 
